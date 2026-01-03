@@ -289,12 +289,12 @@ async function jwtVerify(req, res, next) {
 
 	if (!accessToken) {
 		// PUBLIC ROUTES (Bypass Auth) -----------------------------------------
-		// Clean sensitive data from body to prevent injection on public endpoints
+		// Note: entrance routes are handled by express-unless in middleware.ts
+		// Event routes allow unauthenticated access for public event viewing
 		if (req.url.startsWith('/event')) {
 			delete req.body.userID, delete req.body.devID;
 			return next();
 		}
-		if (req.url.startsWith('/entrance') && ['register', 'login', 'forgotPass', 'resendMail', 'freezeUser', 'deleteUser'].includes(req.body.mode)) return next();
 
 		// BLOCK REQUEST -------------------------------------------------------
 		return Catcher({ origin: 'jwtVerify', error: new Error('logout'), res });

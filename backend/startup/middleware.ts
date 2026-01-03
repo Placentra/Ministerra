@@ -264,10 +264,15 @@ export function setupMiddleware(app, __dirname) {
 		express.json({ limit: '1mb' }),
 		(jwtVerify as any).unless({
 			path: ['/favicon.ico', { url: '/public', methods: ['GET'] }],
-			// Note: custom function runs AFTER express.json() has parsed the body, so req.body is available
+			// ENTRANCE ROUTE BYPASS ---
+			// Email-link GET requests carry auth in query param, handled by Entrance directly.
+			// POST requests for public modes (register/login/etc) also bypass JWT middleware.
 			custom: req => {
-				// For /entrance POST, check mode - body is parsed at this point since we're after express.json()
-				if (req.path === '/entrance' && req.method === 'POST') {
+				if (req.path !== '/entrance') return false;
+				// GET requests with auth query param bypass JWT (email verification links)
+				if (req.method === 'GET' && req.query?.auth) return true;
+				// POST requests with public modes bypass JWT
+				if (req.method === 'POST') {
 					const mode = req.body?.mode;
 					return ['register', 'login', 'forgotPass', 'resendMail'].includes(mode);
 				}
