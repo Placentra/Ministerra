@@ -65,7 +65,7 @@ export const notifyGlobalError = (error, fallbackMessage = DEFAULT_MESSAGE) => {
  * Provides access to the error context and notification system.
  * Prevents redundant error displays if already handled.
  * -------------------------------------------------------------------------- */
-const useErrorsMan = () => {
+const useErrorsMan = (_opts?: any) => {
 	const { showError } = useErrorContext() || {};
 
 	return useCallback(
@@ -78,7 +78,7 @@ const useErrorsMan = () => {
 			if (error && typeof error === 'object') error.__handledByErrorMan = true;
 			if (typeof showError === 'function') {
 				const message = extractErrorMessage(error, fallbackMessage);
-				showError(message);
+				(showError as any)(message);
 				error && typeof error === 'object' && (error.__globalErrorDisplayed = message);
 				return message;
 			}

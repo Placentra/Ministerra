@@ -5,7 +5,7 @@ import { useState, useLayoutEffect, useRef, useMemo } from 'react';
  * Calculates dynamic item width for flexbox/grid containers to ensure optimal
  * layout across different screen sizes and DPIs.
  * -------------------------------------------------------------------------- */
-const useCentralFlex = (mode, dependencyArr = [], nowAt, numOfItems, wrapperRef) => {
+const useCentralFlex = (mode, dependencyArr = [], nowAt, numOfItems, wrapperRef = null) => {
 	// STABLE DEPENDENCY KEY ----------------------------------------------------
 	// Steps: stringify dependencyArr to a stable key so effect doesn't re-run just because array identity changed; this keeps resize observers from thrashing.
 	const depsKey = useMemo(() => JSON.stringify(dependencyArr), [JSON.stringify(dependencyArr)]);

@@ -2,7 +2,7 @@ import { getLogger } from '../handlers/loggers';
 import { getOnlineStatus } from './socket';
 import { REDIS_KEYS } from '../../../shared/constants';
 import { Chat } from '../../modules/chat';
-import { getMembers } from '../../modules/Chat/chatHelpers';
+import { getMembers } from '../../modules/chat/chatHelpers';
 
 const logger = getLogger('ChatHandlers');
 let [redis, socketIO] = [null, null];
@@ -23,7 +23,7 @@ const roomName = id => `chat_${id}`;
 // JOIN ROOM --------------------------------------------------------------------
 // Steps: if chat room already has sockets, only join the caller and update minimal Redis state; if inactive, discover members,
 // decide online/offline sets, materialize active sets + missed flags, then join all online members to the room in one operation.
-export async function joinRoom({ userID, chatID, newChatObj, con }) {
+export async function joinRoom({ userID, chatID, newChatObj = null, con }: any) {
 	const id = Number(chatID ?? newChatObj?.id);
 	const room = roomName(id);
 	// ACTIVE ROOM CHECK -------------------------------------------------------
@@ -81,7 +81,7 @@ export async function joinRoom({ userID, chatID, newChatObj, con }) {
 // MANAGE USERS IN ROOM ---------------------------------------------------------
 // Steps: update Redis membership sets first (optionally on a caller-provided multi), build a queue of socket operations, then
 // execute socket joins/leaves after Redis commit so room membership and persistence are consistent.
-export async function manageUsersInChatRoom({ pipe, chatID, userIDs, mode, emitUserLeft, skipSocketsRemoval, skipChatLeftUsers }) {
+export async function manageUsersInChatRoom({ pipe = null, chatID, userIDs, mode, emitUserLeft = false, skipSocketsRemoval = false, skipChatLeftUsers = false }: any) {
 	const room = roomName(chatID);
 	// Only check activity if adding; removal doesn't depend on activity
 	const isActive = mode !== 'rem' && (await socketIO.in(room).allSockets()).size > 0;
@@ -124,7 +124,7 @@ export async function manageUsersInChatRoom({ pipe, chatID, userIDs, mode, emitU
 
 // END CHAT ---------------------------------------------------------------------
 // Steps: clear left-users set, remove all users from active sets (reusing the shared helper), then leave sockets and optionally emit chatEnded.
-export async function endChat({ chatID, memberIDs, skipChatEndedEmit }) {
+export async function endChat({ chatID, memberIDs, skipChatEndedEmit = false }: any) {
 	const t = redis.multi();
 	t.del(`${REDIS_KEYS.chatLeftUsers}:${chatID}`);
 	// Reuse manageUsers to remove everyone
@@ -188,7 +188,7 @@ export const blocking = (s, b, c) => chatProxy(b.mode)(s, b, c);
 // BROADCASTS ------------------------------------------------------------------
 // Helper functions to emit typed events to chat rooms or specific users
 
-export const broadcastPunishment = ({ socket, chatID, targetUserID, how, mess, until, who, membSync }) => {
+export const broadcastPunishment = ({ socket = null, chatID, targetUserID, how, mess = null, until = null, who, membSync = null }: any) => {
 	const pl = { chatID, how, mess, until, membSync, userID: targetUserID, who };
 	if (targetUserID) socketIO.to(String(targetUserID)).emit('punishment', pl); // Notify target directly
 	(socket ? socket.broadcast.to(roomName(chatID)) : socketIO.to(roomName(chatID))).except(String(targetUserID)).emit('punishment', pl); // Notify room
@@ -201,8 +201,8 @@ export const broadcastBlocking = async ({ socket, chatID, mode, who, targetUserI
 	else socketIO.to(String(targetUserID)).to(String(who)).emit('blocking', { chatID, who, mode });
 };
 
-export const broadcastMessSeen = ({ socket, chatID, userID, messID }) => broadcast(socket, roomName(chatID), 'messSeen', { userID, chatID, messID });
-export const broadcastMessage = ({ socket, chatID, mode, message }) => broadcast(socket, roomName(chatID), 'message', { mode, chatID, message });
-export const broadcastMembersChanged = ({ socket, chatID, members, allMembers, membSync }) => broadcast(socket, roomName(chatID), 'membersChanged', { chatID, members, allMembers, membSync });
-export const broadcastChatChanged = ({ socket, chatObj }) => broadcast(socket, roomName(chatObj.id), 'chatChanged', { chatObj });
-export const broadcastNewChat = ({ socket, chatObj }) => chatObj && broadcast(socket, roomName(chatObj.id), 'newChat', chatObj);
+export const broadcastMessSeen = ({ socket = null, chatID, userID, messID }: any) => broadcast(socket, roomName(chatID), 'messSeen', { userID, chatID, messID });
+export const broadcastMessage = ({ socket = null, chatID, mode, message }: any) => broadcast(socket, roomName(chatID), 'message', { mode, chatID, message });
+export const broadcastMembersChanged = ({ socket = null, chatID, members, allMembers = null, membSync = null }: any) => broadcast(socket, roomName(chatID), 'membersChanged', { chatID, members, allMembers, membSync });
+export const broadcastChatChanged = ({ socket = null, chatObj }: any) => broadcast(socket, roomName(chatObj.id), 'chatChanged', { chatObj });
+export const broadcastNewChat = ({ socket = null, chatObj }: any) => chatObj && broadcast(socket, roomName(chatObj.id), 'newChat', chatObj);

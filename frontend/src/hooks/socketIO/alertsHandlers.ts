@@ -270,7 +270,7 @@ export function createAlertsHandlers({ brain, setAlertsData, setNotifDots, showT
 		}
 
 		const flag = typeof data?.flag === 'string' ? data.flag : undefined;
-		const alert = { id: Date.now(), what, target, data: { ...data }, created: new Date().toISOString() };
+		const alert: any = { id: Date.now(), what, target, data: { ...data }, created: new Date().toISOString() };
 		if (flag) alert.flag = flag;
 		try {
 			const keys = new Set(currentAlerts.map(buildAlertKey));
@@ -290,7 +290,7 @@ export function createAlertsHandlers({ brain, setAlertsData, setNotifDots, showT
 				setAlertsData && setAlertsData(prev => (Array.isArray(prev) ? [alert, ...prev] : merged));
 			}
 		} catch (e) {
-			console.alert('Failed to append socket alert to local store:', e?.message);
+			console.warn('Failed to append socket alert to local store:', e?.message);
 		}
 
 		const shouldToast = new Set(['link', 'accept', 'invite', 'interest', 'eve_rating', 'user_rating', 'comm_rating', 'comment', 'reply']).has(what);
@@ -339,7 +339,7 @@ export function createAlertsHandlers({ brain, setAlertsData, setNotifDots, showT
 						if (!eveId) return;
 						navigate(`/event/${eveId}#discussion`);
 					},
-				})[what]?.() || console.alert(`Unknown alert type: ${what}`, { what, target, data });
+				})[what]?.() || console.warn(`Unknown alert type: ${what}`, { what, target, data });
 			},
 		};
 

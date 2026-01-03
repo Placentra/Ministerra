@@ -7,7 +7,7 @@ export const comps = {
 };
 
 export const shareSrc = ['Facebook', 'Twitter', 'WhatsApp', 'Instagram', 'Email', 'Pozvat'];
-import { friendlyMeetings, beneficialEvents, culturalEvents, professionalEvents } from '../shared/constants';
+import { FRIENDLY_MEETINGS, BENEFICIAL_EVENTS, CULTURAL_EVENTS, PROFESSIONAL_EVENTS } from '../shared/constants';
 
 export const showObj = { quick: false, tools: 'basic', filter: false, times: false, sorts: false, sherlock: false, history: false, map: false, views: false, view: 'cityEvents' };
 export const sherlockObj = { mode: 'standard', gender: null, minAge: 0, maxAge: 0, indis: [], groups: [], basics: [] };
@@ -208,7 +208,7 @@ export const ratingSrc = {
 	},
 };
 
-const allEventTypes = [friendlyMeetings, culturalEvents, professionalEvents, beneficialEvents];
+const allEventTypes = [FRIENDLY_MEETINGS, CULTURAL_EVENTS, PROFESSIONAL_EVENTS, BENEFICIAL_EVENTS];
 export const typesMap = new Map([...allEventTypes.flatMap(type => [...type])]);
 export const catTypesStructure = catsSrc.cz.reduce(
 	(map, value, i) =>

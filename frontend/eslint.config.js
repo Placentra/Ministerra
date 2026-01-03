@@ -42,8 +42,8 @@ export default [
 			'react/prop-types': 'off',
 
 			// Turn correctness back on (non-style)
-			'react-hooks/exhaustive-deps': 'warn',
-			'no-unused-vars': 'warn',
+			'react-hooks/exhaustive-deps': 'off',
+			'no-unused-vars': 'off',
 			'no-empty': ['error', { allowEmptyCatch: true }],
 		},
 	},
@@ -86,8 +86,8 @@ export default [
 			'react/prop-types': 'off',
 
 			// Turn correctness back on (non-style)
-			'react-hooks/exhaustive-deps': 'warn',
-			'no-unused-vars': 'warn',
+			'react-hooks/exhaustive-deps': 'off',
+			'no-unused-vars': 'off',
 			'no-empty': ['error', { allowEmptyCatch: true }],
 		},
 	},

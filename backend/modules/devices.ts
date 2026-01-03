@@ -1,7 +1,8 @@
-import { Sql } from '../systems/systems';
-import { listDevices, revokeDevice, renameDevice } from '../utilities/helpers/device';
-import { getLogger } from '../systems/handlers/logging/index';
-import { invalidateCacheForDevice } from './jwtokens';
+import { Sql } from '../systems/systems.ts';
+import { listDevices, revokeDevice, renameDevice } from '../utilities/helpers/device.ts';
+import { getLogger } from '../systems/handlers/logging/index.ts';
+import { invalidateCacheForDevice } from './jwtokens.ts';
+import { REDIS_KEYS } from '../../shared/constants.ts';
 
 const logger = getLogger('Devices');
 
@@ -51,7 +52,7 @@ async function Devices(req, res) {
 
 				if (redis) {
 					try {
-						await redis.hdel('refreshTokens', `${userID}_${deviceID}`);
+						await redis.hdel(REDIS_KEYS.refreshTokens, `${userID}_${deviceID}`);
 					} catch (redisErr) {
 						logger.alert('Failed to invalidate refresh token in Redis', { userID, deviceID, error: redisErr?.message });
 					}

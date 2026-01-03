@@ -27,10 +27,12 @@ backend/logs/
 *.swp
 *.swo
 *~
+.VSCodeCounter/
 
 # OS
 .DS_Store
 Thumbs.db
+*.stackdump
 
 # Docker
 docker-compose.override.yml
@@ -40,6 +42,12 @@ docker-compose.override.yml
 *.temp
 backend/tmp_test_file.txt
 backend/app_otel.out
+
+# Misc generated caches/artifacts
+.eslintcache
+**/.cache/
+**/coverage/
+**/*.tsbuildinfo
 
 # Database backups
 backend/databaseBackups/

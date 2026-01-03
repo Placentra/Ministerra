@@ -43,24 +43,22 @@ async function processLastSeenMess(con, redis, options = {}) {
 
 		// DEDUPE + MAX ---------------------------------------------------------
 		// Steps: multiple stream entries can exist for the same user/chat; keep only the largest messId so DB write is minimal and idempotent-ish.
+		// NOTE: CBOR decode returns native types; we coerce to Number for consistency and skip malformed entries.
 		const maxSeenByPair = new Map();
 		for (const raw of allItems) {
 			const arr = Array.isArray(raw) ? raw : [];
-			const [chatIdRaw, userId, messIdRaw] = arr;
-			const chatID = Number(chatIdRaw) || chatIdRaw;
-			const messId = Number(messIdRaw) || messIdRaw;
-			if (chatID == null || userId == null || messId == null) continue;
+			const [chatIdRaw, userIdRaw, messIdRaw] = arr;
+			const chatID = Number(chatIdRaw), userId = userIdRaw, messId = Number(messIdRaw);
+			if (!Number.isFinite(chatID) || userId == null || !Number.isFinite(messId)) continue;
 			const key = `${chatID}:${userId}`;
 			const prev = maxSeenByPair.get(key);
-			if (prev == null || Number(messId) > Number(prev)) maxSeenByPair.set(key, messId);
+			if (prev == null || messId > prev) maxSeenByPair.set(key, messId);
 		}
 
 		const mapped = [];
 		for (const [key, maxSeen] of maxSeenByPair.entries()) {
 			const [chatIdStr, userIdStr] = key.split(':');
-			const chatID = Number(chatIdStr) || chatIdStr;
-			const userId = Number(userIdStr) || userIdStr;
-			mapped.push([maxSeen, chatID, userId]); // [seen, chat, id]
+			mapped.push([maxSeen, Number(chatIdStr), userIdStr]); // [seen, chat, id]
 		}
 
 		// SQL WRITE ------------------------------------------------------------

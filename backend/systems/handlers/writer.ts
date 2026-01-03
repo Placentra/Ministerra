@@ -5,7 +5,7 @@ import { getLogger } from './loggers';
 
 // CONSTANTS -------------------------------------------------------------------
 // Steps: pull operational limits from env (batch size, retry dir, retry caps, DLQ stream), then reuse them everywhere so failure behavior is predictable and tunable without code changes.
-const MAX_BATCH_SIZE = Number(process.env.WRITER_MAX_BATCH_SIZE) || 1000;
+const MAX_BATCH_SIZE = Number(process.env.WRITER_MAX_BATCH_SIZE) || 5000;
 const RETRY_DIR = path.resolve(process.env.WRITER_RETRY_DIR || './writeFailures');
 const MAX_RETRY_FILES_PER_RUN = Number(process.env.WRITER_MAX_RETRY_FILES) || 100;
 const MAX_RETRY_ATTEMPTS = Number(process.env.WRITER_MAX_RETRY_ATTEMPTS) || 6;
@@ -15,17 +15,13 @@ const MAX_FAILED_FILE_BYTES = Number(process.env.WRITER_MAX_FAILED_FILE_BYTES) |
 const IDENTIFIER_REGEX = /^[A-Za-z0-9_]+$/;
 const RETRY_FILE_LOCK_SUFFIX = `.lock.${process.pid}`;
 const STALE_LOCK_AGE_MS = 30 * 60 * 1000; // 30 minutes
+const NON_RETRIABLE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 const createdTempTablesByConn = new WeakMap();
 // LOGGER ----------------------------------------------------------------------
 // Steps: wrap logger type with a warn method because callsites use warn-level semantics, but the base logger typing exposes a narrower interface.
-type WriterLogger = ReturnType<typeof getLogger> & { warn: (msg: any, logMeta?: {}) => void };
-const writerLogger = getLogger('Writer') as WriterLogger;
+const writerLogger = getLogger('Writer');
 const DEBUG_WRITER = process.env.DEBUG_WRITER === '1';
-
-// WRITER ERROR SHAPE -----------------------------------------------------------
-// Steps: carry retry metadata on Error instances so the outer loop can choose disk-retry vs DLQ without re-parsing Querer output.
-type WriterTaskError = Error & { isRetriable?: boolean; arrs?: unknown; name?: string; attempts?: number; task?: unknown };
 
 // SAFE IDENTIFIER --------------------------------------------------------------
 // Steps: validate dynamic SQL identifiers (table/column names) with a strict whitelist because identifiers cannot be parameterized; throw with context so bad task config is debuggable.
@@ -158,6 +154,23 @@ export async function Writer(props) {
 				}
 			}
 
+			// NON-RETRIABLE CLEANUP ---
+			// Steps: delete non-retriable forensic files older than 30 days
+			for (const file of files) {
+				if (file.includes('_non-retriable_') && file.endsWith('.json')) {
+					const filePath = path.join(RETRY_DIR, file);
+					try {
+						const stat = await fs.promises.stat(filePath);
+						if (now - stat.mtimeMs > NON_RETRIABLE_MAX_AGE_MS) {
+							await safeUnlink(filePath);
+							writerLogger.info(`Deleted stale non-retriable file: ${file}`);
+						}
+					} catch (statError) {
+						if (statError?.code !== 'ENOENT') writerLogger.error(`Error checking non-retriable file: ${file}`, { error: statError?.message });
+					}
+				}
+			}
+
 			// Re-read files after cleanup
 			const freshFiles = await fs.promises.readdir(RETRY_DIR);
 			const modeFiles = freshFiles.filter(file => file.startsWith(`${mode}_`) && file.includes('_retriable_') && file.endsWith('.json')).slice(0, MAX_RETRY_FILES_PER_RUN);
@@ -194,7 +207,9 @@ export async function Writer(props) {
 						}
 						continue; // Don't block other files from processing
 					}
-					const nameMatch = file.match(new RegExp(`^${mode}_(.+?)_retriable_(\\d+)_`));
+					// GREEDY MATCH ---
+					// Steps: use greedy capture so names containing `_retriable_` are fully matched up to the last occurrence.
+					const nameMatch = file.match(new RegExp(`^${mode}_(.+)_retriable_(\\d+)_`));
 					if (!nameMatch) {
 						await safeUnlink(lockPath);
 						continue;
@@ -316,8 +331,9 @@ export async function Writer(props) {
 					throw error;
 				}
 			} else if (!isInsertOperation) {
+				// TABLE ALREADY TRACKED ---
+				// Steps: skip redundant CREATE since connSet guarantees existence; truncate only.
 				try {
-					await con.execute(`CREATE TEMPORARY TABLE IF NOT EXISTS temp_${safeName} (${buildTempTableDefinition()})`);
 					await con.execute(`TRUNCATE TABLE temp_${safeName}`);
 				} catch (error) {
 					writerLogger.error(`Error truncating temporary table for ${safeName}`, { error: error?.message });
@@ -373,14 +389,12 @@ export async function Writer(props) {
 				throw writerTaskError;
 			}
 
-			if (safeUserTableChanges.has(safeTable)) {
+			if (safeUserTableChanges.has(safeTable) && !retryingFailed) {
 				// USER SUMMARY WATERMARKS ----------------------------------------
-				// Steps: only update userSummary watermarks on non-retry runs so we don’t advance “last changed” timestamps before the underlying SQL is actually durable.
+				// Steps: only update userSummary watermarks on non-retry runs so we don't advance "last changed" timestamps before the underlying SQL is actually durable.
 				const lastChangesPipe = redis.pipeline();
-				if (!retryingFailed) {
-					safeUserTableChanges.get(safeTable)?.forEach(userID => lastChangesPipe.hset(`userSummary:${userID}`, safeTable, Date.now()));
-					safeUserTableChanges.delete(safeTable);
-				}
+				safeUserTableChanges.get(safeTable)?.forEach(userID => lastChangesPipe.hset(`userSummary:${userID}`, safeTable, Date.now()));
+				safeUserTableChanges.delete(safeTable);
 				await lastChangesPipe.exec();
 			}
 

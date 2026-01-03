@@ -14,17 +14,17 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // todo UPLOAD ICONS TO MAPBOX AND USE THEM INSTEAD OF PNGS AS symbol layer
 // USE NOMINATIM for geolocations (don´t need seznam at all, requires own server)
 
-function MapLibre(props) {
+function MapLibre(props: any) {
 	// PROPS AND STATE INITIALIZATION ------------------------------------------
 	const { show, map, nowAt, showMan, brain, sherData, snap, avail, setSnap, singleEvent } = props,
 		[zoom, setZoom] = useState({ zoomIn: () => {}, zoomOut: () => {}, fitMap: () => {} }),
-		inited = useRef(),
-		mapContainer = useRef(),
-		mapInstanceRef = useRef(),
-		mapMarkersArr = useRef(),
-		features = useRef(),
-		snapItems = useRef(),
-		mapVisibilityRef = useRef(),
+		inited = useRef<any>(null),
+		mapContainer = useRef<any>(null),
+		mapInstanceRef = useRef<any>(null),
+		mapMarkersArr = useRef<any>(null),
+		features = useRef<any>(null),
+		snapItems = useRef<any>(null),
+		mapVisibilityRef = useRef<any>(null),
 		[, setRecalc] = useState(0),
 		updateDebounce = useRef(null),
 		prevMapVisibility = useRef(map);

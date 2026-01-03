@@ -1,14 +1,14 @@
-import { eveBasiCols, eveDetaCols } from '../../variables';
-import { getOrSaveCityData } from '../../utilities/helpers/location';
-import { createEveMeta } from '../../utilities/helpers/metasCreate';
-import { delFalsy, toMySqlDateFormat } from '../../../shared/utilities';
-import { Sql, Catcher } from '../../systems/systems';
-import { getLogger } from '../../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../../shared/constants';
-import { saveImages } from '../images';
-import { normalizeEditorPayload } from './sanitize';
-import { Interests } from '../interests';
-import { invalidateEventCache } from '../event';
+import { getOrSaveCityData } from '../../utilities/helpers/location.ts';
+import { createEveMeta } from '../../utilities/helpers/metasCreate.ts';
+import { delFalsy, toMySqlDateFormat } from '../../../shared/utilities.ts';
+import { Sql, Catcher } from '../../systems/systems.ts';
+import { getLogger } from '../../systems/handlers/logging/index.ts';
+import { REDIS_KEYS, EVENT_META_INDEXES, EVENT_BASICS_KEYS, EVENT_DETAILS_KEYS } from '../../../shared/constants.ts';
+import { getGeohash } from '../../utilities/helpers/location.ts';
+import { saveImages } from '../images.ts';
+import { normalizeEditorPayload } from './sanitize.ts';
+import { Interests } from '../interests.ts';
+import { invalidateEventCache } from '../event.ts';
 import fs from 'fs/promises';
 
 import { nanoid } from 'nanoid';
@@ -18,10 +18,10 @@ let redis;
 // Editor writes directly to redis caches (metas/basi/deta, city indexes, title/owner lookup).
 const ioRedisSetter = redisClient => (redis = redisClient);
 const logger = getLogger('Editor');
+let geohash;
 
 // META INDEXES ------------------------------------------
-import { EVENT_META_INDEXES } from '../../../shared/constants';
-const { evePrivIdx, eveCityIDIdx, eveBasiVersIdx, eveOwnerIdx, eveDetaVersIdx } = EVENT_META_INDEXES;
+const { evePrivIdx, eveCityIDIdx, eveBasiVersIdx, eveOwnerIdx, eveDetailsVersIdx } = EVENT_META_INDEXES;
 
 // TODO Need to set lat and lng to cityLat and cityLng if locamode is city (either on client or here)
 // TODO Should not allow ends to be more than 2 days after starts for friendly events
@@ -62,7 +62,7 @@ async function Editor(req, res) {
 		organizer,
 		links,
 		mode,
-		take,
+		takeWith,
 		inter,
 		imgVers,
 	} = normalizeEditorPayload(req.body);
@@ -116,7 +116,7 @@ async function Editor(req, res) {
 			meta[eveBasiVersIdx]++,
 				await Promise.all([
 					redis.hset(REDIS_KEYS.eveMetas, eventID, encode(meta)),
-					redis.hset(`${REDIS_KEYS.eveBasi}:${eventID}`, 'canceled', true),
+					redis.hset(`${REDIS_KEYS.eveBasics}:${eventID}`, 'canceled', true),
 					con.execute('UPDATE events SET flag = "can", changed = NOW(), basiVers = basiVers + 1 WHERE id = ?', [eventID]),
 					con.execute('DELETE FROM eve_inters WHERE event = ? AND user = ?', [eventID, userID]),
 				]);
@@ -127,7 +127,7 @@ async function Editor(req, res) {
 		// PREPARE VARIABLES ---------------------------------------------------
 		// Steps: build SQL columns/values list from sanitized payload; version counters are computed later from which field groups changed.
 		const [values, cols, versCols] = [[], [], []];
-		const vars = { priv, owner, cityID, title, type, shortDesc, place, part, location, starts, ends, meetHow, meetWhen, detail, contacts, fee, links, take, organizer, imgVers };
+		const vars = { priv, owner, cityID, title, type, shortDesc, place, part, location, starts, ends, meetHow, meetWhen, detail, contacts, fee, links, takeWith, organizer, imgVers };
 
 		// ['starts', 'ends', 'meetWhen'].forEach(k => vars[k] && (vars[k] = new Date(vars[k]).toISOString().slice(0, 19).replace('T', ' ')));
 		for (const [key, value] of Object.entries(vars)) {
@@ -192,8 +192,8 @@ async function Editor(req, res) {
 			async function editEventInSQL() {
 				// VERSION INCREMENTS ----------------------------------------------
 				// Steps: bump basiVers/detaVers only when fields in their groups changed so clients can do version-based cache validation.
-				if (eveBasiCols.some(k => vars[k])) versCols.push(`basiVers = basiVers + 1`);
-				if (eveDetaCols.some(k => vars[k])) versCols.push(`detaVers = detaVers + 1`);
+				if (EVENT_BASICS_KEYS.some(k => vars[k])) versCols.push(`basiVers = basiVers + 1`);
+				if (EVENT_DETAILS_KEYS.some(k => vars[k])) versCols.push(`detaVers = detaVers + 1`);
 
 				const query = `UPDATE events SET ${cols.map(c => `${c} = ${c === 'coords' ? 'Point(?, ?)' : '?'}`).join(', ')}${versCols.length ? `, ${versCols.join(', ')}` : ''}${
 					locaMode === 'city' ? ', location = NULL, coords = NULL' : locaMode === 'radius' ? ', location = NULL' : ''
@@ -219,27 +219,37 @@ async function Editor(req, res) {
 				// Handle city migration in Redis
 				if (cityChanged) {
 					multi.hset(REDIS_KEYS.eveCityIDs, eventID, vars.cityID);
-					multi.hdel(`${curPriv === 'pub' ? REDIS_KEYS.cityPubMetas : REDIS_KEYS.CITY_METAS}:${curCity}`, eventID);
+					multi.hdel(`${curPriv === 'pub' ? REDIS_KEYS.cityPubMetas : REDIS_KEYS.cityMetas}:${curCity}`, eventID);
 					multi.hdel(`${REDIS_KEYS.cityFiltering}:${curCity}`, eventID);
 				}
 
 				// Update meta array and version keys
-				createEveMeta(vars).forEach((v, i) => v && (meta[i] = v));
-				Object.entries({ basiVers: [eveBasiCols, REDIS_KEYS.eveBasi, eveBasiVersIdx], detaVers: [eveDetaCols, REDIS_KEYS.eveDeta, eveDetaVersIdx] }).forEach(
-					([k, [cols, redisKey, metaIdx]]) =>
-						cols.some(c => vars[c]) && multi.hset(`${redisKey}:${eventID}`, ...cols.flatMap(c => (vars[c] ? [c, vars[c]] : [])), k, (meta[metaIdx] = Number(meta[metaIdx] || 0) + 1))
+				geohash ??= getGeohash();
+				const metaUpdate = { ...vars } as any;
+				if (vars.starts) metaUpdate.starts = new Date(vars.starts).getTime().toString(36);
+				if (lat && lng && geohash?.encode) metaUpdate.geohash = geohash.encode(lat, lng, 9);
+				createEveMeta(metaUpdate).forEach((v, i) => v && (meta[i] = v));
+				(Object.entries({ basiVers: [EVENT_BASICS_KEYS, REDIS_KEYS.eveBasics, eveBasiVersIdx], detaVers: [EVENT_DETAILS_KEYS, REDIS_KEYS.eveDetails, eveDetailsVersIdx] }) as any).forEach(
+					([k, [cols, redisKey, metaIdx]]: any) =>
+						(cols as any[]).some((c: any) => (vars as any)[c]) &&
+						multi.hset(
+							`${redisKey}:${eventID}`,
+							...(cols as any[]).flatMap((c: any) => ((vars as any)[c] ? [c, (vars as any)[c]] : [])),
+							k,
+							(meta[metaIdx] = Number(meta[metaIdx] || 0) + 1)
+						)
 				);
 
 				const encodedMeta = encode(meta);
 				const finPriv = meta[evePrivIdx];
 				multi.hset(REDIS_KEYS.eveMetas, eventID, encodedMeta);
 				const targetCityID = vars.cityID || curCity;
-				const targetCityMetas = `${finPriv === 'pub' ? REDIS_KEYS.cityPubMetas : REDIS_KEYS.CITY_METAS}:${targetCityID}`;
+				const targetCityMetas = `${finPriv === 'pub' ? REDIS_KEYS.cityPubMetas : REDIS_KEYS.cityMetas}:${targetCityID}`;
 				multi.hset(targetCityMetas, eventID, encodedMeta);
 				if (await redis.hexists(REDIS_KEYS.topEvents, eventID)) multi.hset(REDIS_KEYS.topEvents, eventID, encodedMeta);
 				multi.hset(`${REDIS_KEYS.cityFiltering}:${targetCityID}`, eventID, `${finPriv}:${vars.owner || curOwner || ''}`);
 
-				// Update title/owner lookup if changed
+				// Update title/owner lookup ifp changed
 				if (title || owner) {
 					let [curTitle, curOwner] = [null, null];
 					const rawTO = await redis.hgetBuffer(REDIS_KEYS.eveTitleOwner, eventID);

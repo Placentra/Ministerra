@@ -23,7 +23,7 @@ function AlertMenuStrip(props) {
 	const [selButton, setSelButton] = useState(null);
 	const [interStatus, setInterStatus] = useState({ inter: null, interPriv: 'pub', surely: 0, maybe: 0, own: false, isMeeting: false });
 
-	const setMode = (mode, value) => {
+	const setMode = (mode, value = undefined) => {
 		setModes(prev => ({ ...Object.keys(prev).reduce((acc, key) => ({ ...acc, [key]: false }), {}), [mode]: value ?? prev[mode] !== true, menu: true }));
 	};
 
@@ -37,7 +37,7 @@ function AlertMenuStrip(props) {
 	};
 
 	// Local helper to sync invites structures and gallery categories
-	const syncInvitesState = async ({ eid, inviterId, mode, interData }) => {
+	const syncInvitesState = async ({ eid, inviterId, mode, interData }: any) => {
 		try {
 			brain.user.invitesIn ||= {};
 			const list = (brain.user.invitesIn[eid] ||= []);
@@ -59,7 +59,7 @@ function AlertMenuStrip(props) {
 
 			await forage({ mode: 'set', what: 'user', val: brain.user });
 		} catch (e) {
-			console.alert('Failed to sync invites state:', e);
+			console.warn('Failed to sync invites state:', e);
 		}
 	};
 

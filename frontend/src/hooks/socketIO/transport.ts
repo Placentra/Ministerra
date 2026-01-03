@@ -55,7 +55,7 @@ async function refreshToken() {
 	const currentToken = tokenInfo?.token;
 	if (!currentToken) throw new Error('noToken');
 
-	const response = await axios.post('/entrance', { mode: 'renewAccessToken' }, { headers: { Authorization: `Bearer ${currentToken}` }, withCredentials: true, __skipLogoutCleanup: true }); // SEND CURRENT TOKEN + REFRESH COOKIE ---------------------------
+	const response = await axios.post('/entrance', { mode: 'renewAccessToken' }, { headers: { Authorization: `Bearer ${currentToken}` }, withCredentials: true, __skipLogoutCleanup: true } as any); // SEND CURRENT TOKEN + REFRESH COOKIE ---------------------------
 	const authHeader = response?.headers?.authorization;
 	if (!authHeader) throw new Error('noToken');
 
@@ -93,6 +93,16 @@ async function getAuthPayload(forceRefresh = false) {
  * and state tracking. Handles token lifecycle and network recovery.
  * -------------------------------------------------------------------------- */
 class SocketTransport {
+	// CLASS FIELDS -------------------------------------------------------------
+	// Steps: declare fields explicitly so TS knows they exist; keep them `any` to avoid refactors while stabilizing compilation.
+	socket: any;
+	state: any;
+	stateListeners: Set<any>;
+	connectPromise: any;
+	lastAuthExpiry: any;
+	refreshPromise: any;
+	reconnectBlocked: boolean;
+
 	constructor() {
 		this.socket = null;
 		this.state = SOCKET_STATES.IDLE;
@@ -241,7 +251,7 @@ class SocketTransport {
 		});
 
 		socket.on('error', async err => {
-			console.alert('[socket] error:', err);
+			console.warn('[socket] error:', err);
 			const message = typeof err === 'string' ? err : err?.message;
 
 			if (message === 'needNewAccessToken') {
@@ -334,7 +344,7 @@ class SocketTransport {
 			try {
 				await this.refreshAuth();
 			} catch (err) {
-				console.alert('[socket] proactive refresh failed, proceeding with emit:', err.message);
+				console.warn('[socket] proactive refresh failed, proceeding with emit:', err.message);
 			}
 		}
 
@@ -353,7 +363,7 @@ class SocketTransport {
 				clearTimeout(timer);
 				window.dispatchEvent(new CustomEvent('requestActivity', { detail: { type: 'end', source: 'socket' } })); // GLOBAL LOADING INDICATOR ---------------------------
 				if (response?.error) {
-					const err = new Error(response.error);
+					const err: any = new Error(response.error);
 					if (response.retryAfterMs) err.retryAfterMs = response.retryAfterMs;
 					reject(err);
 				} else {

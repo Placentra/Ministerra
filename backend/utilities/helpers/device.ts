@@ -11,25 +11,15 @@
 
 import crypto from 'crypto';
 
-import { PoolConnection, RowDataPacket } from 'mysql2/promise';
-
-export interface DeviceRegistration {
-	deviceID: string;
-	salt: string;
-	deviceKey: string;
-	isNew: boolean;
-	wasRevoked?: boolean; // Optional because it's only true in one specific branch
-}
-
 // REGISTER DEVICE -------------------------------------------------------
 // Steps: derive deviceID from (userID,fingerprint) so it is stable per device; store fingerprintHash separately for display/debug without keeping raw fingerprint.
 
-export async function registerDevice(con: PoolConnection, userID: number, fingerprint: string): Promise<DeviceRegistration> {
+export async function registerDevice(con, userID, fingerprint) {
 	const deviceID = crypto.createHash('sha256').update(`${userID}:${fingerprint}`).digest('hex').slice(0, 32);
 	const fingerprintHash = crypto.createHash('sha256').update(fingerprint).digest('hex').slice(0, 32);
 
 	// check if this device already exists; branch into (revoked -> regenerate) vs (active -> reuse/backfill key) vs (new -> insert).
-	const [existing] = (await con.execute(/*sql*/ `SELECT id, salt, device_key, is_revoked FROM user_devices WHERE user_id = ? AND device_id = ?`, [userID, deviceID])) as [RowDataPacket[], any];
+	const [existing] = await con.execute(/*sql*/ `SELECT id, salt, device_key, is_revoked FROM user_devices WHERE user_id = ? AND device_id = ?`, [userID, deviceID]);
 
 	if (existing.length > 0) {
 		const device = existing[0];
@@ -61,47 +51,30 @@ export async function registerDevice(con: PoolConnection, userID: number, finger
 	return { deviceID, salt, deviceKey, isNew: true };
 }
 
-export interface DeviceCredentials {
-	salt: string;
-	deviceKey: string;
-}
-
 // GET DEVICE SALT ---------------------------------------------------------------
 // return credentials only for active (non-revoked) devices; null signals client to purge device-bound caches.
-export async function getDeviceSalt(con: PoolConnection, userID: number, deviceID: string): Promise<DeviceCredentials | null> {
-	const [rows] = (await con.execute(/*sql*/ `SELECT salt, device_key FROM user_devices WHERE user_id = ? AND device_id = ? AND is_revoked = 0`, [userID, deviceID])) as [RowDataPacket[], any];
+export async function getDeviceSalt(con, userID, deviceID) {
+	const [rows] = await con.execute(/*sql*/ `SELECT salt, device_key FROM user_devices WHERE user_id = ? AND device_id = ? AND is_revoked = 0`, [userID, deviceID]);
 	return rows.length > 0 ? { salt: rows[0].salt, deviceKey: rows[0].device_key } : null;
 }
 
 // This represents what the UI receives. Note: NO secrets (salt/key) here.
-export interface DevicePublicInfo {
-	device_id: string;
-	name: string | null;
-	fingerprint_hash: string;
-	created_at: Date | string;
-	last_seen: Date | string;
-	is_revoked: number | boolean;
-}
-
 // LIST USER DEVICES -----------------------------------------------
 // Steps: return only non-sensitive fields so settings UI can render devices without exposing encryption material.
-export async function listDevices(con: PoolConnection, userID: number): Promise<DevicePublicInfo[]> {
-	const [rows] = (await con.execute(/*sql*/ `SELECT device_id, name, fingerprint_hash, created_at, last_seen, is_revoked FROM user_devices WHERE user_id = ? ORDER BY last_seen DESC`, [userID])) as [
-		RowDataPacket[],
-		any
-	];
+export async function listDevices(con, userID) {
+	const [rows] = await con.execute(/*sql*/ `SELECT device_id, name, fingerprint_hash, created_at, last_seen, is_revoked FROM user_devices WHERE user_id = ? ORDER BY last_seen DESC`, [userID]);
 
-	return rows as unknown as DevicePublicInfo[];
+	return rows;
 }
 
 // REVOKE ---------------------------------------------------------
 // Steps: mark revoked and clear device_key so device-bound encrypted blobs become unrecoverable immediately.
-export async function revokeDevice(con: PoolConnection, userID: number, deviceID: string): Promise<void> {
+export async function revokeDevice(con, userID, deviceID) {
 	await con.execute(/*sql*/ `UPDATE user_devices SET is_revoked = 1, device_key = NULL WHERE user_id = ? AND device_id = ?`, [userID, deviceID]);
 }
 
 // RENAME ----------------------------------------------------------
 // Steps: cap name length and store for user-visible identification.
-export async function renameDevice(con: PoolConnection, userID: number, deviceID: string, name: string): Promise<void> {
+export async function renameDevice(con, userID, deviceID, name) {
 	await con.execute(/*sql*/ `UPDATE user_devices SET name = ? WHERE user_id = ? AND device_id = ?`, [name.slice(0, 100), userID, deviceID]);
 }

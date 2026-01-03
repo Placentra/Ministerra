@@ -1,7 +1,7 @@
 // INPUT SANITIZERS -------------------------------------------------------------
 // Steps: validate/normalize inbound payloads, reject or strip unsafe content, and prevent prototype pollution; used by HTTP middleware and Socket.IO payload guards.
 
-import { Request, Response, NextFunction } from 'express';
+// NOTE: express Request/Response/NextFunction were type-only imports; backend runtime does not need them.
 
 // Control chars: backspace, vertical tab, form feed, range \u000E-\u001F and DEL. Do NOT include '-'.
 const CONTROL_CHARS_REGEX = /[\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
@@ -11,30 +11,12 @@ const EVENT_HANDLER_ATTR_REGEX = /\bon[a-z]+\s*=\s*(?:'[^']*'|"[^"]*"|[^\s>]+)/g
 const POLLUTION_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const WS_MULTI_OR_EDGE_REGEX = /\s{2,}|^\s|\s$/;
 
-export interface StringSanitizeOptions {
-	allowHtml?: boolean;
-	stripEventAttrs?: boolean;
-	rejectIfJsProtocol?: boolean;
-	checkControlChars?: boolean;
-	maxLength?: number;
-}
-
-export interface SanitizeOptions {
-	maxString: number;
-	maxDepth: number;
-	maxArrayItems: number;
-	maxObjectKeys: number;
-	stringOptions: StringSanitizeOptions;
-	allowBuffer: boolean;
-	allowDates: boolean;
-}
-
-const DEFAULTS: SanitizeOptions = {
+const DEFAULTS = {
 	maxString: 10_000,
 	maxDepth: 3,
 	maxArrayItems: 50,
 	maxObjectKeys: 32,
-	stringOptions: { allowHtml: false, stripEventAttrs: false, rejectIfJsProtocol: true, checkControlChars: false },
+	stringOptions: { allowHtml: false, stripEventAttrs: false, rejectIfJsProtocol: true, checkControlChars: false, maxLength: undefined },
 	allowBuffer: false,
 	allowDates: true,
 };
@@ -43,13 +25,13 @@ const RELAXED_MAX_PAYLOAD_BYTES = Number(process.env.SANITIZE_RELAXED_MAX_BYTES 
 // PLAIN OBJECT CHECK -----------------------------------------------------------
 // Steps: accept only null-prototype or Object-prototype objects so we can safely iterate keys without walking arbitrary prototypes.
 
-function isPlainObject(v: any): v is Record<string, any> {
+function isPlainObject(v) {
 	return Object.prototype.toString.call(v) === '[object Object]' && (Object.getPrototypeOf(v) === null || Object.getPrototypeOf(v) === Object.prototype);
 }
 
 // STRING NORMALIZATION ---------------------------------------------------------
 // Steps: collapse whitespace and trim; reject oversized strings early to keep sanitizer CPU bounded.
-function normalizeString(s: any): string | undefined {
+function normalizeString(s) {
 	if (typeof s !== 'string') return s;
 	if (s.length > DEFAULTS.maxString) return undefined; // Fail-fast on oversized
 	return s.replace(/\s+/g, ' ').trim();
@@ -57,7 +39,7 @@ function normalizeString(s: any): string | undefined {
 
 // FAST STRICT STRING CHECK -----------------------------------------------------
 // Steps: return true only when sanitizeString would leave the string unchanged; used by strict validator to short-circuit quickly.
-function isStringCleanStrict(s: any, opts: StringSanitizeOptions = DEFAULTS.stringOptions): boolean {
+function isStringCleanStrict(s, opts = DEFAULTS.stringOptions) {
 	if (typeof s !== 'string') return false;
 	if (s.length > (opts.maxLength || DEFAULTS.maxString)) return false;
 	if (opts.checkControlChars && CONTROL_CHARS_REGEX.test(s)) return false;
@@ -69,7 +51,7 @@ function isStringCleanStrict(s: any, opts: StringSanitizeOptions = DEFAULTS.stri
 
 // STRING SANITIZE ---------------------------------------------------------
 // Steps: normalize whitespace, optionally strip event handlers and html tags, reject js protocols, then reject (not truncate) strings over maxLen.
-export function sanitizeString(s: any, opts: StringSanitizeOptions = DEFAULTS.stringOptions): string | undefined {
+export function sanitizeString(s, opts = DEFAULTS.stringOptions) {
 	if (typeof s !== 'string') return s;
 	let str = normalizeString(s);
 	if (str === undefined) return undefined;
@@ -100,9 +82,10 @@ export function sanitizeValue(val, opts = DEFAULTS, depth = 0) {
 	// ARRAY SANITIZE -------------------------------------------------------
 	// Steps: cap length, recurse each element, and drop undefined results; typed arrays are treated as arrays and are rejected by allowBuffer policy.
 	if (Array.isArray(val) || ArrayBuffer.isView(val)) {
-		if (val.length > opts.maxArrayItems) return undefined;
+		const iterable = Array.isArray(val) ? val : Array.from(new Uint8Array(val.buffer, val.byteOffset, val.byteLength));
+		if (iterable.length > opts.maxArrayItems) return undefined;
 		let out = null;
-		for (const item of val) {
+		for (const item of iterable) {
 			const v = sanitizeValue(item, opts, depth + 1);
 			if (v !== undefined) {
 				if (!out) out = [];
@@ -123,7 +106,7 @@ export function sanitizeValue(val, opts = DEFAULTS, depth = 0) {
 			// Avoid allocating when key is already clean
 			let sk = k;
 			if (CONTROL_CHARS_REGEX.test(sk) || sk.indexOf('<') !== -1 || JS_URL_REGEX.test(sk) || WS_MULTI_OR_EDGE_REGEX.test(sk)) {
-				sk = sanitizeString(k, { allowHtml: false, rejectIfJsProtocol: true });
+				sk = sanitizeString(k, { allowHtml: false, stripEventAttrs: false, rejectIfJsProtocol: true, checkControlChars: false, maxLength: undefined });
 				if (sk === undefined) continue;
 			}
 			// Note: trim already handled inside sanitizeString when needed
@@ -147,7 +130,7 @@ export function sanitizeValue(val, opts = DEFAULTS, depth = 0) {
 
 // Fast strict validator: returns true when payload is acceptable as-is.
 // Short-circuits on first violation or when sanitization would change a value.
-export function validateValueStrict(val: any, opts: SanitizeOptions = DEFAULTS, depth = 0): boolean {
+export function validateValueStrict(val, opts = DEFAULTS, depth = 0) {
 	// STRICT VALIDATION -------------------------------------------------------
 	// Steps: return false if sanitization would change anything or if payload violates caps; used to reject requests instead of mutating them.
 	if (depth > opts.maxDepth) return false;
@@ -163,7 +146,7 @@ export function validateValueStrict(val: any, opts: SanitizeOptions = DEFAULTS, 
 	if (t === 'symbol' || t === 'function') return false;
 
 	if (Array.isArray(val) || ArrayBuffer.isView(val)) {
-		const arr = val as any[];
+		const arr = val;
 		if (arr.length > opts.maxArrayItems) return false;
 		for (const item of arr) if (!validateValueStrict(item, opts, depth + 1)) return false;
 		return true;
@@ -174,7 +157,7 @@ export function validateValueStrict(val: any, opts: SanitizeOptions = DEFAULTS, 
 		if (keys.length > opts.maxObjectKeys) return false;
 		for (const k of keys) {
 			if (POLLUTION_KEYS.has(k) || k.startsWith('__')) return false;
-			if (!isStringCleanStrict(k, { allowHtml: false, stripEventAttrs: false, rejectIfJsProtocol: true })) return false;
+			if (!isStringCleanStrict(k, { allowHtml: false, stripEventAttrs: false, rejectIfJsProtocol: true, checkControlChars: false, maxLength: undefined })) return false;
 			if (!validateValueStrict(val[k], opts, depth + 1)) return false;
 		}
 		return true;
@@ -187,14 +170,9 @@ export function validateValueStrict(val: any, opts: SanitizeOptions = DEFAULTS, 
 	return false;
 }
 
-export interface SanitizeInPlaceOptions {
-	failOnInvalid?: boolean;
-	logger?: any;
-}
-
 //  IN-PLACE SANITIZE -------------------------------------------------------
 // Steps: sanitize into a fresh object, then replace original keys in-place so downstream code can keep object identity.
-export function sanitizeObjectInPlace(obj: any, opts: SanitizeOptions = DEFAULTS, { failOnInvalid = true, logger = null }: SanitizeInPlaceOptions = {}) {
+export function sanitizeObjectInPlace(obj, opts = DEFAULTS, { failOnInvalid = true, logger = null } = {}) {
 	//
 	if (!isPlainObject(obj)) {
 		if (failOnInvalid) throw new Error('Expected plain object');
@@ -211,17 +189,12 @@ export function sanitizeObjectInPlace(obj: any, opts: SanitizeOptions = DEFAULTS
 	return obj;
 }
 
-export interface MiddlewareOptions {
-	onReject?: ((req: Request, res: Response, err: any) => void) | null;
-	logger?: any;
-}
-
 // EXPRESS MIDDLEWARE FACTORY ----------------------------------------------
 // Steps: pick strict/relaxed mode by env, validate body (non-GET), and on failure return 400 or delegate to onReject.
-export function createSanitizeRequestMiddleware(globalOptions: SanitizeOptions = DEFAULTS, { onReject = null, logger = console }: MiddlewareOptions = {}) {
+export function createSanitizeRequestMiddleware(globalOptions = DEFAULTS, { onReject = null, logger = console } = {}) {
 	const sanitizeMode = (process.env.SANITIZE_MODE || (process.env.LIGHT_MODE === '1' ? 'relaxed' : 'strict')).toLowerCase();
 
-	return function sanitizeRequest(req: Request, res: Response, next: NextFunction) {
+	return function sanitizeRequest(req, res, next) {
 		try {
 			if (isPlainObject(req.body) && req.method !== 'GET') {
 				if (sanitizeMode === 'relaxed' && relaxedValidate(req.body)) return next();
@@ -238,7 +211,7 @@ export function createSanitizeRequestMiddleware(globalOptions: SanitizeOptions =
 
 // RELAXED VALIDATION -----------------------------------------------------------
 // Steps: cheap JSON size + key checks only; used for light mode to reduce CPU while still blocking obvious abuse.
-function relaxedValidate(payload: any): boolean {
+function relaxedValidate(payload) {
 	try {
 		const json = JSON.stringify(payload);
 		if (!json || json.length > RELAXED_MAX_PAYLOAD_BYTES) return false;
@@ -256,7 +229,7 @@ function relaxedValidate(payload: any): boolean {
 
 // SOCKET PAYLOAD SANITIZE ------------------------------------------------
 // Steps: sanitize value and return null on rejection so callers can drop the message without throwing.
-export function sanitizeSocketPayload(payload: any, opts: SanitizeOptions = DEFAULTS, logger: any = null) {
+export function sanitizeSocketPayload(payload, opts = DEFAULTS, logger = null) {
 	try {
 		const result = sanitizeValue(payload, opts);
 		if (result === undefined) {

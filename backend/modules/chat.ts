@@ -168,7 +168,7 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 		!currentType ||
 		currentType === 'private' ||
 		type === 'private' ||
-		(type === 'free' && currentType !== 'free' && !members.some(member => member.role === 'admin') && !admins.some(id => members.some(member => member.id === id && member.role !== 'admin'))) || // Downgrade to free must remove admins
+		(type === 'free' && currentType !== 'free' && !rawMembers.some(member => member.role === 'admin') && !admins.some(id => rawMembers.some(member => member.id === id && member.role !== 'admin'))) || // Downgrade to free must remove admins
 		(type === 'group' && !['group', 'VIP'].includes(currentType)) ||
 		(type === 'VIP' && currentType !== 'VIP') ||
 		(currentType === 'VIP' && role !== 'VIP' && rawMembers.some(m => vips.includes(m.id))) // Non-VIPs cannot touch VIP members
@@ -264,7 +264,7 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
  * Fetches user chats with filtering (active, archived, hidden).
  * Supports cursor-based pagination and optimizes query to avoid full scans.
  * -------------------------------------------------------------------------- */
-async function getChats({ mode, cursor, getNewest, userID, chatID, chatIDs = [], con: connection }) {
+async function getChats({ mode, cursor = null, getNewest = false, userID, chatID = null, chatIDs = [], con: connection }: any) {
 	// GET CHATS QUERY PLAN ---------------------------------------------------
 	// Steps: compute flag condition by mode, apply cursor bounds, optionally filter by ids, then query via a CTE to keep joins bounded.
 	if (!userID || (cursor && isNaN(parseInt(cursor)))) throw new Error('badRequest');
@@ -311,7 +311,7 @@ async function getChats({ mode, cursor, getNewest, userID, chatID, chatIDs = [],
  * Fetches messages, members, and syncs seen status.
  * Optimized to only fetch changed data based on client-provided sync timestamps.
  * -------------------------------------------------------------------------- */
-async function openChat({ res: response, chatID, firstID, lastID, cursor, last, getPunInfo, membSync, seenSync, userID, message, con: connection }) {
+async function openChat({ res: response, chatID, firstID, lastID, cursor, last, getPunInfo, membSync, seenSync, userID, message, con: connection }: any) {
 	// OPEN CHAT SYNC ---------------------------------------------------------
 	// Steps: validate params, optionally fetch members delta by membSync, optionally fetch seen delta by seenSync, fetch messages, optionally post message, optionally fetch punish info.
 	if (!chatID || [cursor, membSync, seenSync, firstID, lastID, last].some(value => value && isNaN(parseInt(value)))) throw new Error('badRequest');
@@ -330,7 +330,7 @@ async function openChat({ res: response, chatID, firstID, lastID, cursor, last, 
 	}
 	// SYNC SEEN: If timestamp changed, fetch new read receipts
 	if (type !== 'private' && !message) {
-		const lastChange = seenSync && (await redis.hget(REDIS_KEYS.LAST_SEEN_CHANGE_AT, chatID));
+		const lastChange = seenSync && (await redis.hget(REDIS_KEYS.lastSeenChangeAt, chatID));
 		if (!seenSync || !lastChange || Number(seenSync) < Number(lastChange)) seenData = await fetchSeenUpdates({ chatID, chatType: type, seenSync, lastChange: lastChange, con: connection });
 	}
 
@@ -412,7 +412,7 @@ async function endChat({ chatID, role, con: connection }) {
 
 const handlers = { getMessages, createChat, setupChat, getMembers, openChat, messSeen, leaveChat, endChat, getChats, getHiddenChats: getChats, getArchivedChats: getChats, getInactiveChats: getChats };
 
-export async function Chat(request, response) {
+export async function Chat(request, response = null) {
 	// CHAT MODULE ENTRY ------------------------------------------------------
 	// Steps: authorize role for protected modes, open DB connection, dispatch to handler, return payload, and route errors through Catcher.
 	let connection;

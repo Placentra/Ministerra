@@ -3,7 +3,7 @@
 // Manages profile views, personality indicators, event attendance previews, and actions.
 import { useState, memo, useRef, useEffect, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { basicsSrc, groupsSrc } from '../../../shared/constants';
+import { BASIC_TOPICS, USER_GROUPS } from '../../../shared/constants';
 import { humanizeDateTime } from '../../helpers';
 import EventCard from './EventCard';
 import RateAwards from './RateAwards';
@@ -41,7 +41,7 @@ const UserCard = props => {
 			messaged: obj.messaged,
 			blocked: obj.blocked,
 			linked: obj.linked,
-			trusted: obj.trusted,
+			trusts: obj.trusts,
 		}),
 		cardsView = props.cardsView || brain.user.cardsView.users,
 		[userCardRef, actionsRef, eventPreviewRef] = [useRef(), useRef(), useRef()],
@@ -328,7 +328,7 @@ const UserCard = props => {
 								<extras-sec className={`${cardsView === 2 ? 'textAli ' : ''} flexCol   `}>
 									{/* GROUPS ---------------------------------------------------------------- */}
 									<groups-wrapper className='block marBotXxxs w100'>
-										{Array.from(groupsSrc).map(([categoryName, categoryMap]) => {
+										{Array.from(USER_GROUPS).map(([categoryName, categoryMap]) => {
 											const groups = obj.groups?.filter(group => categoryMap.has(String(group))) || [];
 											if (groups.length > 0) {
 												return (
@@ -356,7 +356,7 @@ const UserCard = props => {
 										<span className={`boldM textSha tGreen ${textClass}  marRigXs`}>Progresivní</span>
 										{obj.basics?.map((topic, idx) => (
 											<span key={topic} className={`${sherlockMatches.basics?.includes(topic) ? 'borderRed' : ''}`}>
-												{basicsSrc.get(topic)}
+												{BASIC_TOPICS.get(topic)}
 												{idx < obj.basics.length - 1 ? ', ' : ''}
 											</span>
 										))}

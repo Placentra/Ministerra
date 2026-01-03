@@ -7,7 +7,7 @@ import ProfileSetup from './ProfileSetup';
 import AdvancedSetup from './AdvancedSetup';
 import useFadeIn from '../hooks/useFadeIn';
 import { notifyGlobalError } from '../hooks/useErrorsMan';
-import { getFavexQualityIssues } from '../../../shared/utilities';
+import { checkFavouriteExpertTopicsQuality } from '../../../shared/utilities';
 
 // TODO Vyřešit co dělat při opakovanym failu uploadu
 // TODO send new user to all devices through socket after saving
@@ -28,7 +28,16 @@ const Setup = () => {
 		passRef = useRef(),
 		[email, setEmail] = useState(''),
 		[loaderData, navigate] = [useLoaderData(), useNavigate()],
-		[curSection, setCurSection] = useState(isIntroduction ? sessionStorage.getItem('registrationData')?.section || sections[0] : sections[0]),
+		[curSection, setCurSection] = useState(() => {
+			if (!isIntroduction) return sections[0];
+			try {
+				const stored = sessionStorage.getItem('registrationData');
+				const parsed = stored ? JSON.parse(stored) : null;
+				return parsed?.section || sections[0];
+			} catch {
+				return sections[0];
+			}
+		}),
 		visibleSections = isIntroduction ? sections.slice(0, sections.indexOf(curSection) + 1) : sections.slice(1),
 		[data, setData] = useState(() => {
 			if (isIntroduction && sessionStorage.getItem('registrationData')) {
@@ -78,10 +87,10 @@ const Setup = () => {
 
 	// QUALITY CHECKS FOR FAVEX TOPICS ---------------------------------------------------
 	// Centralized logic shared with backend; short-word threshold is <=3.
-	const checkFavexQuality = source => getFavexQualityIssues({ favs: source.favs, exps: source.exps, shortWordMaxLength: 3 });
+	const checkFavexQuality = source => checkFavouriteExpertTopicsQuality({ favs: source.favs, exps: source.exps, shortWordMaxLength: 3 });
 	const clearSensitiveFields = () => setData(prev => ({ ...prev, pass: '', newEmail: '' }));
 
-	async function man(inp, rawVal) {
+	async function man(inp = null, rawVal = null) {
 		// SAVE BUTTON GUARD ------------------------------------------------------------
 		// Prevent double-submits while saving/success/error state is being shown.
 		if (inp === 'bigButton' && saveButtonState !== 'idle') return;
@@ -105,7 +114,7 @@ const Setup = () => {
 					if (!targetData.birth) issues.push('noBirthDate');
 					else {
 						const birthDate = new Date(targetData.birth);
-						const age = Math.floor((Date.now() - birthDate) / (365.25 * 24 * 60 * 60 * 1000));
+						const age = Math.floor((Date.now() - birthDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
 						if (age < 13) issues.push('tooYoung');
 					}
 					if (!targetData.gender) issues.push('noGender');

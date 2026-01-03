@@ -39,6 +39,7 @@ async function processChatMessages(con, redis) {
 
 		// SQL INSERT -----------------------------------------------------------
 		// Steps: insert message rows; duplicates are handled by DB constraints (or rejected).
+		// NOTE: Use insertIgnore because the fallback path in messageHandlers.ts may have already inserted the message directly when stream add fails with a network error after the XADD succeeded.
 		const tasks = [
 			{
 				name: 'newMessages',
@@ -46,7 +47,7 @@ async function processChatMessages(con, redis) {
 				table: 'messages',
 				cols: ['id', 'chat', 'user', 'content', 'attach', 'created'],
 				onDupli: [],
-				is: 'insert',
+				is: 'insertIgnore',
 			},
 		];
 
@@ -58,10 +59,11 @@ async function processChatMessages(con, redis) {
 			const lastMessagesByChat = {};
 
 			// MAX PER CHAT ---
-			// Steps: one pass; keep only the largest id for each chat.
+			// Steps: one pass; keep only the largest id for each chat; use Number() since CBOR decode already returns numeric types.
 			for (const message of allItems) {
-				const messageId = parseInt(message[0]);
+				const messageId = Number(message[0]);
 				const chatID = message[1];
+				if (!Number.isFinite(messageId) || chatID == null) continue;
 
 				if (!(chatID in lastMessagesByChat) || messageId > lastMessagesByChat[chatID]) {
 					lastMessagesByChat[chatID] = messageId;

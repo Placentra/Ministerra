@@ -1,7 +1,7 @@
 // TODO udělat maping topiců na čísla na frontendu a na backed posílat jen čísla
 import useCentralFlex from '../hooks/useCentralFlex';
 import { useState, useRef } from 'react';
-import { basicsSrc } from '../../../shared/constants';
+import { BASIC_TOPICS } from '../../../shared/constants';
 import { MAX_COUNTS } from '../../../shared/constants';
 
 // BASICS COMPONENT DEFINITION ---
@@ -9,7 +9,7 @@ import { MAX_COUNTS } from '../../../shared/constants';
 function Basics(props) {
 	const { data, superMan, inform = [], nowAt, avail, sherMode } = props,
 		wraperRef = useRef(null),
-		bWidth = useCentralFlex('basics', [], nowAt, avail?.basics.length || basicsSrc.size, wraperRef),
+		bWidth = useCentralFlex('basics', [], nowAt, avail?.basics.length || BASIC_TOPICS.size, wraperRef),
 		[invertButton, setInvertButton] = useState(null),
 		invertTimeout = useRef(null);
 
@@ -67,7 +67,7 @@ function Basics(props) {
 				}  aliStretch   wrap w100  `}>
 				{/* INDIVIDUAL TOPIC BUTTONS --- */}
 				{/* Maps through available topics to create interactive selection buttons */}
-				{Array.from(basicsSrc.keys())
+				{Array.from(BASIC_TOPICS.keys())
 					.filter(id => nowAt === 'setup' || avail?.basics.includes(id))
 					.map(id => (
 						<button
@@ -77,7 +77,7 @@ function Basics(props) {
 								data.basics?.includes(id) ? 'bInter bGlassSubtle  fs7 bInsetBlueTopXs posRel bold shaCon posRel' : 'fs7 borderLight '
 							}  shaBlue justCen aliCen borBotLight preWrap  textSha grow hvw7 mh3-5 flexCol bHover  grow`}
 							onClick={() => (nowAt === 'setup' || avail.basics.includes(id) || data.basics.includes(id)) && processTopicSelection(id)}>
-							{invertButton === id ? 'invert?' : basicsSrc.get(id)}
+							{invertButton === id ? 'invert?' : BASIC_TOPICS.get(id)}
 						</button>
 					))}
 			</basics-bs>

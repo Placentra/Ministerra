@@ -11,6 +11,7 @@
 		"isolatedModules": true,
 		"noEmit": true,
 		"jsx": "react-jsx",
+		"jsxImportSource": "react",
 		"strict": false,
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
@@ -19,8 +20,9 @@
 		"allowSyntheticDefaultImports": true,
 		"forceConsistentCasingInFileNames": true,
 		"allowJs": true,
-		"checkJs": false
+		"checkJs": false,
+		"types": ["react", "react-dom"]
 	},
-	"include": ["src", "*.ts", "*.tsx", "*.js", "*.jsx"],
-	"exclude": ["node_modules", "dist"]
+	"include": ["src", "*.ts", "*.tsx", "*.js", "*.jsx", "react-jsx-runtime.d.ts"],
+	"exclude": ["node_modules", "dist", "src/WORKING.tsx"]
 }

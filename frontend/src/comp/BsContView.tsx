@@ -2,7 +2,7 @@ import { memo } from 'react';
 
 // CONTENT VIEW SELECTOR COMPONENT ---
 // Toggles between events and users display based on available data and map state
-function BsContView({ fadedIn, brain, snapMan, map, fetchInProg, show, avail: { types: avaTypes }, snap = {}, noFriendly }) {
+function BsContView({ fadedIn, brain, snapMan, map, fetchInProg, show, avail: { types: avaTypes }, snap = {} as any, noFriendly }) {
 	// EFFECTIVE TYPE SELECTION ------------------------------------------------------
 	// Raw `snap.types` can include types unavailable for current cats/time/cities. Only intersection should count as selected.
 	const effectiveSelectedTypeCount = (snap.types || []).filter(type => avaTypes.includes(type)).length;
@@ -20,8 +20,12 @@ function BsContView({ fadedIn, brain, snapMan, map, fetchInProg, show, avail: { 
 	async function handleViewSelection(val) {
 		if ((!snap.changed && !sherChanged && val === snap.contView) || (sherChanged && val === 'events'))
 			requestAnimationFrame(() => {
+				// CONTENT SCROLL TARGET --------------------------------------------------
+				// Steps: query can return Element; cast to HTMLElement so `offsetTop` is available.
+				const contentElement = document.querySelector('#content') as HTMLElement | null;
+				if (!contentElement) return;
 				window.scrollTo({
-					top: document.querySelector('#content').offsetTop,
+					top: contentElement.offsetTop,
 					behavior: 'smooth',
 				});
 			});

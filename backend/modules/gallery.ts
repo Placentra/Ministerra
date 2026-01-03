@@ -44,7 +44,7 @@ const buildQuery = ({ mode, sort, devIsStable }) => {
 	if (mode === 'blocks') return { sql: blocksQ, order: `tab.${sortMaps.created[sort] || sortMaps.created.recent}` };
 	if (mode === 'invitesIn') return { sql: invitesAggQ('in'), order: sortMaps.created[sort] || sortMaps.created.recent };
 	if (mode === 'invitesOut') return { sql: invitesAggQ('out'), order: sortMaps.created[sort] || sortMaps.created.recent };
-	if (['links', 'requests', 'trusted'].includes(mode)) {
+	if (['links', 'requests', 'trusts'].includes(mode)) {
 		const sql = `WITH cte AS(SELECT tab.created,${
 			mode === 'requests' ? 'CASE WHEN(tab.user=? AND who="2") OR(tab.user2=? AND who="1") THEN tab.message ELSE NULL END message,' : ''
 		}CASE WHEN tab.user=? THEN tab.user2 ELSE tab.user END other_user,tab.who,CASE WHEN(tab.user=?) THEN tab.note WHEN(tab.user2=?) THEN tab.note2 ELSE NULL END note FROM user_links tab WHERE(tab.user=? OR tab.user2=?) AND ${
@@ -53,7 +53,7 @@ const buildQuery = ({ mode, sort, devIsStable }) => {
 				: mode === 'requests'
 				? '((tab.link="req") OR (tab.link="ref" AND ((tab.user=? AND tab.who=1) OR (tab.user2=? AND tab.who=2))))'
 				: 'tab.link="tru"'
-		}${mode === 'trusted' ? ` AND ((tab.user=? AND tab.who IN(1,3)) OR (tab.user2=? AND tab.who IN(2,3)))` : ''}) SELECT ${USER_MINI_KEYS.map(c => `u.${c}`).join(
+		}${mode === 'trusts' ? ` AND ((tab.user=? AND tab.who IN(1,3)) OR (tab.user2=? AND tab.who IN(2,3)))` : ''}) SELECT ${USER_MINI_KEYS.map(c => `u.${c}`).join(
 			', '
 		)},cte.created,cte.note,cte.who${mode === 'requests' ? ',cte.message' : ''} FROM users u JOIN cte ON u.id=cte.other_user`;
 		return { sql, order: sortMaps.links[sort] || sortMaps.created.recent, orderNeedsUser: ['incoming', 'outgoing'].includes(sort) };
@@ -73,13 +73,13 @@ const buildQuery = ({ mode, sort, devIsStable }) => {
 const buildParams = ({ mode, userID, sort, devIsStable, eventID }) => {
 	const params = [];
 	if (mode === 'deletePast') return { params: [userID, eventID] };
-	if (['links', 'requests', 'trusted'].includes(mode)) {
+	if (['links', 'requests', 'trusts'].includes(mode)) {
 		if (mode === 'requests') params.push(userID, userID);
 		params.push(userID);
 		params.push(userID, userID);
 		params.push(userID, userID);
 		if (mode === 'requests') params.push(userID, userID);
-		if (mode === 'trusted') params.push(userID, userID);
+		if (mode === 'trusts') params.push(userID, userID);
 		if (mode === 'links' && ['incoming', 'outgoing'].includes(sort)) params.push(userID);
 		return { params };
 	}
@@ -127,9 +127,9 @@ const Gallery = async (req, res) => {
 		logger.info('gallery.query', { sql: finalSql, params, __skipRateLimit: true });
 		let data = (await con.query(finalSql, params))[0];
 
-		// PRIVACY FILTER ------------------------------------------------------
+		// PRIVACIES FILTER ------------------------------------------------------
 		// Steps: apply redis privacy filter for future event lists; link/block/invite lists are already per-user and don’t need event privacy filtering.
-		if (!mode.startsWith('past') && !['links', 'requests', 'blocks', 'trusted', 'invitesIn', 'invitesOut'].includes(mode)) data = await checkRedisAccess({ items: data, userID });
+		if (!mode.startsWith('past') && !['links', 'requests', 'blocks', 'trusts', 'invitesIn', 'invitesOut'].includes(mode)) data = await checkRedisAccess({ items: data, userID });
 		return res.status(200).json(data);
 	} catch (error) {
 		if (error.code === 'ER_DUP_ENTRY') return res.status(200).end();

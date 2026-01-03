@@ -69,7 +69,7 @@ const Masonry = props => {
 			const chunkIndex = Math.floor(index / CHUNK_SIZE);
 			if (!newChunks[chunkIndex]) {
 				newChunks[chunkIndex] = Array(Math.floor(Math.min(numOfCols, content.length)))
-					.fill()
+					.fill(null)
 					.map(() => []);
 				heights[chunkIndex] = Array(numOfCols).fill(0);
 			}
@@ -113,7 +113,9 @@ const Masonry = props => {
 
 	// RENDER MASONRY LAYOUT ---------------------------------------------------
 	return (
-		<masonry-wrapper ref={masonryRef} class={`block ${contType.includes('Strips') ? 'w100 marAuto padBotXs   maskTopXxs' : nowAt !== 'event' ? 'mihvh120 w100' : 'w100'}  posRel block `}>
+		<masonry-wrapper
+			ref={masonryRef}
+			class={`block ${contType.includes('Strips') ? 'w100 marAuto padBotXs fPadHorXxxs   maskTopXxs' : nowAt !== 'event' ? 'mihvh120 w100' : 'w100'}  posRel block `}>
 			<content-chunks
 				class={` ${
 					nowAt !== 'event' && !view.includes('Strips') ? ' block' : nowAt !== 'event' && !isChatSetup && !noPadTop ? 'padTopXs' : ''

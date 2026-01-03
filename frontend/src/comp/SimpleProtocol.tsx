@@ -27,7 +27,7 @@ const SimpleProtocol = props => {
 	}, []);
 
 	// MANAGER
-	const man = async (inp, value) => {
+	const man = async (inp, value = null) => {
 		setInform([]);
 		try {
 			const newState = { ...protocol };

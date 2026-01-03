@@ -9,7 +9,7 @@ const validStates = new Set(['mini', 'basi']);
  * Manages user connections (linking, trusting, accepting, refusing).
  * Updates local state, gallery arrays, and IndexedDB.
  * -------------------------------------------------------------------------- */
-export const linksHandler = async ({ mode, note, obj, message, id, brain, direct = 'out', isSocket, setStatus, setModes }) => {
+export const linksHandler = async ({ mode, note, obj = {}, message, id, brain, direct = 'out', isSocket, setStatus, setModes }: any) => {
 	// INPUT NORMALIZATION ------------------------------------------------------
 	// Steps: merge cached user snapshot into obj (to keep references stable), normalize state into a minimal renderable state, then carry inbound message only when server origin is inbound.
 	const existingUser = brain.users[id] || {};
@@ -42,7 +42,7 @@ export const linksHandler = async ({ mode, note, obj, message, id, brain, direct
 	// LOCAL INDEX UPDATES ------------------------------------------------------
 	// Steps: mutate galleryIDs buckets and user.linkUsers list first (so UI filters immediately reflect), then apply flags on obj for the profile/UI components.
 	if (['refuse', 'cancel', 'unlink'].includes(mode)) {
-		if (mode === 'unlink') updateGalleryArrays(brain, id, { removeFromLinks: true, removeFromTrusted: true });
+		if (mode === 'unlink') updateGalleryArrays(brain, id, { removeFromLinks: true, removeFromTrusts: true });
 		else updateGalleryArrays(brain, id, { removeFromRequests: true });
 		const idx = linkUsers.findIndex(link => Number(link[0]) === Number(id));
 		if (idx > -1) linkUsers.splice(idx, 1);
@@ -55,26 +55,26 @@ export const linksHandler = async ({ mode, note, obj, message, id, brain, direct
 		const idx = linkUsers.findIndex(link => Number(link[0]) === Number(id));
 		if (idx === -1) linkUsers.push([id, 'tru']);
 		else linkUsers[idx][1] = 'tru';
-		updateGalleryArrays(brain, id, { addToTrusted: true, addToLinks: true });
+		updateGalleryArrays(brain, id, { addToTrusts: true, addToLinks: true });
 	} else if (mode === 'untrust') {
 		const idx = linkUsers.findIndex(link => Number(link[0]) === Number(id));
 		if (idx > -1) linkUsers[idx][1] = null;
-		updateGalleryArrays(brain, id, { removeFromTrusted: true });
+		updateGalleryArrays(brain, id, { removeFromTrusts: true });
 	}
 
 	// APPLY FLAGS -----------------------------------------------------------
-	// Steps: derive linked/trusted from the action index (or explicit trust/untrust/unlink), update UI state, then close menus to reflect “action committed”.
+	// Steps: derive linked/trusts from the action index (or explicit trust/untrust/unlink), update UI state, then close menus to reflect “action committed”.
 	const linkActionIndex = linkActions.indexOf(mode);
 	if (linkActionIndex !== -1) {
 		const nextLinked = linkStates[linkActionIndex] || false;
-		const nextTrusted = mode === 'trust' ? true : mode === 'untrust' || mode === 'unlink' ? false : obj.trusted;
+		const nextTrusts = mode === 'trust' ? true : mode === 'untrust' || mode === 'unlink' ? false : obj.trusts;
 		Object.assign(obj, {
 			linked: nextLinked,
-			trusted: nextTrusted,
+			trusts: nextTrusts,
 			note,
 			...(inboundMessage !== undefined ? { message: inboundMessage } : {}),
 		});
-		setStatus?.(prev => ({ ...prev, linked: obj?.linked, trusted: obj?.trusted })), setModes?.(prev => ({ ...prev, menu: false }));
+		setStatus?.(prev => ({ ...prev, linked: obj?.linked, trusts: obj?.trusts })), setModes?.(prev => ({ ...prev, menu: false }));
 	} else if (mode === 'note') setModes?.(prev => ({ ...prev, menu: false, editNote: false }));
 
 	// PERSISTENCE -------------------------------------------------------------
@@ -88,7 +88,7 @@ export const linksHandler = async ({ mode, note, obj, message, id, brain, direct
  * Manages user blocking/unblocking.
  * Updates local state, removes links/trust, and updates gallery arrays.
  * -------------------------------------------------------------------------- */
-export const blocksHandler = async ({ brain, id, mode, isSocket, setStatus, direct, setModes }) => {
+export const blocksHandler = async ({ brain, id, mode, isSocket = false, setStatus, direct = 'out', setModes }: any) => {
 	// INPUT + GRAPH ACCESS ------------------------------------------------------
 	// Steps: take the shared linkUsers list (unstable or stable), take cached user snapshot (or minimal stub), then optionally run server mutation first so local state only changes on success.
 	const linkUsers = (brain.user.unstableObj || brain.user).linkUsers;
@@ -103,10 +103,10 @@ export const blocksHandler = async ({ brain, id, mode, isSocket, setStatus, dire
 
 	if (mode === 'block') {
 		// LOCAL BLOCK --------------------------------------------------------
-		// Steps: set blocked and clear linked/trusted (block implies no relationship), update UI status, remove from linkUsers, then update gallery buckets (optionally add to blocks only for outbound block).
-		Object.assign(existing, { blocked: true, linked: false, trusted: false });
+		// Steps: set blocked and clear linked/trusts (block implies no relationship), update UI status, remove from linkUsers, then update gallery buckets (optionally add to blocks only for outbound block).
+		Object.assign(existing, { blocked: true, linked: false, trusts: false });
 		brain.users[id] = existing;
-		setStatus?.(prev => ({ ...prev, blocked: true, linked: false, trusted: false }));
+		setStatus?.(prev => ({ ...prev, blocked: true, linked: false, trusts: false }));
 		setModes?.(prev => ({ ...prev, menu: direct !== 'in' }));
 
 		// Remove from linkUsers map
@@ -117,7 +117,7 @@ export const blocksHandler = async ({ brain, id, mode, isSocket, setStatus, dire
 		updateGalleryArrays(brain, id, {
 			removeFromLinks: true,
 			removeFromRequests: true,
-			removeFromTrusted: true,
+			removeFromTrusts: true,
 			...(direct === 'out' ? { addToBlocks: true } : {}),
 		});
 

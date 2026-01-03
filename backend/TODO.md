@@ -78,7 +78,7 @@
 -   [ ] Use the execute with entry function from helpers
 -   [ ] MIGHT want to periodically recalc correctness of aggregate columns. (for example chats.requests vs the actual number of requests in the chat_members table)
 -   [ ] Divide contentMetas to public and private events and create separate frontend views
--   [ ] Might need to store the sorted eveUserMetas IDs together with eveUserMetas, so that event can quickly fetch userBasi without the need to sort the Metas first
+-   [ ] Might need to store the sorted eveUserMetas IDs together with eveUserMetas, so that event can quickly fetch userBasics without the need to sort the Metas first
 -   [ ] Merge sur and may arrs, and add a flag 'sur' to only surely attending users, absence means only maybe. This simplifies filtering
 -   [ ] Refactor meta processing for loops - for each "is" recalced metas need to be passed as a single array, not one by one. Get rid of all the if elses that are unnecessary
 -   [ ] Probably revert to storing content ids directly in metas (possibly even basi and deta) to avoid constantly iterating and creating entries before response.
@@ -111,7 +111,7 @@
 -   [ ] Could count rows of missed alerts in the alertsQ and missed chats as well
 -   [ ] Need to carefully check TTL for user specific sets/lists in redis (for example alerts should be deleted after some time) and they should have maximum length
 -   [ ] Should probably move the devSync value to redis? Otherwise frontend can spoof the time and request the big package again and again
--   [ ] Perform full links / trusted set if users didn't log in the last 3 months. After 3 months clean up tables.
+-   [ ] Perform full links / trusts set if users didn't log in the last 3 months. After 3 months clean up tables.
 
 ### Info (DO NOT DELETE!)
 

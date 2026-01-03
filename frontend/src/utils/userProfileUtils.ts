@@ -5,7 +5,7 @@ import { notifyGlobalError } from '../hooks/useErrorsMan';
 
 // SHOW USER PROFILE ------------------------------------------------------------
 // Steps: toggle off if already open, resolve target user (self/local cache/HTTP), handle “blocked” special-case by pruning local arrays, then push the resolved profile into brain content and switch UI modes.
-export const showUsersProfile = async ({ obj, brain, chatObj = {}, setModes, modes, setStatus }) => {
+export const showUsersProfile = async ({ obj, brain, chatObj = {}, setModes, modes, setStatus = () => {} }: any) => {
 	if (modes.profile && String(modes.profile.id) === String(obj.user || obj.id)) return setModes(prev => ({ ...prev, profile: null }));
 
 	let profileObj;
@@ -28,12 +28,12 @@ export const showUsersProfile = async ({ obj, brain, chatObj = {}, setModes, mod
 			const errorCode = typeof errorData === 'string' ? errorData : errorData?.code;
 			if (errorCode === 'blocked') {
 				// BLOCKED ---------------------------------------------------------
-				// Steps: mark target unavailable, close menus, update local status flags, and remove from link/trusted arrays so UI doesn’t keep showing unreachable user.
+				// Steps: mark target unavailable, close menus, update local status flags, and remove from link/trusts arrays so UI doesn’t keep showing unreachable user.
 				obj.unavail = true;
 				obj.linked = false;
 				setModes(prev => ({ ...prev, menu: false }));
-				setStatus(prev => ({ ...prev, blocked: true, linked: false, trusted: false, unavail: true }));
-				updateGalleryArrays(brain, targetID, { removeFromLinks: true, removeFromTrusted: true });
+				setStatus(prev => ({ ...prev, blocked: true, linked: false, trusts: false, unavail: true }));
+				updateGalleryArrays(brain, targetID, { removeFromLinks: true, removeFromTrusts: true });
 				const linkUsers = (brain.user.unstableObj || brain.user).linkUsers;
 				const linkIdx = linkUsers.findIndex(link => link[0] === targetID);
 				if (linkIdx !== -1) linkUsers.splice(linkIdx, 1);

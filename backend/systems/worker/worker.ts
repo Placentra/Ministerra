@@ -6,16 +6,22 @@ import { parentPort, workerData } from 'worker_threads';
 import { Sql, Redis } from '../systems.ts';
 import { getLogger } from '../handlers/loggers.ts';
 import { WORKER_THREAD_CONFIG } from '../../startup/config.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
 
 // TASK MODULE IMPORTS ----------------------------------------------------------
+/** chat tasks */
 import chatMessages from '../../tasks/chatMessages.ts';
-import comments from '../../tasks/comments.ts';
 import lastSeenMess from '../../tasks/lastSeenMess.ts';
-import userInteractions from '../../tasks/userInteractions.ts';
+
+/** content tasks */
 import flagChanges from '../../tasks/flagChanges.ts';
+import userInteractions from '../../tasks/userInteractions.ts';
+import comments from '../../tasks/comments.ts';
+import invites from '../../tasks/invites.ts';
+
+/** recalc tasks */
 import dailyRecalc from '../../tasks/dailyRecalc/index.ts';
 import hourlyRecalc from '../../tasks/hourlyRecalc.ts';
-import invites from '../../tasks/invites.ts';
 import { Emitter } from '../handlers/emitter.ts';
 
 const logger = getLogger('WorkerThread');
@@ -27,11 +33,11 @@ const ENABLE_WORKER_MONITORING = process.env.ENABLE_WORKER_MONITORING ? process.
 // priority: lower number => run first when multiple tasks are due at the same tick
 const TASKS = {
 	chatMessages: {
-		interval: 1000,
+		interval: 2000,
 		timeout: 15000,
 		streamName: 'chatMessages',
 		process: chatMessages,
-		type: 'chatMessages',
+		type: 'chatTasks',
 		priority: 1,
 	},
 	lastSeenMess: {
@@ -39,50 +45,50 @@ const TASKS = {
 		timeout: 25000,
 		streamName: 'lastSeenMess',
 		process: lastSeenMess,
-		type: 'chatMessages',
+		type: 'chatTasks',
 		priority: 2,
 	},
 	comments: {
-		interval: 5000,
+		interval: 20000,
 		timeout: 45000,
 		streamName: 'eveComments',
 		process: comments,
-		type: 'contentInteractions',
+		type: 'contentTasks',
 		priority: 2,
 	},
 	invites: {
-		interval: 5000,
+		interval: 60000,
 		timeout: 30000,
 		streamName: 'newInvites',
 		process: invites,
-		type: 'contentInteractions',
+		type: 'contentTasks',
 		priority: 3,
 	},
 	userInteractions: {
-		interval: 8000,
+		interval: 30000,
 		timeout: 60000,
 		process: userInteractions,
-		type: 'contentInteractions',
+		type: 'contentTasks',
 		priority: 2,
 	},
 	flagChanges: {
-		interval: 120000,
+		interval: 60000,
 		timeout: 60000,
 		streamName: 'flagChanges',
 		process: flagChanges,
-		type: 'contentInteractions',
+		type: 'contentTasks',
 		priority: 3,
 	},
 	hourlyRecalc: {
-		interval: 60 * 60 * 1000,
-		timeout: 10 * 60 * 1000,
+		interval: 60 * 60000,
+		timeout: 10 * 60000,
 		process: hourlyRecalc,
 		type: 'hourlyRecalc',
 		priority: 3,
 	},
 	dailyRecalc: {
-		interval: 24 * 60 * 60 * 1000,
-		timeout: 2 * 60 * 60 * 1000,
+		interval: 24 * 60 * 60000,
+		timeout: 2 * 60 * 60000,
 		isDailyTask: true,
 		process: dailyRecalc,
 		type: 'dailyRecalc',
@@ -92,11 +98,11 @@ const TASKS = {
 
 // TASK TYPE ROUTING ------------------------------------------------------------
 const TASK_TYPE_MAPPING = {
-	chatMessages: Object.entries(TASKS)
-		.filter(([, config]) => config.type === 'chatMessages')
+	chatTasks: Object.entries(TASKS)
+		.filter(([, config]) => config.type === 'chatTasks')
 		.map(([name]) => name),
-	contentInteractions: Object.entries(TASKS)
-		.filter(([, config]) => config.type === 'contentInteractions')
+	contentTasks: Object.entries(TASKS)
+		.filter(([, config]) => config.type === 'contentTasks')
 		.map(([name]) => name),
 	hourlyRecalc: ['hourlyRecalc'],
 	dailyRecalc: ['dailyRecalc'],
@@ -240,7 +246,7 @@ async function handleInitialize(message) {
 			isHelper: message.isHelper || state.isHelper,
 		});
 
-		log(`Initializing ${state.isHelper ? 'helper' : 'task'} worker (Type: ${state.taskType || 'none'})`);
+		// NOTE: Removed per-worker init log - "Worker initialized" log is sufficient
 
 		// CONNECTION WARMUP -------------------------------------------------------
 		// Fail fast on infra issues; scheduler assumes redis+sql are ready.
@@ -263,8 +269,8 @@ async function handleInitialize(message) {
 		if (ENABLE_WORKER_MONITORING) startMonitoring();
 
 		state.initialized = true;
+		log(`Thread ${state.taskType} ready`, 'success');
 		sendMessage('initialized');
-		log(`Worker initialized successfully`, 'success');
 	} catch (error) {
 		log(`Initialization failed: ${error.message}`, 'error');
 		sendError(error);
@@ -311,36 +317,17 @@ async function initializeTaskSchedule() {
 
 	// BOOTSTRAP NEXT-RUN ---------------------------------------------------------
 	// Use redis last-finished timestamps so restarts don't double-run work.
+	// Pre-execution check in executeTask() re-verifies to prevent races with cacher.
 	const now = Date.now();
-
-	const lastExecutions = (await state.redis.hgetall('tasksFinishedAt')) || {};
+	const lastExecutions = (await state.redis.hgetall(REDIS_KEYS.tasksFinishedAt)) || {};
 	for (const taskName of taskNames) {
 		const taskConfig = TASKS[taskName];
-
 		const lastRun = parseInt(lastExecutions[taskName] || '0');
 		const timeSinceLastRun = lastRun > 0 ? now - lastRun : 0;
-
-		let nextRun;
-		if (lastRun === 0) {
-			const stagger = Math.random() * 2000;
-			nextRun = now + stagger;
-		} else if (timeSinceLastRun >= taskConfig.interval) {
-			nextRun = now + Math.random() * 1000;
-		} else {
-			// Schedule normally
-			nextRun = lastRun + taskConfig.interval;
-		}
-
-		state.schedule.set(taskName, {
-			nextRun,
-			lastRun: lastRun || 0,
-			consecutiveMisses: 0,
-		});
-
-		// Initialize task history
+		// Schedule normally; executeTask() will re-check Redis before running
+		const nextRun = lastRun === 0 || timeSinceLastRun >= taskConfig.interval ? now + 5000 + Math.random() * 2000 : lastRun + taskConfig.interval;
+		state.schedule.set(taskName, { nextRun, lastRun: lastRun || 0, consecutiveMisses: 0 });
 		state.metrics.taskHistory.set(taskName, []);
-
-		log(`Task ${taskName} scheduled for ${new Date(nextRun).toISOString()}`);
 	}
 }
 
@@ -353,7 +340,7 @@ function startTaskProcessing() {
 	const baseInterval = shortIntervals.length > 0 ? Math.min(...shortIntervals) : Math.min(...intervals);
 	const actualInterval = Math.max(Math.min(baseInterval / 4, 2000), 500);
 
-	log(`Starting task processing with ${actualInterval}ms check interval`);
+	// NOTE: Removed per-worker "starting task processing" log
 
 	// IMPORTANT: never use an `async` setInterval callback without a catch.
 	// If `processScheduledTasks()` throws, an async interval callback creates an
@@ -421,6 +408,15 @@ async function executeTask(taskName) {
 		return;
 	}
 
+	// DUPLICATE RUN GUARD --------------------------------------------------------
+	// Re-check Redis to avoid double-running tasks that cacher or another process just ran.
+	const freshLastRun = parseInt((await state.redis.hget(REDIS_KEYS.tasksFinishedAt, taskName)) || '0');
+	if (freshLastRun > 0 && Date.now() - freshLastRun < taskConfig.interval * 0.9) {
+		schedule.lastRun = freshLastRun;
+		schedule.nextRun = freshLastRun + taskConfig.interval;
+		return { taskName, skipped: true, reason: 'recently_run' };
+	}
+
 	const startTime = Date.now();
 
 	// CIRCUIT BREAKER ------------------------------------------------------------
@@ -465,7 +461,7 @@ async function executeTask(taskName) {
 
 		// PERSIST LAST FINISH -----------------------------------------------------
 		// Primary/other workers rely on this for restart scheduling and helper assistance.
-		await state.redis.hset('tasksFinishedAt', taskName, endTime.toString());
+		await state.redis.hset(REDIS_KEYS.tasksFinishedAt, taskName, endTime.toString());
 
 		// METRICS -----------------------------------------------------------------
 		state.metrics.tasksExecuted++;
@@ -521,8 +517,8 @@ async function executeTask(taskName) {
 }
 
 // TASK RESULT HANDLING ---------------------------------------------------------
-async function processTaskResults(result, taskName) {
-	const emitterData = {};
+async function processTaskResults(result: any, taskName) {
+	const emitterData: any = {};
 	let hasAlerts = false;
 
 	if (result.userRatingsMap && result.userRatingsMap.size > 0) {
@@ -540,7 +536,7 @@ async function processTaskResults(result, taskName) {
 		hasAlerts = true;
 	}
 
-	if (result.userInvitesMap && Array.from(result.userInvitesMap.values()).some(arr => arr.length > 0)) {
+	if (result.userInvitesMap && Array.from(result.userInvitesMap.values()).some((arr: any) => (arr || []).length > 0)) {
 		emitterData.userInvitesMap = result.userInvitesMap;
 		hasAlerts = true;
 	}
@@ -568,7 +564,7 @@ function startHelperMode() {
 // HELPER OVERDUE DISCOVERY -----------------------------------------------------
 async function checkForOverdueTasks() {
 	try {
-		const lastExecutions = (await state.redis.hgetall('tasksFinishedAt')) || {};
+		const lastExecutions = (await state.redis.hgetall(REDIS_KEYS.tasksFinishedAt)) || {};
 		const now = Date.now();
 
 		let mostOverdueTask = null;
@@ -581,7 +577,7 @@ async function checkForOverdueTasks() {
 			const timeSinceLastRun = now - lastRun;
 			const overdueRatio = timeSinceLastRun / taskConfig.interval;
 
-			const threshold = taskConfig.isDailyTask ? 1.05 : 2;
+			const threshold = (taskConfig as any).isDailyTask ? 1.05 : 2;
 			if (overdueRatio > threshold && overdueRatio > maxOverdueRatio) {
 				mostOverdueTask = taskName;
 				maxOverdueRatio = overdueRatio;
@@ -622,7 +618,7 @@ async function executeHelperTask(taskName) {
 		const endTime = Date.now();
 		const processingTime = endTime - startTime;
 
-		await state.redis.hset('tasksFinishedAt', taskName, endTime.toString());
+		await state.redis.hset(REDIS_KEYS.tasksFinishedAt, taskName, endTime.toString());
 
 		if (result && !result.error) {
 			await processTaskResults(result, taskName);

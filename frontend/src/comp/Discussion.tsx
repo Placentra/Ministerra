@@ -229,7 +229,13 @@ function Discussion(props) {
 			if (mode === 'getComments' || mode === 'getReplies') {
 				const newComms = mergeOrSort(targetCommsArr, axiComms, sortBy);
 				(targetCommsArr.length = 0), targetCommsArr.push(...newComms);
-				if (sync) Object.assign(obj, { [`${mode === 'getComments' ? 'comms' : 'replies'}SyncedAt`]: sync });
+				// SYNC TIMESTAMP UPDATE ---
+				// For getComments: set on event object (obj.commsSyncedAt)
+				// For getReplies: set on parent comment (parent.repliesSyncedAt)
+				if (sync) {
+					if (mode === 'getComments') obj.commsSyncedAt = sync;
+					else parent.repliesSyncedAt = sync;
+				}
 				const oppositeCursor = typeof cursorsRef === 'object' && cursorsRef !== null ? cursorsRef[oppositeSort] : null;
 				const isAllCommentsFetched =
 					axiComms.length < 20 || (canOrder && oppositeCursor && ((sortBy === 'recent' && lastAxiID <= oppositeCursor[1]) || (sortBy === 'oldest' && lastAxiID >= oppositeCursor[1])));

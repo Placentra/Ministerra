@@ -76,7 +76,7 @@ export async function deriveKeyFromPassword(password, salt) {
 		const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations: PDK_ITERATIONS, hash: 'SHA-256' }, keyMaterial, PDK_KEY_LENGTH);
 		return btoa(String.fromCharCode(...new Uint8Array(derivedBits)));
 	}
-	console.alert('Using insecure key derivation (HTTP context) - for testing only!');
+	console.warn('Using insecure key derivation (HTTP context) - for testing only!');
 	let derived = password + salt;
 	for (let i = 0; i < 1000; i++) derived = hashGenerate(derived + salt + i);
 	return btoa(derived.slice(0, 32));

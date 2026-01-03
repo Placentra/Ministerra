@@ -39,7 +39,7 @@ const hydrateFromDevice = async (brainRef, flags) => {
 		Object.assign(brainRef, miscel);
 		flags.isInitOrRefreshLoad = true;
 	} catch (error) {
-		console.alert('Failed to hydrate from device, starting fresh:', error);
+		console.warn('Failed to hydrate from device, starting fresh:', error);
 		// Ensure basic structure exists even if hydration failed
 		brainRef.initLoadData = brainRef.initLoadData || {};
 	}
@@ -48,7 +48,7 @@ const hydrateFromDevice = async (brainRef, flags) => {
 // BUILD AXIOS PLAN -------------------------------------------------------------
 // Steps: decide foundation load mode based on route/homeView/newCities, compute which cities need cityData and which need contentMetas, then construct payload with epoch+deviceID so backend can bind salts and deltas.
 const buildAxiosPlan = ({ brainRef, path, meta, flags, findCity }) => {
-	const plan = { citiesGetCityData: undefined, citiesGetContentMetas: [], axiosPayload: { load: FOUNDATION_LOADS.auth } };
+	const plan: any = { citiesGetCityData: undefined, citiesGetContentMetas: [], axiosPayload: { load: FOUNDATION_LOADS.auth } };
 	const { homeView, newCities, cities, lastDevSync, lastLinksSync, clientEpoch } = meta;
 	// Include deviceID for per-device salt lookup
 	const deviceID = localStorage.getItem('deviceID');
@@ -79,7 +79,7 @@ const buildAxiosPlan = ({ brainRef, path, meta, flags, findCity }) => {
 
 // FETCH FOUNDATION DATA --------------------------------------------------------
 // Steps: POST `/foundation` and always return a plain object so the caller can treat missing fields as “auth-only”.
-const fetchFoundationData = async payload => (await axios.post('/foundation', payload))?.data || {};
+const fetchFoundationData = async (payload: any): Promise<any> => ((await axios.post('/foundation', payload as any)) as any)?.data || {};
 
 // RESET GALLERY “NO MORE” ------------------------------------------------------
 // Steps: clear per-mode “noMore” throttles after a cool-down so the user can fetch more items without manually reloading.
@@ -146,7 +146,7 @@ const applyAuthAndUser = async (ctx, data) => {
 			});
 		} catch (e) {
 			if (e.message === 'noPDK') {
-				console.alert('PDK missing - session expired, redirecting to login');
+				console.warn('PDK missing - session expired, redirecting to login');
 				return 'session_expired';
 			}
 			throw e;
@@ -211,8 +211,10 @@ const hydratePrevContent = async (ctx, data) => {
 const ensureLocation = async brainRef => {
 	try {
 		if (!('geolocation' in navigator)) return;
-		const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000, maximumAge: 60000 }));
-		const { latitude, longitude } = position.coords || {};
+		const position: any = await new Promise((resolve, reject) =>
+			navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000, maximumAge: 60000 })
+		);
+		const { latitude, longitude } = position?.coords || {};
 		if (typeof latitude === 'number' && typeof longitude === 'number') (brainRef.user.location = [latitude, longitude]), await forage({ mode: 'set', what: 'user', val: brainRef.user });
 	} catch {
 		brainRef.user.locationDenied = true;
@@ -246,15 +248,15 @@ const storeCitiesAndContent = async (ctx, data) => {
 				brainRef.citiesContSync[city.cityID] = meta.now;
 				if (!city.error) ['cityID', 'error'].forEach(key => delete city[key]);
 				if (Object.keys(city).length === 0 || city.error) return;
-				for (const [id, metaVal] of Object.entries(city))
-					(Array.isArray(metaVal[metaVal.length - 1]) ? (receivedUserIDs.add(id), userMetas) : (receivedEventIDs.add(id), eveMetas))[id] = metaVal;
+				for (const [id, metaVal] of Object.entries(city as any) as any)
+					(Array.isArray((metaVal as any)?.[(metaVal as any)?.length - 1]) ? (receivedUserIDs.add(id), userMetas) : (receivedEventIDs.add(id), eveMetas))[id] = metaVal;
 				await processMetas({ eveMetas, userMetas, brain: brainRef, contSync, isNewContent: true });
 			})
 		);
 	} else await processMetas({ eveMetas: contentMetas[0], brain: brainRef, contSync, isNewContent: true }), Object.keys(contentMetas[0]).forEach(id => receivedEventIDs.add(id));
 	await Promise.all([
-		forage({ mode: 'set', what: 'events', val: Object.values(brainRef.events).filter(event => receivedEventIDs.has(event.id)) }),
-		forage({ mode: 'set', what: 'users', val: Object.values(brainRef.users).filter(user => receivedUserIDs.has(user.id)) }),
+		forage({ mode: 'set', what: 'events', val: (Object.values(brainRef.events) as any[]).filter(event => receivedEventIDs.has(event.id)) }),
+		forage({ mode: 'set', what: 'users', val: (Object.values(brainRef.users) as any[]).filter(user => receivedUserIDs.has(user.id)) }),
 	]);
 };
 
@@ -274,19 +276,19 @@ const handleStaleContent = async (ctx, data) => {
 	const { contentMetas, contSync } = data;
 	if (!contentMetas || !plan?.citiesGetContentMetas?.length || meta.homeView === 'topEvents') return;
 	const bestOfIDsSet = new Set(brainRef.bestOfIDs || []);
-	const delEve = new Set();
-	const delUse = new Set();
+	const delEve = new Set<any>();
+	const delUse = new Set<any>();
 	const [sixMonthsAgo, threeMonthsAgo, monthAgo] = [-6, -3, -1].map(monthsOffset => new Date(new Date().setUTCMonth(new Date().getUTCMonth() + monthsOffset)).getTime());
 	const twoYearsInMs = 365 * 24 * 60 * 60 * 1000 * 2;
 
 	for (const arrKey of ['events', 'users']) {
 		const allowedStates = new Set(['meta', 'basi', 'basiDeta', 'mini']);
 		const deletionIDs = arrKey === 'events' ? delEve : delUse;
-		for (const obj of Object.values(brainRef[arrKey])) {
-			const { sync, starts, ends, type, id, cityID, state, own, inter, mark } = obj;
+		for (const obj of Object.values(brainRef[arrKey]) as any[]) {
+			const { sync, starts, ends, type, id, cityID, state, own, inter, mark } = obj as any;
 			if (sync === contSync) {
 				if (sync >= (ends || starts) && (ends || starts) < Date.now() && allowedStates.has(state) && (own || ['sur', 'may'].includes(inter))) {
-					const attendees = Object.values(brainRef.users).filter(user => user.eveInters.some(([eveID]) => eveID === id));
+					const attendees = (Object.values(brainRef.users) as any[]).filter(user => (user as any)?.eveInters?.some?.(([eveID]) => eveID === id));
 					deletionIDs.add(id), delete brainRef.user.eveUserIDs?.[id];
 					await forage({ mode: 'set', what: 'past', id, val: Object.assign(obj, { ...(type.startsWith('a') && { pastUsers: attendees }) }) });
 				}
@@ -310,31 +312,31 @@ const handleStaleContent = async (ctx, data) => {
 
 		if (!deletionIDs.size) continue;
 		delete brainRef.scrollTo, delete brainRef.citiesLoadData;
-		await forage({ mode: 'del', what: arrKey, id: deletionIDs });
+		await forage({ mode: 'del', what: arrKey, id: [...deletionIDs] as any });
 		const commentsToDel = new Set();
 		const nowStamp = Date.now();
 		const interactionArrs = arrKey === 'events' ? ['eveInters', 'rateEve', 'rateComm'] : ['linkUsers', 'rateUsers'];
 		const usersToClean = [brainRef.user, brainRef.user.unstableObj].filter(Boolean);
 
 		if (arrKey === 'events') {
-			for (const id of deletionIDs) {
-				const commsPayload = brainRef.events[id]?.commsData || (await forage({ mode: 'get', what: 'comms', id }))?.commsData || [];
+			for (const id of [...deletionIDs] as any[]) {
+				const commsPayload = (brainRef.events as any)?.[id]?.commsData || (await forage({ mode: 'get', what: 'comms', id: id as any }))?.commsData || [];
 				for (const comment of commsPayload) {
 					for (const reply of comment.repliesData || []) commentsToDel.add(reply.id);
 					commentsToDel.add(comment.id);
 				}
-				await forage({ mode: 'del', what: 'comms', id });
+				await forage({ mode: 'del', what: 'comms', id: id as any });
 				bestOfIDsSet.delete(id), delete brainRef.user.eveUserIDs?.[id], delete brainRef.user.invites?.[id];
 				delete brainRef[arrKey][id];
 			}
-		} else for (const id of deletionIDs) delete brainRef[arrKey][id];
+		} else for (const id of [...deletionIDs] as any[]) delete brainRef[arrKey][id];
 
 		const cleanSearchResults = userObj => {
 			if (!userObj?.search) return;
 			Object.keys(userObj.search).forEach(key => {
 				const bucket = userObj.search[key];
 				if (!bucket?.[arrKey]) return;
-				bucket[arrKey] = Object.fromEntries(Object.entries(bucket[arrKey]).map(([subKey, results]) => [subKey, results.filter(e => !deletionIDs.has(e.id))]));
+				bucket[arrKey] = Object.fromEntries(Object.entries(bucket[arrKey] as any).map(([subKey, results]) => [subKey, (results as any[])?.filter(e => !deletionIDs.has((e as any).id))]));
 			});
 		};
 
@@ -382,23 +384,25 @@ const persistToDevice = async (ctx, data) => {
 
 // LOAD FOUNDATION DATA ---------------------------------------------------------
 // Steps: hydrate brain from device, decide incremental fetch plan, fetch foundation payload, apply auth/user, hydrate cached content, ensure location, process metas/content, prune stale content, then persist updated state back to device.
-export async function foundationLoader({ url, isFastLoad = false, brain: brainParam } = {}) {
-	const brainRef = ensureBrainRef(brainParam);
+export async function foundationLoader({ url, isFastLoad = false, brain: brainParam }: any = {}) {
+	// PARAM TYPES OVERRIDE ---------------------------------------------------------
+	// Steps: treat loader args as dynamic (router supplies varying shapes); keep runtime behavior but prevent `{}`-typed destructuring from cascading.
+	const brainRef: any = ensureBrainRef(brainParam);
 	try {
 		const [path, token, urlParams] = [window.location.pathname, await forage({ mode: 'get', what: 'token' }), new URLSearchParams(window.location.search)];
 		if (shouldSkipLoad(path, urlParams, brainRef)) return brainRef;
 		if (!token && !brainRef.isAfterLoginInit) return handleMissingToken(path, brainRef); // Skip token check right after login
 
-		const ctx = { brainRef, isFastLoad, path, urlParams, flags: {}, plan: {}, meta: {}, findCity: null };
-		await hydrateFromDevice(brainRef, ctx.flags);
+		const ctx: any = { brainRef, isFastLoad, path, urlParams, flags: {}, plan: {}, meta: {}, findCity: null };
+		await hydrateFromDevice(brainRef, ctx.flags as any);
 		ctx.findCity = createCityFinder(brainRef);
 		const { newCities, homeView } = parseUrlOverrides(url);
-		const base = newCities ? { cities: JSON.parse(decodeURIComponent(newCities)) } : brainRef.initLoadData || brainRef.user;
+		const base: any = newCities ? { cities: JSON.parse(decodeURIComponent(newCities)) } : brainRef.initLoadData || brainRef.user;
 		const { cities, lastDevSync, lastLinksSync } = base || {};
 		const clientEpoch = await localforage.getItem('authEpoch');
-		ctx.meta = { newCities, homeView, cities, lastDevSync, lastLinksSync, clientEpoch, now: Date.now() };
-		ctx.plan = buildAxiosPlan({ brainRef, path, meta: ctx.meta, flags: ctx.flags, findCity: ctx.findCity });
-		const foundationData = await fetchFoundationData(ctx.plan.axiosPayload);
+		ctx.meta = { newCities, homeView, cities, lastDevSync, lastLinksSync, clientEpoch, now: Date.now() } as any;
+		ctx.plan = buildAxiosPlan({ brainRef, path, meta: ctx.meta, flags: ctx.flags, findCity: ctx.findCity }) as any;
+		const foundationData = await fetchFoundationData((ctx.plan as any).axiosPayload);
 
 		const authResult = await applyAuthAndUser(ctx, foundationData);
 		if (authResult === 'session_expired') {

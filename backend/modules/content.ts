@@ -23,7 +23,7 @@ const getUserSQLs = (userID, IDs, con) => con.execute(`${userSQL} (${IDs.map(() 
 const getEveSQLs = (userID, IDs, con) => con.execute(`${eveSQL} (${IDs.map(() => '?').join(',')})`, [userID, userID, ...IDs]).then(r => r[0]);
 
 // CONTENT HANDLER -------------------------------------------------------------
-// TODO put owner into eveBasi and  filter the events by blocked owners
+// TODO put owner into eveBasics and  filter the events by blocked owners
 
 /** ----------------------------------------------------------------------------
  * CONTENT
@@ -53,7 +53,7 @@ async function Content(req, res) {
 		// REDIS CACHE FETCH ---------------------------------------------------
 		// Steps: pipeline hgetall per requested ID, then stitch results back into {id->hash} map.
 		if (filteredIDs.length) {
-			for (const id of filteredIDs) pipeline.hgetall(contView === 'events' ? `eveBasi:${id}` : `userBasi:${id}`);
+			for (const id of filteredIDs) pipeline.hgetall(contView === 'events' ? `eveBasics:${id}` : `userBasics:${id}`);
 			for (const [idx, [err, data]] of (await pipeline.exec()).entries()) if (!err) basics[filteredIDs[idx]] = data;
 		}
 

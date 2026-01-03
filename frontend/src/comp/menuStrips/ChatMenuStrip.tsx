@@ -9,7 +9,7 @@ import SimpleProtocol from '../SimpleProtocol';
  * Manages action menu for chats (mute, leave, block, archive, etc.)
  * Provides confirmation dialogs for critical actions.
  * -------------------------------------------------------------------------- */
-const ChatMenuStrip = ({ obj = {}, chatMan, modes, isSearch, brain = {}, isChatsList, setStatus, setModes, getPunishmentStatus, curView }) => {
+const ChatMenuStrip = ({ obj = {} as any, chatMan, modes, isSearch, brain = {} as any, isChatsList, setStatus, setModes, getPunishmentStatus, curView }: any) => {
 	const { type, messages, muted, members, id, ended, archived, hidden, seen } = obj,
 		me = members?.find(m => String(m.id) === String(brain.user.id)),
 		{ punish, active, who } = getPunishmentStatus(me) || {},

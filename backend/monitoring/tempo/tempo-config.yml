@@ -1,6 +1,8 @@
 server:
     http_listen_port: 3200
 
+# DISTRIBUTOR ---
+# Receives traces via OTLP protocols
 distributor:
     receivers:
         otlp:
@@ -8,6 +10,13 @@ distributor:
                 http:
                 grpc:
 
+# INGESTER ---
+# Batches and writes traces to storage
+ingester:
+    max_block_duration: 5m
+
+# STORAGE ---
+# Local filesystem backend for single-node deployments
 storage:
     trace:
         backend: local
@@ -16,9 +25,8 @@ storage:
         local:
             path: /var/tempo/traces
 
+# COMPACTOR ---
+# Retention and compaction settings
 compactor:
     compaction:
         block_retention: 72h
-
-
-

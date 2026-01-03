@@ -13,6 +13,7 @@ import {
 	clusterWorkerCpuUsagePercentGauge,
 } from '../startup/metrics';
 import { getLogger } from '../systems/handlers/logging/index';
+import { handleSubsystemReady, logStartupComplete } from './readiness';
 
 const primaryLogger = getLogger('Primary');
 
@@ -39,11 +40,16 @@ function resolveWorkerId(worker, message) {
 // INBOUND MESSAGE DISPATCH ---
 // Steps: treat worker messages as control-plane signals, resolve stable workerId, then route to the specific handler by message.type.
 export function handleWorkerMessage(worker, message) {
+	// Filter out internal/library messages that don't follow our protocol (e.g. Socket.IO adapter messages)
+	if (!message || typeof message !== 'object' || !message.type) return;
+
 	const workerId = resolveWorkerId(worker, message);
 	switch (message.type) {
 		case 'worker_ready':
-			DEBUG_LOG_ENABLED && primaryLogger.info(`[Primary] Processing worker_ready for workerId: "${workerId}"`);
 			handleWorkerReady(workerId);
+			break;
+		case 'subsystem_ready':
+			handleSubsystemReady(workerId, message.subsystem);
 			break;
 		case 'worker_status':
 			handleWorkerStatus(workerId, message);
@@ -52,7 +58,7 @@ export function handleWorkerMessage(worker, message) {
 			handleHelperCountUpdate(workerId, message.helperCount);
 			break;
 		default:
-			DEBUG_LOG_ENABLED && primaryLogger.info(`[Primary] Unknown message type: ${message.type} from worker ${workerId}`);
+			DEBUG_LOG_ENABLED && primaryLogger.info(`[Primary] Unknown message type: ${message.type} from worker ${workerId}`, { message });
 			break;
 	}
 }
@@ -68,8 +74,8 @@ function handleWorkerReady(workerId) {
 	if (!status.isReady) {
 		(status.isReady = true), primaryState.workersReady++;
 		clusterWorkersReadyGauge.set(primaryState.workersReady);
-		if (primaryState.workersReady === primaryState.totalWorkers) DEBUG_LOG_ENABLED && primaryLogger.info(`[Primary] 🚀 All workers ready`);
-	} else DEBUG_LOG_ENABLED && primaryLogger.info(`[Primary] Worker ${workerId} already ready`);
+		if (primaryState.workersReady === primaryState.totalWorkers) logStartupComplete();
+	}
 }
 
 // TELEMETRY AGGREGATION ---
@@ -207,11 +213,8 @@ function restartWorker(workerId, isTaskWorker) {
 // Steps: after a short grace window, log which workers are still pending so operators can identify stuck boots.
 export function checkStartupCompletion() {
 	if (primaryState.workersReady === primaryState.totalWorkers) return;
-	const readyWorkers = [],
-		pendingWorkers = [];
-	for (const [workerId, status] of primaryState.workerStatus.entries()) status.isReady ? readyWorkers.push(workerId) : pendingWorkers.push(workerId);
-	if (pendingWorkers.length > 0) {
-		DEBUG_LOG_ENABLED && primaryLogger.info(`[Primary] WARNING: ${pendingWorkers.length} pending: ${pendingWorkers.join(', ')}`);
-		DEBUG_LOG_ENABLED && primaryLogger.info(`[Primary] Ready: ${readyWorkers.join(', ')}`);
-	}
+	const pendingWorkers = [];
+	for (const [workerId, status] of primaryState.workerStatus.entries()) if (!status.isReady) pendingWorkers.push(workerId);
+	// Only log if there are stuck workers after the grace period
+	if (pendingWorkers.length > 0) primaryLogger.alert(`${pendingWorkers.length} workers still pending after 10s: ${pendingWorkers.join(', ')}`);
 }

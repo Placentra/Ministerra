@@ -91,7 +91,7 @@ const ProfileSetup = props => {
 												? 'Chyba serveru, opakuj za 10 sekund'
 												: inform.length > 0
 												? 'Oprav nedostatky výše'
-												: `${bigButtonSrc[name]} ${index < bigButtonSrc.length - 1 ? `(${index + 2}/${Object.keys(bigButtonSrc).length})` : ''}`
+												: `${bigButtonSrc[name]} ${index < Object.keys(bigButtonSrc).length - 1 ? `(${index + 2}/${Object.keys(bigButtonSrc).length})` : ''}`
 										}
 										onClick={() => superMan('bigButton')}
 										className={`${inform.length > 0 ? ` shaStrong ${inform.includes('finalizing') ? 'bDarkGreen' : 'bRed'}` : ' bDarkGreen shaStrong'} boRadM padVerM hover`}
@@ -107,13 +107,13 @@ const ProfileSetup = props => {
 				<div className='flexCol marTopL boRadM marBotL fPadHorS w100 marAuto padAllM bgTransXs shaBlueLight posRel'>
 					<span className=' xBold fs15 inlineBlock marBotXxs'>Krátké představení</span>
 					<p className='fs8 marBotXs mw160 lh1 marAuto '>Pověz ostatním proč by se s tebou měli chtít potkat...</p>
-					{typeof data.shortDesc === 'string' && data.shortDesc.length >= MAX_CHARS.aboutMeMaxChars && (
-						<span className='fs7 tGrey inlineBlock'>Dosažen limit: {MAX_CHARS.aboutMeMaxChars} znaků</span>
+					{typeof data.shortDesc === 'string' && data.shortDesc.length >= MAX_CHARS.userShortDesc && (
+						<span className='fs7 tGrey inlineBlock'>Dosažen limit: {MAX_CHARS.userShortDesc} znaků</span>
 					)}
 					<textarea
 						className='textArea border boRadM bgTransXs w100 shaBlue boRadM padAllM textAli fsB'
 						value={data.shortDesc || ''}
-						maxLength={MAX_CHARS.aboutMeMaxChars}
+						maxLength={MAX_CHARS.userShortDesc}
 						rows={5}
 						onChange={e => superMan('shortDesc', e.target.value)}
 					/>

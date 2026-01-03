@@ -34,7 +34,7 @@ const UserMenuStrip = props => {
 	} = props;
 	const { id } = obj,
 		[selButton, setSelButton] = useState(null),
-		[{ blocked, trusted, linked }, { protocol }] = [status, modes],
+		[{ blocked, trusts, linked }, { protocol }] = [status, modes],
 		role = chatObj.members?.find(m => m.id === brain.user.id)?.role,
 		hasRole = role !== 'member';
 	const { setMenuView, menuView } = useContext(globalContext),
@@ -42,7 +42,7 @@ const UserMenuStrip = props => {
 		[error, setError] = useState(null);
 
 	// ACTION: SETUP NEW CHAT ------------------------------------------------
-	const setupNewChat = ({ content } = {}) => {
+	const setupNewChat = ({ content }: any = {}) => {
 		brain.newPrivateChat = { otherMember: obj, content };
 		storeMenuViewState(menuView === 'gallery' ? 'gallery' : menuView || 'chats', galleryMode || null, id);
 		if (menuView !== 'chats') setMenuView('chats');
@@ -50,7 +50,7 @@ const UserMenuStrip = props => {
 		else setMenuView(null), setTimeout(() => setMenuView('chats'), 0);
 	};
 
-	const setMode = (m, v) => setModes(p => ({ ...Object.keys(p).reduce((acc, k) => ({ ...acc, [k]: false }), {}), actions: true, menu: modes.menu, [m]: v !== undefined ? v : !p[m] }));
+	const setMode = (m, v = undefined) => setModes(p => ({ ...Object.keys(p).reduce((acc, k) => ({ ...acc, [k]: false }), {}), actions: true, menu: modes.menu, [m]: v !== undefined ? v : !p[m] }));
 
 	// ACTION: HANDLE TRUST --------------------------------------------------
 	const handleTrust = async () => {
@@ -71,7 +71,7 @@ const UserMenuStrip = props => {
 	// MENU ACTIONS MAPPING --------------------------------------------------
 	const src = Object.fromEntries(
 		Object.entries({
-			připojit: !obj.blocked && !obj.trusted && !obj.linked && obj.id != brain.user.id ? () => setMode('protocol', protocol ? false : 'link') : null,
+			připojit: !obj.blocked && !obj.trusts && !obj.linked && obj.id != brain.user.id ? () => setMode('protocol', protocol ? false : 'link') : null,
 			přijmout:
 				galleryMode === 'requests' && obj.linked === 'in'
 					? async () => {
@@ -91,8 +91,8 @@ const UserMenuStrip = props => {
 				!obj.blocked && !isPast && isCardOrStrip
 					? async () => showUsersProfile({ obj, brain, chatObj, setModes: n => setModes({ ...n(), profile: n().profile || null, menu: true }), modes, setStatus })
 					: null,
-			důvěřovat: !trusted && (galleryMode === 'requests' ? linked === true : galleryMode === 'links' ? linked !== false : false) ? () => setMode('trust', modes.trust ? false : true) : null,
-			oddůvěřit: ['links', 'trusted'].includes(galleryMode) && trusted ? () => linksHandler({ mode: 'untrust', ...propss }) : null,
+			důvěřovat: !trusts && (galleryMode === 'requests' ? linked === true : galleryMode === 'links' ? linked !== false : false) ? () => setMode('trust', modes.trust ? false : true) : null,
+			oddůvěřit: ['links', 'trusts'].includes(galleryMode) && trusts ? () => linksHandler({ mode: 'untrust', ...propss }) : null,
 			pozvat: !status.blocked && obj.id !== brain.user.id && (galleryMode !== 'requests' || (obj.linked === true && obj.id !== brain.user.id)) ? () => setMode('invite') : null,
 			blokovat: !isSearch && !isChatMember && !status.blocked && obj.id !== brain.user.id ? () => blocksHandler({ ...propss, mode: blocked ? 'unblock' : 'block' }) : null,
 			odblokovat: status.blocked ? () => blocksHandler({ ...propss, mode: 'unblock' }) : null,
@@ -103,7 +103,7 @@ const UserMenuStrip = props => {
 					? () => setMode('protocol', modes.protocol === 'punish' ? null : 'punish')
 					: null,
 			odpojit: linked === true ? () => linksHandler({ mode: 'unlink', ...propss }) : null,
-			poznámka: galleryMode === 'links' || galleryMode === 'trusted' ? () => setMode('protocol', modes.protocol === 'note' ? false : 'note') : null,
+			poznámka: galleryMode === 'links' || galleryMode === 'trusts' ? () => setMode('protocol', modes.protocol === 'note' ? false : 'note') : null,
 		}).filter(([, v]) => v)
 	);
 

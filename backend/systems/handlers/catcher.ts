@@ -54,7 +54,7 @@ const errorStatus = {
 	chatLeaveFailed: 500,
 	chatEndFailed: 500,
 	userLinkUpdateFailed: 500,
-	userTrustedUpdateFailed: 500,
+	userTrustsUpdateFailed: 500,
 	userBlockUpdateFailed: 500,
 	cannotEndPrivateChat: 400,
 };
@@ -116,14 +116,14 @@ const friendlyMessages = {
 	chatLeaveFailed: 'Opuštění chatu selhalo. Zkuste to prosím znovu.',
 	chatEndFailed: 'Ukončení chatu selhalo. Zkuste to prosím znovu.',
 	userLinkUpdateFailed: 'Nepodařilo se upravit spojení s uživatelem. Zkuste to znovu.',
-	userTrustedUpdateFailed: 'Nepodařilo se změnit důvěrnostní vztah. Zkuste to znovu.',
+	userTrustsUpdateFailed: 'Nepodařilo se změnit důvěrnostní vztah. Zkuste to znovu.',
 	userBlockUpdateFailed: 'Nepodařilo se upravit blokování uživatele. Zkuste to prosím znovu.',
 	cannotEndPrivateChat: 'Soukromý chat nelze ukončit.',
 	chatMembersNotFound: 'Členové chatu nebyli nalezeni.',
 };
 
 // FALLBACK MESSAGE -------------------------------------------------------------
-// Default message for unknown/untrusted error codes.
+// Default message for unknown/untrusts error codes.
 const fallbackMessage = 'Něco se pokazilo. Zkuste to prosím znovu.';
 
 // ALIASES ----------------------------------------------------------------------
@@ -155,7 +155,7 @@ const logger = getLogger('Catcher');
 // - translates internal codes into HTTP status + friendly message
 // - optionally redirects auth-related errors for entrance flows
 // Steps: log with bounded request context, map code->status, resolve friendly message, optionally redirect entrance auth errors, otherwise return JSON error envelope.
-export function Catcher({ origin, error, res, req, context = null }) {
+export function Catcher({ origin, error, res = null, req = null, context = null }) {
 	// Log the error
 	logger.error(`${origin}`, {
 		error,

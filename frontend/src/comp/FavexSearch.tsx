@@ -21,7 +21,7 @@ const FavexSearch = props => {
 	const [selFavex, setSelFavex] = useState(catTypesStructure);
 
 	//MANAGER
-	const man = (e, delFrom) => {
+	const man = (e: any, delFrom: any = undefined) => {
 		e = e.target.closest('button').name;
 
 		if (e === 'nonAll') {

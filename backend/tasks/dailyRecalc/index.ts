@@ -6,7 +6,7 @@ import { recalcPastEvents, recalcAffectPastEveUsers } from './pastEvents';
 import { removeInactiveUserSetsFromRedis, updateRedisUserSets } from './userCleanup';
 import { updateChatsChangedStatus, updateChatDeadStatus } from './chatCleanup';
 import { buildRecalcQueries, executeRecalcQueries, cleanupDeletedUsersRedis, cleanupRemovedEventsRedis } from './deletionQueries';
-import { refreshTop100Events, executeFinalQueries, cleanupOldRemUse, executeStatePipelines } from './finalCleanup';
+import { refreshTop100Events, executeFinalQueries, cleanupOldRemUse, executeStatePipes } from './finalCleanup';
 import { cleanupDeletedFiles } from './fileCleanup';
 
 const logger = getLogger('Task:DailyRecalc'),
@@ -41,7 +41,7 @@ async function dailyRecalcWorker(con, redis) {
 				canEve: `SELECT id FROM events WHERE flag = 'can' AND (starts < NOW() OR changed < CURDATE() - INTERVAL 3 MONTH)`,
 				newNameUse: `SELECT user as id FROM changes_tracking WHERE changed_name = TRUE`,
 			},
-			sets = {};
+			sets: any = {};
 
 		for (const [k, q] of Object.entries(mainQueries))
 			try {
@@ -64,7 +64,7 @@ async function dailyRecalcWorker(con, redis) {
 			`UPDATE events SET live_until = GREATEST(live_until, ${endsBoundaryExpr}) WHERE flag = 'ok' AND starts < NOW() AND type NOT LIKE 'a%' AND ends IS NOT NULL AND live_until IS NOT NULL AND live_until < ${endsBoundaryExpr} LIMIT 50000`
 		);
 
-		const [pastEve] = await con.execute(`SELECT id, cityID, type FROM events WHERE live_until <= NOW() AND flag != 'pas'`),
+		const [pastEve] = await con.query(`SELECT id, cityID, type FROM events WHERE live_until <= NOW() AND flag != 'pas'`),
 			pastEveIDs = pastEve.map(e => e.id);
 		const allDelUserIDs = new Set([...delUse, ...delFroUse]),
 			remEventsIDs = new Set([...delEve, ...canEve]);
@@ -90,7 +90,7 @@ async function dailyRecalcWorker(con, redis) {
 		await refreshTop100Events({ con, redis });
 		await executeFinalQueries({ con, redis, inaUse });
 		await cleanupOldRemUse({ redis, now });
-		await executeStatePipelines({ redis, state });
+		await executeStatePipes({ redis, state });
 
 		return {
 			success: true,

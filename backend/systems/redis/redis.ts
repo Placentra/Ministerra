@@ -23,6 +23,7 @@ import { ioRedisSetter as invitesSetter } from '../../modules/invites';
 import { ioRedisSetter as quickQueriesSetter } from '../../modules/chat/quickQueries';
 import { getLogger } from '../handlers/loggers';
 import { createCircuitBreaker } from '../handlers/circuitBreaker';
+import { reportSubsystemReady } from '../../cluster/readiness';
 
 const logger = getLogger('Redis');
 
@@ -78,7 +79,7 @@ function createCircuitBreakerProxy(client) {
 
 			// Wrap command with circuit breaker
 			return function (...args) {
-				// For some operations like multi(), return the original (it returns a Pipeline object)
+				// For some operations like multi(), return the original (it returns a Pipe object)
 				if (prop === 'multi' || prop === 'pipeline') {
 					return value.apply(target, args);
 				}
@@ -105,7 +106,8 @@ let redisClient: any = null,
 	isInitializing = false,
 	initPromise: Promise<void> | null = null,
 	healthCheckInterval: any = null,
-	poolHealthCheckInterval: any = null;
+	poolHealthCheckInterval: any = null,
+	sentinelConfigLogged = false;
 let connectionPool = [],
 	availableConnections = [],
 	pendingAcquisitions = [],
@@ -154,9 +156,9 @@ const env = {
 	REDIS_PASSWORD: process.env.REDIS_PASSWORD,
 	REDIS_TLS: process.env.REDIS_TLS === 'true',
 	// Sentinel support
-	REDIS_USE_SENTINEL: process.env.REDIS_USE_SENTINEL === 'true',
-	REDIS_SENTINEL_NAME: process.env.REDIS_SENTINEL_NAME || 'mymaster',
-	REDIS_SENTINELS: process.env.REDIS_SENTINELS || '', // host1:26379,host2:26379,host3:26379
+	REDIS_USE_SENTINEL: String(process.env.REDIS_USE_SENTINEL || '').trim() === 'true',
+	REDIS_SENTINEL_NAME: String(process.env.REDIS_SENTINEL_NAME || 'mymaster').trim(),
+	REDIS_SENTINELS: String(process.env.REDIS_SENTINELS || '').trim(), // host1:26379,host2:26379,host3:26379
 	REDIS_SENTINEL_PASSWORD: process.env.REDIS_SENTINEL_PASSWORD,
 };
 const {
@@ -202,7 +204,7 @@ function getRedisConfig(): RedisOptions {
 	};
 	if (REDIS_TLS) base.tls = {};
 	if (env.REDIS_USE_SENTINEL) {
-		const sentinels = String(process.env.REDIS_SENTINEL_NAME || env.REDIS_SENTINEL_NAME || '')
+		const sentinels = String(process.env.REDIS_SENTINELS || env.REDIS_SENTINELS || '')
 			.split(',')
 			.map(s => s.trim())
 			.filter(Boolean)
@@ -210,13 +212,17 @@ function getRedisConfig(): RedisOptions {
 				const [host, port] = s.split(':');
 				return { host, port: Number(port) || 26379 };
 			});
-		return {
+
+		const sentinelPassword = String(process.env.REDIS_SENTINEL_PASSWORD || env.REDIS_SENTINEL_PASSWORD || '').trim() || undefined;
+		const sentinelConfig = {
 			...base,
 			sentinels,
 			name: process.env.REDIS_SENTINEL_NAME || env.REDIS_SENTINEL_NAME || 'mymaster',
-			sentinelPassword: process.env.REDIS_SENTINEL_PASSWORD || env.REDIS_SENTINEL_PASSWORD || undefined,
+			sentinelPassword,
 			role: 'master',
 		};
+		// NOTE: Sentinel config log removed - 20 workers x multiple connections = 40+ logs
+		return sentinelConfig;
 	}
 	return {
 		...base,
@@ -430,14 +436,13 @@ async function createPoolConnection() {
 // Bootstraps a minimum number of pooled connections and starts periodic health checks.
 async function initializeConnectionPool() {
 	if (isPoolInitialized) return;
-	logger.info('redis.pool_init_start', { minSize: REDIS_POOL_MIN_SIZE, maxSize: REDIS_POOL_SIZE });
 	try {
 		const conns = await Promise.all(Array(REDIS_POOL_MIN_SIZE).fill(undefined).map(createPoolConnection));
-		connectionPool = [...conns]; // Separate array references to avoid mutation issues ---------------------------
+		connectionPool = [...conns];
 		availableConnections = [...conns];
 		poolHealthCheckInterval = setInterval(monitorPoolHealth, REDIS_HEALTH_CHECK_INTERVAL);
 		isPoolInitialized = true;
-		logger.info('Redis pool ready', { size: conns.length });
+		// NOTE: Removed pool ready log - redis.ready is sufficient
 	} catch (err) {
 		logger.error('redis.pool_init_failed', { error: err });
 		for (const c of connectionPool) c.quit().catch(() => {});
@@ -510,42 +515,24 @@ export async function initializeRedisClient() {
 				return;
 			}
 			attempts++;
-			logger.info('redis.connect_attempt', { attempt: attempts, maxAttempts: REDIS_MAX_ATTEMPTS });
+			// NOTE: Removed per-attempt logs - only log on success or final failure
 			redisClient = new ioRedis(getRedisConfig());
 			redisClient.on('error', err => logger.error('redis.client_error', { error: err }));
-			redisClient.on('connect', () => {
-				logger.info('redis.connected');
-				connectionState = 'connected';
-			});
+			redisClient.on('connect', () => connectionState = 'connected');
 			redisClient.on('ready', () => {
-				logger.info('Redis client ready');
 				connectionState = 'connected';
-
-				// Wrap Redis client with circuit breaker proxy
 				const wrappedClient = createCircuitBreakerProxy(redisClient);
-
-				clientSetters.forEach(s => {
-					try {
-						s(wrappedClient);
-					} catch (err) {
-						logger.error('redis.setter_error', { error: err, setter: s?.name || 'anonymous' });
-					}
-				});
-				if (!healthCheckInterval)
-					healthCheckInterval = setInterval(() => {
-						if (redisClient && redisClient.status !== 'ready') logger.alert('redis.not_ready', { status: redisClient.status });
-					}, REDIS_HEALTH_CHECK_INTERVAL);
+				clientSetters.forEach(s => { try { s(wrappedClient); } catch (err) { logger.error('redis.setter_error', { error: err }); } });
+				if (!healthCheckInterval) healthCheckInterval = setInterval(() => {
+					if (redisClient && redisClient.status !== 'ready') logger.alert('redis.not_ready', { status: redisClient.status });
+				}, REDIS_HEALTH_CHECK_INTERVAL);
 			});
 			redisClient.on('end', () => {
-				logger.info('Redis connection ended');
 				connectionState = 'disconnected';
 				if (healthCheckInterval) clearInterval(healthCheckInterval), (healthCheckInterval = null);
 				replaceRedisClient();
 			});
-			redisClient.once('ready', () => {
-				logger.info('redis.init_success');
-				resolve();
-			});
+			redisClient.once('ready', () => resolve());
 			redisClient.once('error', err => {
 				logger.error('redis.connect_attempt_failed', { error: err, attempt: attempts });
 				if (redisClient) redisClient.quit().catch(() => {}), (redisClient = null);
@@ -557,6 +544,7 @@ export async function initializeRedisClient() {
 	try {
 		await initPromise;
 		initializeConnectionPool().catch(err => logger.error('redis.pool_init_failed', { error: err }));
+		reportSubsystemReady('REDIS');
 	} finally {
 		isInitializing = false;
 		initPromise = null;

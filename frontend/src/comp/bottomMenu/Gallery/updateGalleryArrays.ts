@@ -1,6 +1,6 @@
 // UPDATE GALLERY ARRAYS --------------------------------------------------------
 // Steps: mutate brain.user.galleryIDs buckets by adding/removing a single itemId across multiple categories; supports both flat arrays and {sortKey->array} shapes.
-export function updateGalleryArrays(brain, itemId, operations = {}) {
+export function updateGalleryArrays(brain, itemId, operations: any = {}) {
 	const {
 		addToOwn,
 		addToInt,
@@ -11,8 +11,8 @@ export function updateGalleryArrays(brain, itemId, operations = {}) {
 		removeFromLinks,
 		addToRequests,
 		removeFromRequests,
-		addToTrusted,
-		removeFromTrusted,
+		addToTrusts,
+		removeFromTrusts,
 		addToBlocks,
 		removeFromBlocks,
 		addToInvitesIn,
@@ -59,13 +59,13 @@ export function updateGalleryArrays(brain, itemId, operations = {}) {
 	if (removeFromSurMay) removeFromGalleryArray('futuSurMay');
 
 	// USER OPERATIONS ----------------------------------------------------------
-	// Steps: keep relationship buckets (links/requests/trusted/blocks) consistent for both UI lists and local filtering logic.
+	// Steps: keep relationship buckets (links/requests/trusts/blocks) consistent for both UI lists and local filtering logic.
 	if (addToLinks) addToGalleryArray('links');
 	if (removeFromLinks) removeFromGalleryArray('links');
 	if (addToRequests) addToGalleryArray('requests');
 	if (removeFromRequests) removeFromGalleryArray('requests');
-	if (addToTrusted) addToGalleryArray('trusted');
-	if (removeFromTrusted) removeFromGalleryArray('trusted');
+	if (addToTrusts) addToGalleryArray('trusts');
+	if (removeFromTrusts) removeFromGalleryArray('trusts');
 	if (addToBlocks) addToGalleryArray('blocks');
 	if (removeFromBlocks) removeFromGalleryArray('blocks');
 

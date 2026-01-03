@@ -54,8 +54,8 @@ const timeLabel = {
 function Home(props) {
 	// OUTLET PROPS, VARIABLES, REFS ------------------------------------------------------
 	const { isMobile, brain, initialize, setInitialize, nowAt, setMenuView, loader } = props,
-		[snap, setSnap] = useState(),
-		snapAvail = useRef({}),
+		[snap, setSnap] = useState<any>(null),
+		snapAvail = useRef<any>({}),
 		[show, setShow] = useState(showObj),
 		modify = useCallback(
 			(prop, val) =>
@@ -140,7 +140,9 @@ function Home(props) {
 
 			const allTypesAnytime = new Set(citiesAvail['anytime'] || []);
 			const allTypesInSelTime = new Set(citiesAvail[time] || []);
-			const avaTypes = [...allTypesInSelTime].filter(type => cats.some(cat => catTypesStructure.get(cat).ids.includes(type))).sort((a, b) => a - b);
+			const avaTypes = [...allTypesInSelTime]
+				.filter(type => cats.some(cat => catTypesStructure.get(cat).ids.includes(type)))
+				.sort((a, b) => Number(a) - Number(b));
 
 			if (returnTypes) return avaTypes;
 

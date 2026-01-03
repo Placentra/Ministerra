@@ -94,7 +94,7 @@ const decodeResponseData = (data, contentType = '') => {
 		const isBuffer = data instanceof ArrayBuffer || ArrayBuffer.isView(data);
 
 		if (contentType.includes('application/cbor')) {
-			data = decode(isBuffer ? new Uint8Array(data) : data);
+			data = decode(isBuffer ? new Uint8Array(data as any) : (data as any));
 		} else if (contentType.includes('application/json')) {
 			const text = isBuffer ? new TextDecoder().decode(data) : data;
 			data = JSON.parse(text);
@@ -105,16 +105,16 @@ const decodeResponseData = (data, contentType = '') => {
 		if (data && typeof data === 'object' && data.contentMetas) {
 			for (const cityMetas of data.contentMetas) {
 				for (const [id, cborMeta] of Object.entries(cityMetas)) {
-					if (id !== 'cityID' && cborMeta) cityMetas[id] = decode(cborMeta);
+					if (id !== 'cityID' && cborMeta) cityMetas[id] = decode(cborMeta as any);
 				}
 			}
 		}
 		return data;
 	} catch (error) {
-		console.alert('Data decoding fallback triggered:', error);
+		console.warn('Data decoding fallback triggered:', error);
 		// Fallback strategies
 		try {
-			return decode(new Uint8Array(data));
+			return decode(new Uint8Array(data as any));
 		} catch {
 			try {
 				return JSON.parse(new TextDecoder().decode(data));
@@ -207,7 +207,7 @@ function App() {
 										reprintToStore = newReprint || (existing ? existing.split(':')[2] : undefined);
 									await forage({ mode: 'set', what: 'token', val: `${token}:${expiry}:${reprintToStore || ''}` });
 								} catch (e) {
-									console.alert('Token store failed:', e);
+									console.warn('Token store failed:', e);
 								}
 							})();
 					}

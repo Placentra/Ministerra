@@ -29,7 +29,7 @@ const logger = getLogger('Alerts');
  * Also exposes delete + unread summary helpers consumed by the frontend.
  * Steps: route by mode: (1) delete one alert, (2) read notif dots from Redis with SQL fallback + recache, (3) fetch alerts with cursor/ID bounds and clear dots/pointers.
  * -------------------------------------------------------------------------- */
-async function Alerts(req, res) {
+async function Alerts(req, res = null) {
 	const { cursor, firstID, lastID, userID, mode, alertId } = req.body;
 	let con, payload;
 	try {
@@ -38,7 +38,7 @@ async function Alerts(req, res) {
 			if (!alertId || !userID) throw new Error('badRequest');
 			con = await Sql.getConnection();
 			await con.execute('DELETE FROM user_alerts WHERE id = ? AND user = ?', [alertId, userID]);
-			return res.status(200).json({ success: true });
+			return res ? res.status(200).json({ success: true }) : { success: true };
 		}
 
 		// GET NOTIFICATION DOTS -----------------------------------------------
@@ -71,6 +71,7 @@ async function Alerts(req, res) {
 				}
 				payload = { chats: chatsState, alerts: alertsState, archive: archiveState, lastSeenAlert: lastSeenAlertState };
 			} else payload = { chats: Number(chats) || 0, alerts: Number(alerts) || 0, archive: Number(archive) || 0, lastSeenAlert: Number(lastSeenAlert) || 0 };
+			return res ? res.status(200).json(payload) : payload;
 		}
 
 		// FETCH ALERTS LIST ---------------------------------------------------

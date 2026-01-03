@@ -1,7 +1,7 @@
 import { Catcher, Streamer, Writer } from '../systems/systems';
 import { decode } from 'cbor-x';
 import { getIDsString } from '../../shared/utilities';
-import { getStateVariables, processUserMetas, processNewUsers, fillContentPipeline, fillBasiDetaPipe, clearState, processRecEveMetas } from '../utilities/contentHelpers';
+import { getStateVariables, processUserMetas, processNewUsers, loadMetaPipes, loadBasicsDetailsPipe, clearState, processRecEveMetas } from '../utilities/contentHelpers';
 import { getLogger } from '../systems/handlers/logging/index';
 import { REDIS_KEYS, USER_GENERIC_KEYS } from '../../shared/constants';
 import { invalidateEventCache } from '../modules/event';
@@ -51,14 +51,14 @@ async function processUserInteractions(con, redis) {
 
 		const toAck = new Map(); // streamName => ids[]
 
-		const newEveCommsCounts = await redis.hgetall('newEveCommsCounts');
+		const newEveCommsCounts = await redis.hgetall(REDIS_KEYS.newEveCommsCounts);
 		const newEveCommsEventIDs = Object.keys(newEveCommsCounts);
 		for (const [eventID, newCommsCount] of Object.entries(newEveCommsCounts)) {
 			eveSumScoreAttendComms.set(eventID, [eventID, 0, 0, 0, 0, newCommsCount]);
 		}
 		// Clear processed comment counts to prevent double-counting on next run
 		if (newEveCommsEventIDs.length) {
-			await redis.hdel('newEveCommsCounts', ...newEveCommsEventIDs);
+			await redis.hdel(REDIS_KEYS.newEveCommsCounts, ...newEveCommsEventIDs);
 		}
 
 		// STREAM DRAIN ---------------------------------------------------------
@@ -137,7 +137,7 @@ async function processUserInteractions(con, redis) {
 			}
 
 			const table = tablesToTrack[tableIndex] || 'comments';
-			const [statsSumMap, ratingAwardsMap] = {
+			const [statsSumMap, ratingAwardsMap]: any = {
 				eve_inters: [eveSumScoreAttendComms],
 				eve_rating: [eveSumScoreAttendComms, eveUserMarkAwards],
 				user_rating: [userSumScore, userUserMarkAwards],
@@ -216,7 +216,7 @@ async function processUserInteractions(con, redis) {
 						const changes = eveSumScoreAttendComms.get(id);
 						if (changes) {
 							const [, eveScoreChange, surelyChange, maybeChange, interestedChange, commentsChange] = changes;
-							if (interestedChange) basiInterUpdatePipe.hincrby(`${REDIS_KEYS.eveBasi}:${id}`, 'interrested', interestedChange);
+							if (interestedChange) basiInterUpdatePipe.hincrby(`${REDIS_KEYS.eveBasics}:${id}`, 'interrested', interestedChange);
 							if (meta[eveTypeIdx].startsWith('a')) friendlyAffectedEveIDs.add(id);
 							(meta[eveSurelyIdx] += surelyChange || 0),
 								(meta[eveMaybeIdx] += maybeChange || 0),
@@ -312,7 +312,7 @@ async function processUserInteractions(con, redis) {
 
 		// create pipelines pipelines
 		const [deletionsPipe, metasPipe, basiDetaPipe, privsPipe, attenPipe] = Array.from({ length: 5 }, () => redis.pipeline());
-		fillContentPipeline(state, metasPipe, attenPipe, 'userInteractions'), fillBasiDetaPipe(state, basiDetaPipe);
+		loadMetaPipes(state, metasPipe, attenPipe, 'userInteractions'), loadBasicsDetailsPipe(state, basiDetaPipe);
 		// Prepare SQL batch update tasks
 		const tasksConfig = [
 			{
@@ -358,7 +358,7 @@ async function processUserInteractions(con, redis) {
 				const validPairs = bestOfIDs.map((id, i) => [id, bestMetas[i] || null]).filter(([, meta]) => meta != null);
 				if (validPairs.length > 0) {
 					await redis.hset(REDIS_KEYS.topEvents, Object.fromEntries(validPairs));
-					await redis.set('last100BestEventsRecalc', String(now));
+					await redis.set(REDIS_KEYS.last100BestEventsRecalc, String(now));
 				} else {
 					logger.alert('userInteractions.best_of_missing_meta', { bestOfCount: bestOfIDs.length });
 				}

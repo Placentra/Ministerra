@@ -43,12 +43,12 @@ import { updateGalleryArrays } from '../comp/bottomMenu/Gallery/updateGalleryArr
 import { notifyGlobalError } from '../hooks/useErrorsMan';
 import EventHeaderImage from '../comp/EventHeaderImage';
 
-function Editor(props) {
-	const { quickType = null, showMan, nowAt, brain } = useOutletContext() || props;
-	const loaderEvent = useLoaderData(),
+function Editor(props: any) {
+	const { quickType = null, showMan, nowAt, brain } = ((useOutletContext() as any) || props) as any;
+	const loaderEvent = useLoaderData() as any,
 		navigate = useNavigate(),
 		event = quickType === null ? loaderEvent : null,
-		[data, setData] = useState(
+		[data, setData] = useState<any>(
 			brain.editorData || {
 				...(event
 					? {
@@ -62,20 +62,20 @@ function Editor(props) {
 					: { inter: 'sur', priv: 'pub', type: quickType, locaMode: 'exact' }),
 			}
 		);
-	const [snap, setSnap] = useState({ cats: data.type ? catsSrc.cz.filter(cat => catTypesStructure.get(cat).ids.includes(data.type)) : [catsSrc.cz[0]], types: [data.type] }),
-		{ title, image, meetHow, meetWhen, detail, starts, ends, contacts, fee, links, take, organizer } = data,
-		extraFields = { detail, meet: meetHow || meetWhen, contacts, fee, links, take, organizer },
-		[selExtraFields, setSelExtraFields] = useState(event ? Object.keys(extraFields).filter(key => extraFields[key]) : []),
+	const [snap, setSnap] = useState<any>({ cats: data.type ? catsSrc.cz.filter(cat => catTypesStructure.get(cat).ids.includes(data.type)) : [catsSrc.cz[0]], types: [data.type] }),
+		{ title, image, meetHow, meetWhen, detail, starts, ends, contacts, fee, links, takeWith, organizer } = data,
+		extraFields = { detail, meet: meetHow || meetWhen, contacts, fee, links, takeWith, organizer },
+		[selExtraFields, setSelExtraFields] = useState<any[]>(event ? Object.keys(extraFields).filter(key => extraFields[key]) : []),
 		isQuick = quickType !== null,
-		[fadedIn] = useFadeIn({ mode: isQuick ? 'quick' : 'editor' }),
+		[fadedIn, setFadedIn] = useFadeIn({ mode: isQuick ? 'quick' : 'editor' }) as any,
 		[modes, setModes] = useState({ menu: false, invite: false }),
 		[status, setStatus] = useState({ own: true }),
 		[pendingInvitations, setPendingInvitations] = useState([]),
 		[inviteStatus, setInviteStatus] = useState('idle'),
-		extraFieldsTexts = useRef({}),
+		extraFieldsTexts = useRef<any>({}),
 		[inform, setInform] = useState([]),
-		scrollTarget = useRef(null);
-	const shouldShowAttendanceButtons = isQuick || (!event && (data.type.startsWith('a') || data.title));
+		scrollTarget = useRef<any>(null);
+	const shouldShowAttendanceButtons = isQuick || (!event && (data.type?.startsWith('a') || data.title));
 
 	// INITIAL SCROLL--------------------------------------------------
 	useEffect(() => {
@@ -96,7 +96,7 @@ function Editor(props) {
 	// todo when editing event. need to show also the invited users for some  management. Or maybe just show the count and fetch data on some button click
 
 	// MANAGER -------------------------------------------------------
-	async function man(inp, val) {
+	async function man(inp, val = null) {
 		setInform([]);
 
 		// VALUES SETTING -------------------------------------------
@@ -162,7 +162,15 @@ function Editor(props) {
 				}
 				// REMOVE DESELECTED EXTRA FIELDS FROM REQUEST (editing only) --------------------
 				if (event) {
-					const extraFieldKeys = { detail: ['detail'], meet: ['meetHow', 'meetWhen'], contacts: ['contacts'], fee: ['fee'], links: ['links'], take: ['take'], organizer: ['organizer'] };
+					const extraFieldKeys = {
+						detail: ['detail'],
+						meet: ['meetHow', 'meetWhen'],
+						contacts: ['contacts'],
+						fee: ['fee'],
+						links: ['links'],
+						takeWith: ['takeWith'],
+						organizer: ['organizer'],
+					};
 					Object.entries(extraFieldKeys).forEach(([key, dbKeys]) => {
 						if (!selExtraFields.includes(key)) dbKeys.forEach(dbKey => (event[dbKey] ? (axiData[dbKey] = null) : delete axiData[dbKey])); // null to clear existing db value, delete to skip newly typed value
 					});
@@ -450,7 +458,7 @@ function Editor(props) {
 										defaultValue={data['shortDesc']}
 										placeholder='nepovinný stručný popis události ...'
 										className='textArea shaTopLight borBot2 w100  bInsetBlueTopXs noBackground   borTopLight padTopM fPadHorS padBotS textAli fs11'
-										rows='6'
+										rows={6}
 										onChange={e => man('shortDesc', e.target.value)}
 									/>
 
@@ -529,14 +537,14 @@ function Editor(props) {
 											defaultValue={meetHow}
 											placeholder='detaily ke srazu, popis místa, oblečení apod ...'
 											className='textArea    w100 shaBlue shaTop borTop borderBot boRadXs borderLight padTopM padBotXs fPadHorS textAli fsB'
-											rows='4'
-											onChange={e => (man('meetHow', e.target.value), (extraFieldsTexts.meetHow = e.target.value))}
+											rows={4}
+											onChange={e => (man('meetHow', e.target.value), (extraFieldsTexts.current.meetHow = e.target.value))}
 										/>
 									</city-meet>
 								)}
 								{[
 									{ field: 'detail', title: 'Detailní popis události', rows: 10 },
-									{ field: 'take', title: 'Vezměte si s sebou', rows: 3 },
+									{ field: 'takeWith', title: 'Vezměte si s sebou', rows: 3 },
 									{ field: 'contacts', title: 'Důležité kontakty', rows: 3 },
 									{ field: 'fee', title: 'Info ke vstupnému', rows: 3 },
 									{ field: 'links', title: 'Odkazy a weby', rows: 3 },
@@ -568,12 +576,12 @@ function Editor(props) {
 						<privacy-settings class={'block '}>
 							<span className='boldM block textSha marBotXxxs marTopXl opacityL fs8'>Kdo událost uvidí a dorazíš?</span>
 							<privacy-buttons class='flexCen w100 bw25 bPadXs mw130 marAuto marTopXs shaComment borderBot shaComment gapXxs posRel'>
-								{['public', 'links', 'trusted', 'invited', 'owner'].map(button => (
+								{['public', 'links', 'trusts', 'invited', 'owner'].map(button => (
 									<button
 										key={button}
 										className={`${data.priv === button.slice(0, 3) ? `bInsetBlueBotXl tWhite boldS` : 'boldXs'} noBackground fsA   zin1`}
 										onClick={() => man('priv', button.slice(0, 3))}>
-										{button === 'links' ? 'spojenci' : button === 'trusted' ? 'důvěrní' : button === 'public' ? 'Celá komunita' : button === 'owner' ? 'jen já' : 'pozvaní'}
+										{button === 'links' ? 'spojenci' : button === 'trusts' ? 'důvěrní' : button === 'public' ? 'Celá komunita' : button === 'owner' ? 'jen já' : 'pozvaní'}
 									</button>
 								))}
 								<blue-divider class={` hr0-5  block bInsetBlueTopXl borTop bgTrans  posAbs botCen w100     marAuto   `} />
@@ -585,15 +593,17 @@ function Editor(props) {
 					{!event && (data.city || data.cityID) && data.type !== null && data.type !== undefined && (data.type.startsWith('a') || data.title) && (
 						<pending-invitations class='marTopM block'>
 							<Invitations
-								brain={brain}
-								obj={null}
-								mode='eventToUsers'
-								isPreparation={true}
-								selectedItems={pendingInvitations}
-								superMan={man}
-								pendingMode={true}
-								onSuccess={() => {}}
-								downMargin={true}
+								{...({
+									brain,
+									obj: null,
+									mode: 'eventToUsers',
+									isPreparation: true,
+									selectedItems: pendingInvitations,
+									superMan: man,
+									pendingMode: true,
+									onSuccess: () => {},
+									downMargin: true,
+								} as any)}
 							/>
 
 							{/* INVITE STATUS ------------------------------------------------- */}
@@ -611,7 +621,7 @@ function Editor(props) {
 					)}
 
 					{/* EXISTING EVENT INVITATIONS */}
-					{event && <Invitations brain={brain} obj={event} onSuccess={() => setModes(prev => ({ ...prev, invite: false, menu: false }))} downMargin={true} setModes={setModes} />}
+					{event && <Invitations {...({ brain, obj: event, onSuccess: () => setModes(prev => ({ ...prev, invite: false, menu: false })), downMargin: true, setModes } as any)} />}
 
 					{/* INTERREST BUTTONS ------------------------------------------------- */}
 					{shouldShowAttendanceButtons && (

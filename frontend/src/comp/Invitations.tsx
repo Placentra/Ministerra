@@ -14,7 +14,7 @@ function Invitations({
 	brain,
 	obj,
 	onSuccess,
-	downMargin,
+	downMargin = undefined,
 	mode = 'eventToUsers',
 	pendingMode = false,
 	selectedItems: externalSelectedItems,
@@ -25,7 +25,7 @@ function Invitations({
 	galleryMode = '',
 	invitesHandler,
 	topPadding = false,
-}) {
+}: any) {
 	const [selectedItems, setSelectedItems] = useState([]);
 	const [inviteStatus, setInviteStatus] = useState('idle');
 	const [tabMode, setTabMode] = useState();
@@ -55,7 +55,7 @@ function Invitations({
 		else if (isUserToEvents) setSearchCat('events');
 	}, [isUserToEvents, tabMode]);
 
-	async function man({ mode: actionMode, obj: item, userObj }) {
+	async function man({ mode: actionMode, obj: item, userObj }: any) {
 		item = item || userObj;
 		if (pendingMode && (actionMode === 'selectUser' || actionMode === 'selectEvent')) return superMan('pendingInvite', item);
 		if (actionMode === 'selectUser' || actionMode === 'selectEvent') {

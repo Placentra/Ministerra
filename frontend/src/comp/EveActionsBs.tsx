@@ -4,8 +4,8 @@ import IntersPrivsButtons from './IntersPrivsButtons';
 // SOCIAL ICON ASSETS ---
 const src = { Facebook: '/icons/facebook.png', Google: '/icons/google.png', Instagram: '/icons/instagram.png', Twitter: '/icons/twitter.png' };
 
-function EveActionsBs({ obj, nowAt, fadedIn, setModes, brain, status, setStatus, modes, isInactive, thisIs, isPast }) {
-	// INTERS VIEW - REPLACES DEFAULT BUTTONS ---------------------------
+function EveActionsBs({ obj, nowAt, fadedIn, setModes, brain, status, setStatus, modes, isInactive, thisIs, isPast }: any) {
+	// INTERESTS VIEW - REPLACES DEFAULT BUTTONS ---------------------------
 
 	return (
 		<secondary-bs onClick={e => e.stopPropagation()} class={`fadingIn ${fadedIn.includes('BsEvent') ? 'fadedIn' : ''}  flexCol zinMenu posRel marAuto aliStretch w100`}>

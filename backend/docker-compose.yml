@@ -76,7 +76,7 @@ services:
     # Minimal backend for fastest startup (no Redis Sentinel, no monitoring)
     backend-min:
         profiles: ['min']
-        container_name: Mini
+        container_name: Back
         image: node:24.12.0-bullseye
         working_dir: /usr/src/app
         volumes:
@@ -252,6 +252,7 @@ services:
 
     frontend-dev:
         profiles: ['dev', 'min']
+        container_name: Fron
         image: node:24.12.0-bullseye
         working_dir: /app
         volumes:
@@ -272,36 +273,6 @@ services:
         restart: unless-stopped
         labels:
             - 'traefik.enable=false'
-
-    #     zookeeper:
-    #         image: confluentinc/cp-zookeeper:latest
-    #         environment:
-    #             ZOOKEEPER_CLIENT_PORT: 2181
-    #             ZOOKEEPER_TICK_TIME: 2000
-    #         ports:
-    #             - '2181:2181'
-    #         networks:
-    #             - custom_network
-    #         volumes:
-    #             - zookeeper-data:/var/lib/zookeeper
-
-    #     kafka:
-    #         image: confluentinc/cp-kafka:latest
-    #         depends_on:
-    #             - zookeeper
-    #         environment:
-    #             KAFKA_BROKER_ID: 1
-    #             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-    #             KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-    #             KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    #             KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-    #             KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-    #         ports:
-    #             - '9092:9092'
-    #         networks:
-    #             - custom_network
-    #         volumes:
-    #             - kafka-data:/var/lib/kafka/data
 
     redis-primary:
         image: redis:7.4.7
@@ -353,20 +324,20 @@ services:
             - redis-primary
             - redis-replica1
         ports:
-            - '${REDIS_SENTINEL1_PORT:-26379}:26379'
+            - '26379:26379'
         volumes:
             - ./systems/redis:/usr/local/etc/redis:ro
         command:
             - sh
             - -c
-            - >-
-                cp /usr/local/etc/redis/sentinel1.conf /data/sentinel.conf &&
-                sed "s/\\$\\{REDIS_PASSWORD\\}/$${REDIS_PASSWORD}/g" /data/sentinel.conf > /data/sentinel.rendered.conf &&
-                exec redis-sentinel /data/sentinel.rendered.conf
+            - |
+                cp /usr/local/etc/redis/sentinel1.conf /data/sentinel.conf
+                sed -i "s|\$${REDIS_PASSWORD}|$$REDIS_PASSWORD|g" /data/sentinel.conf
+                exec redis-sentinel /data/sentinel.conf
         environment:
             - REDIS_PASSWORD=${REDIS_PASSWORD}
         healthcheck:
-            test: ['CMD-SHELL', 'redis-cli -p 26379 -a "$${REDIS_PASSWORD}" ping | grep PONG'] #  sentinel may be protected, keep check compatible
+            test: ['CMD-SHELL', 'redis-cli -p 26379 -a "$$REDIS_PASSWORD" ping | grep PONG']
             interval: 10s
             timeout: 3s
             retries: 5
@@ -378,20 +349,20 @@ services:
             - redis-primary
             - redis-replica1
         ports:
-            - '${REDIS_SENTINEL2_PORT:-26380}:26379'
+            - '26380:26379'
         volumes:
             - ./systems/redis:/usr/local/etc/redis:ro
         command:
             - sh
             - -c
-            - >-
-                cp /usr/local/etc/redis/sentinel2.conf /data/sentinel.conf &&
-                sed "s/\\$\\{REDIS_PASSWORD\\}/$${REDIS_PASSWORD}/g" /data/sentinel.conf > /data/sentinel.rendered.conf &&
-                exec redis-sentinel /data/sentinel.rendered.conf
+            - |
+                cp /usr/local/etc/redis/sentinel2.conf /data/sentinel.conf
+                sed -i "s|\$${REDIS_PASSWORD}|$$REDIS_PASSWORD|g" /data/sentinel.conf
+                exec redis-sentinel /data/sentinel.conf
         environment:
             - REDIS_PASSWORD=${REDIS_PASSWORD}
         healthcheck:
-            test: ['CMD-SHELL', 'redis-cli -p 26379 -a "$${REDIS_PASSWORD}" ping | grep PONG'] # sentinel may be protected, keep check compatible
+            test: ['CMD-SHELL', 'redis-cli -p 26379 -a "$$REDIS_PASSWORD" ping | grep PONG']
             interval: 10s
             timeout: 3s
             retries: 5
@@ -403,26 +374,27 @@ services:
             - redis-primary
             - redis-replica1
         ports:
-            - '${REDIS_SENTINEL3_PORT:-26381}:26379'
+            - '26381:26379'
         volumes:
             - ./systems/redis:/usr/local/etc/redis:ro
         command:
             - sh
             - -c
-            - >-
-                cp /usr/local/etc/redis/sentinel3.conf /data/sentinel.conf &&
-                sed "s/\\$\\{REDIS_PASSWORD\\}/$${REDIS_PASSWORD}/g" /data/sentinel.conf > /data/sentinel.rendered.conf &&
-                exec redis-sentinel /data/sentinel.rendered.conf
+            - |
+                cp /usr/local/etc/redis/sentinel3.conf /data/sentinel.conf
+                sed -i "s|\$${REDIS_PASSWORD}|$$REDIS_PASSWORD|g" /data/sentinel.conf
+                exec redis-sentinel /data/sentinel.conf
         environment:
             - REDIS_PASSWORD=${REDIS_PASSWORD}
         healthcheck:
-            test: ['CMD-SHELL', 'redis-cli -p 26379 -a "$${REDIS_PASSWORD}" ping | grep PONG'] #  sentinel may be protected, keep check compatible
+            test: ['CMD-SHELL', 'redis-cli -p 26379 -a "$$REDIS_PASSWORD" ping | grep PONG']
             interval: 10s
             timeout: 3s
             retries: 5
         restart: unless-stopped
 
     traefik:
+        profiles: ['prod']
         image: traefik:v3.0
         command:
             - '--providers.docker=true'
@@ -444,29 +416,44 @@ services:
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock:ro
             - traefik-letsencrypt:/letsencrypt
+        healthcheck:
+            test: ['CMD-SHELL', 'traefik healthcheck --ping']
+            interval: 30s
+            timeout: 5s
+            retries: 3
         restart: unless-stopped
 
     redisinsight:
+        profiles: ['dev']
         image: redis/redisinsight:2.70.1
         depends_on:
             - redis-primary
         ports:
             - '${REDISINSIGHT_PORT:-5540}:5540'
+        restart: unless-stopped
 
     prometheus:
+        profiles: ['dev', 'prod']
         image: prom/prometheus:v2.55.1
         restart: unless-stopped
         volumes:
             - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - ./monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
             - ./monitoring/prometheus/secrets:/etc/prometheus/secrets:ro
             - prometheus-data:/prometheus
         command:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.retention.time=15d
+        healthcheck:
+            test: ['CMD-SHELL', 'wget -qO- http://localhost:9090/-/healthy || exit 1']
+            interval: 30s
+            timeout: 5s
+            retries: 3
         ports:
             - '${PROMETHEUS_PORT:-9090}:9090'
 
     alertmanager:
+        profiles: ['dev', 'prod']
         image: prom/alertmanager:v0.29.0
         restart: unless-stopped
         volumes:
@@ -474,12 +461,18 @@ services:
             - alertmanager-data:/alertmanager
         command:
             - --config.file=/etc/alertmanager/alertmanager.yml
+        healthcheck:
+            test: ['CMD-SHELL', 'wget -qO- http://localhost:9093/-/healthy || exit 1']
+            interval: 30s
+            timeout: 5s
+            retries: 3
         ports:
             - '${ALERTMANAGER_PORT:-9093}:9093'
         depends_on:
             - prometheus
 
     grafana:
+        profiles: ['dev', 'prod']
         image: grafana/grafana:10.4.0
         restart: unless-stopped
         environment:
@@ -489,6 +482,11 @@ services:
         volumes:
             - grafana-data:/var/lib/grafana
             - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+        healthcheck:
+            test: ['CMD-SHELL', 'curl -fsS http://localhost:3000/api/health || exit 1']
+            interval: 30s
+            timeout: 5s
+            retries: 3
         ports:
             - '${GRAFANA_PORT:-3000}:3000'
         depends_on:
@@ -497,12 +495,18 @@ services:
             - tempo
 
     loki:
+        profiles: ['dev', 'prod']
         image: grafana/loki:2.9.0
         restart: unless-stopped
         command: -config.file=/etc/loki/config.yml
         volumes:
             - ./monitoring/loki/loki-config.yml:/etc/loki/config.yml:ro
             - loki-data:/loki
+        healthcheck:
+            test: ['CMD-SHELL', 'wget -qO- http://localhost:3100/ready || exit 1']
+            interval: 30s
+            timeout: 5s
+            retries: 3
         ports:
             - '${LOKI_PORT:-3100}:3100'
 
@@ -528,45 +532,60 @@ services:
         restart: unless-stopped
         command: -config.file=/etc/promtail/config.yml
         volumes:
-            - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
-            - ./logs/info:/var/log/app/info:ro
-            - ./logs/error:/var/log/app/error:ro
-            - ./logs/access:/var/log/app/access:ro
+            - ./monitoring/promtail/promtail-dev-config.yml:/etc/promtail/config.yml:ro
+            - ./logging/alert:/var/log/app/alert:ro
+            - ./logging/error:/var/log/app/error:ro
+            - ./logging/slow:/var/log/app/slow:ro
         depends_on:
             - loki
             - redis-primary
 
     tempo:
+        profiles: ['dev', 'prod']
         image: grafana/tempo:2.4.1
         restart: unless-stopped
         command: ['-config.file=/etc/tempo/config.yml']
         volumes:
             - ./monitoring/tempo/tempo-config.yml:/etc/tempo/config.yml:ro
             - tempo-data:/var/tempo
+        healthcheck:
+            test: ['CMD-SHELL', 'wget -qO- http://localhost:3200/ready || exit 1']
+            interval: 30s
+            timeout: 5s
+            retries: 3
         ports:
             - '${TEMPO_PORT:-3200}:3200'
 
     otel-collector:
+        profiles: ['dev', 'prod']
         image: otel/opentelemetry-collector-contrib:0.98.0
         restart: unless-stopped
         command: ['--config=/etc/otelcol/config.yaml']
         volumes:
             - ./monitoring/otel-collector/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+        healthcheck:
+            test: ['CMD-SHELL', 'wget -qO- http://localhost:13133/ || exit 1']
+            interval: 30s
+            timeout: 5s
+            retries: 3
         ports:
-            - '${OTEL_GRPC_PORT:-4317}:4317' # OTLP gRPC
-            - '${OTEL_HTTP_PORT:-4318}:4318' # OTLP HTTP
-            - '${OTEL_PROM_PORT:-8889}:8889' # Prometheus exporter (collector metrics)
+            - '${OTEL_GRPC_PORT:-4317}:4317'
+            - '${OTEL_HTTP_PORT:-4318}:4318'
+            - '${OTEL_PROM_PORT:-8889}:8889'
         depends_on:
             - tempo
             - prometheus
 
     node-exporter:
+        profiles: ['dev', 'prod']
         image: prom/node-exporter:v1.9.1
         restart: unless-stopped
         ports:
             - '${NODE_EXPORTER_PORT:-9100}:9100'
 
+    # CADVISOR (Linux-only - requires host filesystem access) ---
     cadvisor:
+        profiles: ['prod']
         image: gcr.io/cadvisor/cadvisor:v0.49.1
         restart: unless-stopped
         ports:
@@ -579,6 +598,7 @@ services:
         privileged: true
 
     redis-exporter:
+        profiles: ['dev', 'prod']
         image: oliver006/redis_exporter:v1.54.0
         restart: unless-stopped
         environment:
@@ -709,7 +729,8 @@ services:
                   SET GLOBAL super_read_only = 1;
                 "
 
-    # Host-exposed MySQL for minimal host-run development
+    # HOST-EXPOSED MYSQL (minimal host-run development) ---
+    # Uses the shared mysql-data volume. Do not run simultaneously with 'mysql' service.
     mysql-host:
         profiles: ['host']
         image: mysql:8.0
@@ -732,17 +753,21 @@ services:
         restart: unless-stopped
 
     mysqld-exporter:
+        profiles: ['dev', 'prod']
         image: prom/mysqld-exporter:v0.17.2
         restart: unless-stopped
+        environment:
+            - MYSQLD_EXPORTER_PASSWORD=${MYSQL_EXPORTER_PASSWORD:-exporterpass}
         command:
-            - --config.my-cnf=/etc/mysqld_exporter/.my.cnf
             - --mysqld.address=mysql:3306
-        volumes:
-            - ./monitoring/mysql/.my.cnf:/etc/mysqld_exporter/.my.cnf:ro
+            - --mysqld.username=mysqld_exporter
         ports:
             - '${MYSQLD_EXPORTER_PORT:-9104}:9104'
+        depends_on:
+            - mysql
 
     blackbox-exporter:
+        profiles: ['dev', 'prod']
         image: prom/blackbox-exporter:v0.27.0
         restart: unless-stopped
         command:
@@ -754,7 +779,9 @@ services:
 
 volumes:
     redis-primary-data:
+    redis-replica1-data:
     backend-node-modules:
+    frontend-node-modules:
     mysql-data:
         name: ${MYSQL_DATA_VOLUME_NAME:-backend_mysql-data}
         external: ${MYSQL_DATA_EXTERNAL:-false}
@@ -765,10 +792,3 @@ volumes:
     tempo-data:
     alertmanager-data:
     traefik-letsencrypt:
-    redis-replica1-data:
-    redis-sentinel1-data:
-    redis-sentinel2-data:
-    redis-sentinel3-data:
-    frontend-node-modules:
-    # kafka-data:
-    # zookeeper-data:

@@ -78,7 +78,7 @@ async function Foundation(req, res) {
 
 		// 2. DATA SYNCHRONIZATION -------------------------------------------------
 		// Steps: clamp sync timestamps, run sync only for init/fast/auth loads, then persist updated watermarks so subsequent calls can be delta-based.
-		let [{ lastDevSync: devSync = 0, lastLinksSync: linksSync = 0 }, user, interactions, delInteractions] = [req.body, null, {}, {}, null];
+		let [{ lastDevSync: devSync = 0, lastLinksSync: linksSync = 0 }, user, interactions, delInteractions] = [req.body, null, {}, {}];
 
 		// SYNC WATERMARKS -------------------------------------------------------
 		// Steps: normalize client-provided timestamps into server-accepted values to prevent rewinds and out-of-order device sync.

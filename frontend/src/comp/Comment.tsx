@@ -33,7 +33,7 @@ function Comment(props) {
 	}, [comment?.id, comment?.repliesData, sortBy, mergeOrSort]);
 
 	// MANAGER HANDLER ---
-	async function man({ mode, content }) {
+	async function man({ mode, content }: any) {
 		await commentsMan({ mode, content, depth, comment, modes, parent, setShowingMenuCommID, superMan, eventID, brain, sortBy, status, setStatus, setModes });
 	}
 

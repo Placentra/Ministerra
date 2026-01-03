@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { passStrength } from '../comp/EntranceForm';
+import { getPasswordStrengthScore } from '../../../shared/utilities';
 import Personals from '../comp/Personals';
 import { emailCheck } from '../variables';
 import { REVERT_EMAIL_DAYS } from '../../../shared/constants';
@@ -124,12 +124,12 @@ const AdvancedSetup = props => {
 		<advanced-config class='fPadHorXs block  shaStrong   posRel block  boRadL'>
 			{<span className='xBold marBotXs inlineBlock marBotXl  borRed padVerXs tDarkBlue textSha fs30'>{'Pokročilé nastavení'}</span>}
 
-			{/* INTERESTS AND PRIVACY ------------------------------ */}
+			{/* INTERESTS AND PRIVACIES ------------------------------ */}
 			<interests-privacy class='padTopS w100 flexCol'>
 				<span className='xBold fs13  inlineBlock  marBotXxxs '>Kdo uvidí tvé účasti?</span>
 				<p className='fs8  mw160 lh1-3 marAuto tDarkBlue'>Chceš aby se nabídka soukromí zobrazovala automaticky a nebo jen když budeš chtít?</p>
 
-				{/* PRIVACY OPTIONS -------------------------------- */}
+				{/* PRIVACIES OPTIONS -------------------------------- */}
 
 				<privacy-choice class='flexCen w100 aliStretch  posRel    growAll '>
 					{Object.entries(attenVisibSrc).map(([option, { title, descrip }]) => (
@@ -160,15 +160,15 @@ const AdvancedSetup = props => {
 					))}
 				</privacy-choice>
 
-				{/* PRIVACY MENU ACTIVATION (ON DEMAND / ALWAYS) -------------------------*/}
+				{/* PRIVACIES MENU ACTIVATION (ON DEMAND / ALWAYS) -------------------------*/}
 				{data.priv === 'ind' && (
 					<ask-privacy class=' posRel  w100 mw92  padTopXs bgTransXs  marAuto boRadM marTopS bPadVerM '>
-						{/* PRIVACY PROMPT TOGGLE ---------------------------------------------------- */}
+						{/* PRIVACIES PROMPT TOGGLE ---------------------------------------------------- */}
 						<input
 							checked={Boolean(data.askPriv)}
 							onChange={e => superMan('askPriv', e.target.checked)}
 							type='checkbox'
-							style={{ '&:checked': { color: 'blue' } }}
+							style={{ '&:checked': { color: 'blue' } } as any}
 							className='textAli  borderBot boRadXs mih3 marBotXxs mw100 marAuto w100 fs11 boldXs'
 						/>
 						<span className='xBold  inlineBlock fs13'>Ptát se na soukromí?</span>
@@ -285,7 +285,7 @@ const AdvancedSetup = props => {
 								<access-bs class='flexCen mw120 marAuto marBotS w100 gapXxs'>
 									{[true, false].map(b => (
 										<button
-											key={b}
+											key={String(b)}
 											onClick={() => superMan('hasAccessToCurMail', b)}
 											className={`${
 												hasAccessToCurMail === b ? 'bInsetBlueTopXs borTop tDarkBlue posRel boldM fs15' : 'bgWhite shaBlueLight tDarkBlue hover fs12'
@@ -331,7 +331,7 @@ const AdvancedSetup = props => {
 										ref={passRef}
 										onChange={e => {
 											clearTimeout(submitButtonTimeout.current);
-											setRevealSubmitButton(passStrength(false, e.target.value) >= 7);
+											setRevealSubmitButton(getPasswordStrengthScore(false, e.target.value) >= 7);
 											superMan('pass', e.target.value);
 										}}
 										className={`${!revealSubmitButton ? '' : ''} textAli shaBlueLight 	 boRadXs hvh4 mih4 mw120 marAuto w100 fs11 boldXs padAllS`}

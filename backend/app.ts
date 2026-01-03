@@ -39,6 +39,7 @@ import { CONFIG, MIN_MODE, validateEnv } from './startup/config';
 import { clusterWorkersTotalGauge } from './startup/metrics';
 import { primaryState, handleWorkerMessage, handleWorkerExit, checkWorkersAndScale, checkStartupCompletion } from './cluster/primary';
 import { initializeWorker, gracefulShutdown } from './cluster/worker';
+import { initReadinessTracker, reportSubsystemReady } from './cluster/readiness';
 
 // TODO need to implement check if previous backup (any of the 3 types) was done on server start, and if not, do it right away.
 // TODO import all modules into one file and export a function, which accepts array of names and returns an object with all the modules
@@ -164,7 +165,7 @@ const metricsLogger = getLogger('Metrics');
 							metricsLogger.error('Metrics auth failed', { error: err.message });
 							res.statusCode = 500; res.end('Internal Server Error'); return;
 						}
-						try { const metrics = await aggregatorRegistry.clusterMetrics({ timeout: 15000 }); res.setHeader('Content-Type', client.register.contentType); res.end(metrics); } 
+						try { const metrics = await (aggregatorRegistry as any).clusterMetrics({ timeout: 15000 }); res.setHeader('Content-Type', client.register.contentType); res.end(metrics); } 
 						catch (e) { try { const fallback = await client.register.metrics(); res.setHeader('Content-Type', client.register.contentType); res.end(fallback); } catch (inner) { res.statusCode = 500; res.end(String(e)); } }
 						return;
 					}
@@ -190,6 +191,7 @@ const metricsLogger = getLogger('Metrics');
 			// Periodic scaling is rate-limited in primaryState (cooldown) to avoid thrash.
 			setInterval(() => { checkWorkersAndScale(); }, CONFIG.MONITORING_INTERVAL);
 			setTimeout(() => { checkStartupCompletion(); }, 10000);
+			initReadinessTracker(numCPUs);
 
 			clusterLogger.info(`Forked ${numCPUs} workers (Worker ${CONFIG.TASK_WORKER_ID} handles background tasks)`);
 		} catch (err) { clusterLogger.error('Error in primary process', { error: err }); process.exit(1); }

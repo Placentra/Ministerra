@@ -15,6 +15,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { createCircuitBreaker } from '../handlers/circuitBreaker';
+import { reportSubsystemReady } from '../../cluster/readiness';
 dotenv.config();
 
 // LOGGER SETUP -----------------------------------------------------------------
@@ -346,12 +347,10 @@ const defaultWarmupTable = escapeQualifiedIdentifier(READ_WARMUP_TABLE) || escap
 const warmupSql = READ_WARMUP_SQL || (defaultWarmupTable ? `SELECT 1 FROM ${defaultWarmupTable} LIMIT 1` : null);
 
 // TOGGLE READ SPLIT ------------------------------------------------------------
-// Steps: flip routing on warmup success/failure (and future toggles), and log once so operators can correlate behavior changes.
-const setReadSplitEnabled = (nextState, reason) => {
+// Steps: flip routing on warmup success/failure (and future toggles).
+const setReadSplitEnabled = nextState => {
 	if (readSplitEnabled === nextState) return;
 	readSplitEnabled = nextState;
-	const status = nextState ? 'enabled' : 'disabled';
-	sqlLogger.info(`Replica routing ${status}${reason ? ` (${reason})` : ''}`);
 };
 
 // REPLICA WARMUP SCHEDULER -----------------------------------------------------
@@ -363,7 +362,8 @@ const scheduleReplicaWarmup = (delay = READ_WARMUP_RETRY_MS) => {
 		try {
 			replicaWarmupAttempts += 1;
 			await readPool.execute(warmupSql);
-			setReadSplitEnabled(true, 'warmup query succeeded');
+			setReadSplitEnabled(true);
+			reportSubsystemReady('MYSQL_REPLICA');
 			replicaWarmupTimer && clearTimeout(replicaWarmupTimer);
 			replicaWarmupTimer = null;
 		} catch (error) {
@@ -388,9 +388,11 @@ const scheduleReplicaWarmup = (delay = READ_WARMUP_RETRY_MS) => {
 
 // When read splitting is requested, start in disabled mode until warmup passes.
 if (READ_SPLIT_REQUESTED && warmupSql) {
-	setReadSplitEnabled(false, 'waiting for replica warmup');
+	setReadSplitEnabled(false);
 	scheduleReplicaWarmup(READ_WARMUP_DELAY_MS);
 }
+// Report MySQL primary as ready after module load (deferred to allow cluster init)
+setImmediate(() => reportSubsystemReady('MYSQL_PRIMARY'));
 
 // SQL ROUTING HEURISTICS -------------------------------------------------------
 // Steps: route using cheap string checks (not a parser), avoid lock-sensitive reads on replica, and allow per-query overrides via hints/options.
@@ -426,12 +428,11 @@ const toSqlString = sql => {
 const containsHint = (sqlText, hint) => sqlText.toLowerCase().includes(hint);
 
 // ROUTING OPTIONS --------------------------------------------------------------
-// Steps: keep options narrow and explicit so routing logic can stay cheap and readable.
-type SqlRoutingOptions = { forcePrimary?: boolean; forceReplica?: boolean };
+// NOTE: type-only routing options removed (minimal backend typing).
 
 // SHOULD USE REPLICA? ----------------------------------------------------------
 // Steps: require read split enabled, honor force hints/options, honor suspension window, require read verb prefix, and reject lock-sensitive statements (FOR UPDATE / LOCK IN SHARE MODE).
-const shouldUseReplica = (sql, options: SqlRoutingOptions = {}) => {
+const shouldUseReplica = (sql, options = {}) => {
 	if (!readSplitEnabled) return false;
 	const statement = toSqlString(sql);
 	if (!statement) return false;
@@ -469,12 +470,12 @@ const runOnReplicaWithFallback = async (methodName, sql, params, allowFallback) 
 
 // NORMALIZE ROUTE OPTIONS ------------------------------------------------------
 // Steps: treat non-objects as empty options so callsites can omit/NULL the third argument safely.
-const normalizeOptions = (options: unknown): SqlRoutingOptions => (options && typeof options === 'object' ? (options as SqlRoutingOptions) : {});
+const normalizeOptions = options => (options && typeof options === 'object' ? options : {});
 
 // ROUTED METHOD FACTORY --------------------------------------------------------
 // Steps: build execute/query wrappers that choose replica only when safe, allow explicit forcePrimary/forceReplica, and fall back to primary on replica errors unless replica is forced.
 const createRoutedMethod = methodName => {
-	return async (sql, params, options?: SqlRoutingOptions) => {
+	return async (sql, params, options) => {
 		const opts = normalizeOptions(options);
 		if (opts.forcePrimary) {
 			return writePool[methodName]?.call(writePool, sql, params);
@@ -492,7 +493,7 @@ const routedQuery = createRoutedMethod('query');
 
 // SQL FACADE (PROXY) -----------------------------------------------------------
 // Steps: expose routed execute/query by default, expose explicit escape hatches, and forward everything else to primary so existing mysql2 APIs remain available.
-const Sql = new Proxy(
+const Sql: any = new Proxy(
 	{},
 	{
 		get: (_target, prop) => {
@@ -524,7 +525,7 @@ const Sql = new Proxy(
  * - using SqlRead for anything that must observe a just-written value
  *   (replication lag can break correctness).
  */
-const SqlRead = new Proxy(
+const SqlRead: any = new Proxy(
 	{},
 	{
 		get: (_target, prop) => {
@@ -548,6 +549,54 @@ const closePoolQuietly = async pool => {
 	}
 };
 
+// SCHEMA MIGRATION CHECK -------------------------------------------------------
+// Steps: check if essential version columns exist in `events`, `users`, and `rem_events` tables, and add them if missing.
+// This is a self-healing measure for dev environments with stale schemas.
+const ensureSchemaVersions = async () => {
+	if (process.env.NODE_ENV === 'production') return; // Skip in prod, assume proper migrations run
+	try {
+		const conn = await writePool.getConnection();
+		try {
+			// Events table
+			const [eventsCols] = await conn.query('SHOW COLUMNS FROM events');
+			const eventColNames = (eventsCols as any[]).map(c => c.Field);
+			const eventUpdates = [];
+			if (!eventColNames.includes('basiVers')) eventUpdates.push('ADD COLUMN basiVers INT UNSIGNED NOT NULL DEFAULT 0');
+			if (!eventColNames.includes('detaVers')) eventUpdates.push('ADD COLUMN detaVers INT UNSIGNED NOT NULL DEFAULT 0');
+			if (!eventColNames.includes('shortDesc')) eventUpdates.push('ADD COLUMN shortDesc VARCHAR(255) DEFAULT NULL');
+			if (eventUpdates.length) {
+				await conn.query(`ALTER TABLE events ${eventUpdates.join(', ')}`);
+				sqlLogger.info(`Schema patch: Added [${eventUpdates.map(s => s.split(' ')[2]).join(', ')}] to events`);
+			}
+
+			// Users table
+			const [usersCols] = await conn.query('SHOW COLUMNS FROM users');
+			const userColNames = (usersCols as any[]).map(c => c.Field);
+			const userUpdates = [];
+			if (!userColNames.includes('basiVers')) userUpdates.push('ADD COLUMN basiVers INT UNSIGNED NOT NULL DEFAULT 0');
+			if (!userColNames.includes('imgVers')) userUpdates.push('ADD COLUMN imgVers INT UNSIGNED NOT NULL DEFAULT 0');
+			if (userUpdates.length) {
+				await conn.query(`ALTER TABLE users ${userUpdates.join(', ')}`);
+				sqlLogger.info(`Schema patch: Added [${userUpdates.map(s => s.split(' ')[2]).join(', ')}] to users`);
+			}
+
+			// Rem_Events table (must match events for archival)
+			const [remEventsCols] = await conn.query('SHOW COLUMNS FROM rem_events');
+			const remEventColNames = (remEventsCols as any[]).map(c => c.Field);
+			const remEventUpdates = [];
+			if (!remEventColNames.includes('shortDesc')) remEventUpdates.push('ADD COLUMN shortDesc VARCHAR(255) DEFAULT NULL');
+			if (remEventUpdates.length) {
+				await conn.query(`ALTER TABLE rem_events ${remEventUpdates.join(', ')}`);
+				sqlLogger.info(`Schema patch: Added [${remEventUpdates.map(s => s.split(' ')[2]).join(', ')}] to rem_events`);
+			}
+		} finally {
+			conn.release();
+		}
+	} catch (error) {
+		sqlLogger.error('Schema check failed', { error: error.message });
+	}
+};
+
 // REBUILD PRIMARY POOL ---------------------------------------------------------
 // Steps: close old pool, rebuild with instrumentation, re-attach session hooks, then log success so operators can correlate outage recovery.
 const rebuildWritePool = async () => {
@@ -555,8 +604,12 @@ const rebuildWritePool = async () => {
 	writePool = buildPool(config, 'primary');
 	// Re-attach per-connection session init hooks on the new pool instance
 	initSessionOnPool(writePool, 'primary');
+	await ensureSchemaVersions(); // Re-run schema check on rebuild
 	sqlLogger.info('Primary pool reset successfully');
 };
+
+// Trigger initial schema check
+ensureSchemaVersions();
 
 // REBUILD REPLICA POOL ---------------------------------------------------------
 // Steps: close old pool, rebuild, re-attach session hooks, reset suspension, then re-run warmup gating so reads don't route to an unvalidated replica pool.
@@ -574,7 +627,7 @@ const rebuildReadPool = async () => {
 			clearTimeout(replicaWarmupTimer);
 			replicaWarmupTimer = null;
 		}
-		setReadSplitEnabled(false, 'replica pool rebuilt; waiting for warmup');
+		setReadSplitEnabled(false);
 		scheduleReplicaWarmup(READ_WARMUP_DELAY_MS);
 	}
 	sqlLogger.info('Replica pool reset successfully');
@@ -737,7 +790,7 @@ const backupDatabase = async (filename, type, retries = 3) => {
 						const key = await new Promise<Buffer>((resolve, reject) => {
 							crypto.scrypt(password, salt, 32, (err, derivedKey) => {
 								if (err) reject(err);
-								else resolve(derivedKey as Buffer);
+								else resolve(derivedKey);
 							});
 						});
 						const iv = crypto.randomBytes(12);
@@ -759,7 +812,7 @@ const backupDatabase = async (filename, type, retries = 3) => {
 						reject(new Error(`Encryption error: ${encryptError.message}`));
 					}
 				} else if (pipelineErr) {
-					reject(new Error(`Pipeline error: ${pipelineErr.message}`));
+					reject(new Error(`Pipe error: ${pipelineErr.message}`));
 				} else if (dumpClosedCode !== null && dumpClosedCode !== 0) {
 					const tail = stderr && stderr.length ? ` (stderr tail: ${stderr})` : '';
 					reject(new Error(`mysqldump exited with code ${dumpClosedCode}${tail}`));
@@ -846,7 +899,7 @@ const restoreSQL = async (filename, type) => {
 			const key = await new Promise<Buffer>((resolve, reject) => {
 				crypto.scrypt(password, salt, 32, (err, derivedKey) => {
 					if (err) reject(err);
-					else resolve(derivedKey as Buffer);
+					else resolve(derivedKey);
 				});
 			});
 			const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);

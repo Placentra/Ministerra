@@ -3,7 +3,7 @@ const GenderAge = ({ data, superMan, avail, nowAt, inform }) => {
 	const { minAge: minAvail, maxAge: maxAvail, genders } = avail;
 	let [newMax, newMin] = [(maxAge || maxAvail).toString(), (minAge || minAvail).toString()];
 
-	const man = (inp, val, blur) => {
+	const man = (inp, val, blur = false) => {
 		if (inp === 'minAge') {
 			if (blur) return superMan(inp, val);
 			else if (val.length === minAvail.toString().length && Number(val) < Number(minAvail) && Number(val) > Number(newMax.slice(0, val.length))) val = minAvail;

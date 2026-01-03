@@ -26,7 +26,7 @@ function UserStrip(props) {
 			isNewUser,
 			getPunishmentStatus,
 		} = props,
-		[status, setStatus] = useState({ score: obj.score, blocked: obj.blocked, linked: obj.linked, trusted: obj.trusted, reported: null, unavail: obj.unavail }),
+		[status, setStatus] = useState({ score: obj.score, blocked: obj.blocked, linked: obj.linked, trusts: obj.trusts, reported: null, unavail: obj.unavail }),
 		[modes, setModes] = useState({ profile: false, menu: false, protocol: false, selected: false, invite: false }),
 		{ role } = obj,
 		{ punish, active, until } = getPunishmentStatus?.(obj) || {},
@@ -97,7 +97,7 @@ function UserStrip(props) {
 					{/* SECOND ROW -------------------------------------------------------------- */}
 					{showSecondRow && (
 						<second-row class='flexRow aliCen marBotXxxs wrap textLeft'>
-							{['requests', 'links', 'trusted'].includes(galleryMode) && obj.note && (
+							{['requests', 'links', 'trusts'].includes(galleryMode) && obj.note && (
 								<span className={`fs6  boRadXs   tBlue bold`}>
 									<strong className='xBold tBlue textSha'>Poznámka:</strong> {obj.note}
 								</span>
@@ -248,7 +248,7 @@ function UserStrip(props) {
 						{...{
 							chatObj,
 							isCardOrStrip: true,
-							isProfile: ['requests', 'links', 'trusted'].includes(galleryMode),
+							isProfile: ['requests', 'links', 'trusts'].includes(galleryMode),
 							status,
 							isChatMember: isChatMember,
 							setStatus,

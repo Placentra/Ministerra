@@ -7,7 +7,7 @@ import { decode } from 'cbor-x';
 import { jwtQuickies } from '../jwtokens';
 import sendEmail from '../mailing';
 import { logoutUserDevices } from './login';
-import { getStateVariables, processOrpEveMetas, fillContentPipeline, clearState } from '../../utilities/contentHelpers';
+import { getStateVariables, processOrpEveMetas, loadMetaPipes, clearState } from '../../utilities/contentHelpers';
 import { getLogger } from '../../systems/handlers/logging/index';
 
 const logger = getLogger('Entrance:AccountActions');
@@ -62,7 +62,7 @@ async function delFreezeUser({ pass, userID, mode, is }, con) {
 				.filter(Boolean);
 			processOrpEveMetas({ data, state });
 			const metasTxn = redis.multi();
-			fillContentPipeline(state, metasTxn), await metasTxn.exec(), clearState(state);
+			loadMetaPipes(state, metasTxn, metasTxn), await metasTxn.exec(), clearState(state);
 		}
 	} catch (error) {
 		logger.error('delFreezeUser', { error, userID, step: 'processOrphanedEvents' });

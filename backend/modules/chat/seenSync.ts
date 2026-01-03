@@ -7,7 +7,7 @@ import { LRUCache } from 'lru-cache';
 
 const logger = getLogger('SeenSync');
 
-const [STREAM_MAXLEN, CACHE_LIMIT] = [Number(process.env.STREAM_MAXLEN) || 50000, Number(process.env.CHAT_SEEN_CACHE_LIMIT) || 500];
+const [STREAM_MAXLEN, CACHE_LIMIT] = [Number(process.env.STREAM_MAXLEN) || 50000, Number(process.env.CHAT_SEEN_CACHE_LIMIT) || 10000];
 
 // SEEN SYNC MODULE -------------------------------------------------------------
 // Provides a bounded, incremental sync protocol for chat "seen" pointers:
@@ -73,7 +73,7 @@ const upsert = (map, { id, seenId, ts }) => {
 
 // WRITE CACHE -----------------------------------------------------------------
 // Steps: normalize input entries, allocate monotonic versions, write payloads into HASH and membership into ZSET,
-// then bump LAST_SEEN_CHANGE_AT so clients can cheap-check “anything changed?”, then trim asynchronously.
+// then bump lastSeenChangeAt so clients can cheap-check “anything changed?”, then trim asynchronously.
 export async function writeSeenEntriesToCache(chatID, entries = [], updatedAt = Date.now()) {
 	if (!redis || !entries.length) return null;
 	const norm = entries.map(e => e?.id && { mid: Number(e.id), key: String(e.id), seen: toNum(e.seenId) }).filter(Boolean);
@@ -101,7 +101,7 @@ export async function writeSeenEntriesToCache(chatID, entries = [], updatedAt = 
 	// Steps: multi executes the grouped writes together so consumers see consistent hash/zset pairs.
 	if (hArgs.length) pipe.hset(hash, ...hArgs);
 	if (zArgs.length) pipe.zadd(zset, ...zArgs);
-	pipe.hset(REDIS_KEYS.LAST_SEEN_CHANGE_AT, chatID, lastVer);
+	pipe.hset(REDIS_KEYS.lastSeenChangeAt, chatID, lastVer);
 
 	await pipe.exec();
 	// ASYNC TRIM ---
@@ -133,7 +133,7 @@ export async function fetchSeenUpdates({ chatID, chatType, seenSync: prev, lastC
 
 	let localCon;
 	try {
-		const [since, last] = [Number(prev) || 0, Number(lastChange || (await redis.hget(REDIS_KEYS.LAST_SEEN_CHANGE_AT, chatID)) || 0)];
+		const [since, last] = [Number(prev) || 0, Number(lastChange || (await redis.hget(REDIS_KEYS.lastSeenChangeAt, chatID)) || 0)];
 		if (since && last && since >= last) {
 			// NO-OP DELTA ---
 			// Steps: client is already caught up; cache this exact response to collapse bursts.

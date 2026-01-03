@@ -21,6 +21,7 @@ const chatListeners = {
 	socket: null,
 	handlers: null,
 	chatsRef: null, // STORED GLOBALLY TO SURVIVE COMPONENT REMOUNTS ---------------------------
+	depsRef: null,
 };
 
 // ============================================================================
@@ -32,7 +33,7 @@ const chatListeners = {
  * Manages socket connection, event listeners, and dispatches events to handlers.
  * Maintains singleton state for listeners to prevent duplicates.
  * -------------------------------------------------------------------------- */
-function useSocketIO({ brain, thisIs, setChats, chats, setNotifDots, processChatMembers = () => {}, man, run, setMenuView, setAlertsData, showToast, bottomScroll, setScrollDir }) {
+function useSocketIO({ brain, thisIs, setChats, chats, setNotifDots, processChatMembers = () => {}, man, run, setMenuView, setAlertsData, showToast, bottomScroll, setScrollDir }: any) {
 	const transport = getSocketTransport();
 	const navigate = useNavigate();
 	const { logOut } = useContext(globalContext);
@@ -86,6 +87,7 @@ function useSocketIO({ brain, thisIs, setChats, chats, setNotifDots, processChat
 						old.off('membersChanged', h.handleMembersChangedEvent);
 						old.off('chatEnded', h.handleChatEndedEvent);
 						old.off('roomsRejoined', h.handleRoomsRejoinedEvent);
+						old.off('userLeft', h.handleUserLeft);
 					}
 
 					// STORE FUNCTION REFS FOR SOCKET HANDLERS ---------------------------
@@ -103,7 +105,7 @@ function useSocketIO({ brain, thisIs, setChats, chats, setNotifDots, processChat
 						setScrollDir,
 						getTargetChat: id => chatsRef.current.find(c => Number(c.id) === Number(id)),
 						bottomScroll,
-					});
+					} as any);
 
 					socket.on('message', handlers.processMessage);
 					socket.on('newChat', handlers.handleNewChat);
@@ -115,6 +117,7 @@ function useSocketIO({ brain, thisIs, setChats, chats, setNotifDots, processChat
 					socket.on('membersChanged', handlers.handleMembersChangedEvent);
 					socket.on('chatEnded', handlers.handleChatEndedEvent);
 					socket.on('roomsRejoined', handlers.handleRoomsRejoinedEvent);
+					socket.on('userLeft', handlers.handleUserLeft);
 
 					chatListeners.socket = socket;
 					chatListeners.handlers = handlers;
@@ -270,7 +273,7 @@ function useSocketIO({ brain, thisIs, setChats, chats, setNotifDots, processChat
 		}
 
 		if (!mode) {
-			console.alert('[socket] missing mode');
+			console.warn('[socket] missing mode');
 			return;
 		}
 

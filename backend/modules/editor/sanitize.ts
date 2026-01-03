@@ -1,4 +1,4 @@
-import { ALLOWED_IDS } from '../../../shared/constants';
+import { ALLOWED_IDS } from '../../../shared/constants.ts';
 
 // VALIDATION CONSTANTS ---------------------------------------------------------
 const ALLOWED_MODES = new Set(['delete', 'cancel', 'create', 'edit', undefined]);
@@ -20,7 +20,7 @@ const STRING_LIMITS = {
 	fee: 200,
 	organizer: 200,
 	links: 1000,
-	take: 500,
+	takeWith: 500,
 };
 
 // HELPER FUNCTIONS -------------------------------------------------------------
@@ -200,7 +200,7 @@ function normalizeEditorPayload(input) {
 		fee: sanitizeStringField(input.fee, 'fee'),
 		organizer: sanitizeStringField(input.organizer, 'organizer'),
 		links: sanitizeStringField(input.links, 'links'),
-		take: sanitizeStringField(input.take, 'take'),
+		takeWith: sanitizeStringField(input.takeWith, 'takeWith'),
 		lat: sanitizeLatitude(input.lat),
 		lng: sanitizeLongitude(input.lng),
 		cityID: sanitizeCityID(input.cityID),

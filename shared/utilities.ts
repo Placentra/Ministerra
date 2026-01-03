@@ -46,24 +46,12 @@ export const getIDsString = (arrOrSet: Array<any> | Set<any>, targetProp?: strin
 		.join(',');
 };
 
-// CATEGORIZE ITEMS -------------------------------------------------------------
-// Steps: split a list of [action,...data] tuples into {new,edi,del} arrays so downstream batch writers can process by action type.
-export const categorize = (list: Array<[string, ...any[]]>): { new: any[]; edi: any[]; del: any[] } =>
-	list.reduce(
-		(categories, item) => {
-			const [action, ...data] = item;
-			categories[action].push(data);
-			return categories;
-		},
-		{ new: [], edi: [], del: [] }
-	);
-
 // FAVEX TOPICS VALIDATION ------------------------------------------------------
 // Single source of truth for both frontend and backend:
 // - Strict topic regex
 // - Content-quality heuristics (notSpecific / shortWords)
 
-export function getFavexQualityIssues({ favs = [], exps = [], shortWordMaxLength = 3 }: { favs?: string[]; exps?: string[]; shortWordMaxLength?: number } = {}): string[] {
+export function checkFavouriteExpertTopicsQuality({ favs = [], exps = [], shortWordMaxLength = 3 }: { favs?: string[]; exps?: string[]; shortWordMaxLength?: number } = {}): string[] {
 	const combinedTopics = [...(favs || []), ...(exps || [])]
 		.filter(Boolean)
 		.map(t => String(t).trim())
@@ -88,4 +76,22 @@ export function getFavexQualityIssues({ favs = [], exps = [], shortWordMaxLength
 	if (shortWordsChars / totalChars > 0.5) issues.push('shortWords');
 
 	return issues;
+}
+
+// PASSWORD STRENGTH EVALUATOR ---
+// Calculates score based on length and character diversity for visual feedback.
+export function getPasswordStrengthScore(strenghtIndi: any, pass: any, current: any = 0): any {
+	// PARAM NORMALIZATION ---------------------------------------------------------
+	// Steps: allow call sites that only pass (strenghtIndi, pass) by providing a safe default for `current`.
+	if (current == null) current = 0;
+	if (strenghtIndi) return current < 3 ? 'bgRed' : current < 5 ? 'bgOrange' : current < 7 ? 'bgBlue' : 'bgGreen';
+	let score = 0;
+	score += pass.length >= 1 && 1;
+	score += pass.length >= 3 && 1;
+	score += pass.length >= 6 && 1;
+	score += pass.length >= 8 && 1;
+	score += /[A-Z]/.test(pass) && 1;
+	score += /\d/.test(pass) && 1;
+	score += /[^\w\s]/.test(pass) && 1;
+	return score;
 }

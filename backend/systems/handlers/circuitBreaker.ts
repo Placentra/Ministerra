@@ -15,7 +15,8 @@ const DEFAULT_COOLDOWN_MS = 30000;
 // Implements the Circuit Breaker pattern for fault tolerance and resilience.
 // Tracks failures, slow queries, and manages state transitions (OPEN/CLOSED/HALF-OPEN).
 class CircuitBreaker {
-	constructor(name, options = {}) {
+	[key: string]: any;
+	constructor(name, options: any = {}) {
 		this.name = name;
 
 		// Failure configuration
@@ -47,13 +48,7 @@ class CircuitBreaker {
 		this.recentSlowEvents = [];
 		this.lastSlowLogTs = 0;
 		this.lastOpenLogTs = 0;
-
-		logger.info(`CircuitBreaker initialized: ${name}`, {
-			timeoutMs: this.timeoutMs,
-			failureThreshold: this.failureThreshold,
-			slowThresholdMs: this.slowThresholdMs,
-			slowBurst: this.slowBurst,
-		});
+		// NOTE: Init log removed - 20 workers x 3 breakers = 60 logs of noise
 	}
 
 	// EXECUTE ---------------------------------------------------------------
@@ -158,7 +153,7 @@ class CircuitBreaker {
 			retryAt: new Date(this.nextProbeTs).toISOString(),
 		});
 		const error = new Error(`Circuit breaker ${this.name} is OPEN`);
-		error.code = 'CIRCUIT_OPEN';
+		(error as any).code = 'CIRCUIT_OPEN';
 		if (this.fallback) {
 			return this.fallback(context);
 		}
@@ -199,7 +194,7 @@ class CircuitBreaker {
 
 		this.trackLatency(duration, context, true);
 
-		const shouldOpen = this.state === 'HALF_OPEN' || this.consecutiveFailures >= this.failureThreshold || (error && error.code === 'ER_LOCK_WAIT_TIMEOUT');
+		const shouldOpen = this.state === 'HALF_OPEN' || this.consecutiveFailures >= this.failureThreshold || (error && (error as any).code === 'ER_LOCK_WAIT_TIMEOUT');
 
 		if (shouldOpen) {
 			this.open('errors');

@@ -1,13 +1,13 @@
-import { Writer } from './handlers/writer';
-import { Catcher } from './handlers/catcher';
-import { Cacher } from './handlers/cacher';
-import { Socket } from './socket/socket';
-import { Sql } from './mysql/mysql';
-import { Redis } from './redis/redis';
-import { Streamer } from './handlers/streamer';
-import { Querer } from './handlers/querer';
-import { Emitter } from './handlers/emitter';
-import { drainStream } from './handlers/streamUtils';
+import { Writer } from './handlers/writer.ts';
+import { Catcher } from './handlers/catcher.ts';
+import { Cacher } from './handlers/cacher.ts';
+import { Socket } from './socket/socket.ts';
+import { Sql } from './mysql/mysql.ts';
+import { Redis } from './redis/redis.ts';
+import { Streamer } from './handlers/streamer.ts';
+import { Querer } from './handlers/querer.ts';
+import { Emitter } from './handlers/emitter.ts';
+import { drainStream } from './handlers/streamUtils.ts';
 
 // SYSTEM EXPORT AGGREGATOR -----------------------------------------------------
 // Single import surface for core infrastructure services (SQL, Redis, sockets, stream IO).

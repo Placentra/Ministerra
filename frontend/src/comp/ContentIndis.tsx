@@ -4,7 +4,7 @@ const marks = { event: [-2, 1, 3, 5], user: [1, 5], comment: [-2, 1, 3, 5] };
 // TODO pass sort, if its badges, display možná, určitě, tvoje atd.
 // CONTENT INDICATORS COMPONENT DEFINITION ---
 // Renders visual badges and status icons for events, users, and comments
-function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvitations, isChats, thisIs, galleryMode = '', brain, isNewUser, manageMode, getPunishmentStatus }) {
+function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvitations, isChats, thisIs, galleryMode = '', brain, isNewUser, manageMode, getPunishmentStatus }: any) {
 	const basicIndis = {
 		people: status.surely > 0 ? `${Math.max(0, status.surely)}` : null,
 		score: !isSearch && status.score > 0 ? Math.max(0, status.score) : null,
@@ -48,8 +48,8 @@ function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvi
 		poslední: { val: !status.embeded && isLast && !galleryMode && !isSearch && !isInvitations, class: 'bDarkRed' },
 		bloknuls: { val: punish === 'block' && !active, class: 'bRed' },
 		odblokován: { val: galleryMode === 'blocks' && punish !== 'block' && !active, class: 'bGreen' },
-		připojen: { val: !obj.trusted && obj.linked === true && isCardOrStrip && galleryMode !== 'links', class: 'bDarkGreen' },
-		důvěrník: { val: obj.trusted, class: 'bDarkPurple' },
+		připojen: { val: !obj.trusts && obj.linked === true && isCardOrStrip && galleryMode !== 'links', class: 'bDarkGreen' },
+		důvěrník: { val: obj.trusts, class: 'bDarkPurple' },
 	};
 
 	const someOptionals = Object.values(optionals).some(indi => indi.val);

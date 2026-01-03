@@ -10,7 +10,7 @@ const logger = getLogger('Task:DailyRecalc:PastEvents');
 // delete redis state and trigger user recalcs where needed.
 export async function recalcPastEvents({ redis, pastEveIDs, now, remEveMetasProcessor, userMetasProcessor, state }) {
 	try {
-		const cached = await redis.zrangebyscore('pastEveCachedAt', now, '+inf'),
+		const cached = await redis.zrangebyscore(REDIS_KEYS.pastEveCachedAt, now, '+inf'),
 			pipe = redis.pipeline();
 		if (cached.length) {
 			cached.forEach(id => pipe.del(`pastEve:${id}`));

@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { typesMap } from '../../sources';
-import { friendlyMeetings } from '../../../shared/constants';
+import { FRIENDLY_MEETINGS } from '../../../shared/constants';
 import EveMenuStrip from './menuStrips/EveMenuStrip';
 import ContentIndis from './ContentIndis';
 import { humanizeDateTime } from '../../helpers';
@@ -48,7 +48,7 @@ function EventCard(props) {
 			opened: brain.user.id && brain.user?.openEve?.includes(obj.id),
 			surely: obj.surely,
 			maybe: obj.maybe,
-			isMeeting: friendlyMeetings.has(obj.type),
+			isMeeting: FRIENDLY_MEETINGS.has(obj.type),
 			invite: false,
 		}),
 		[showSpans] = useState(true),
@@ -60,12 +60,21 @@ function EventCard(props) {
 	// Clickable areas on the left and right sides of the card that trigger actions
 	const InteractionHitboxes = () => (
 		<>
-			<left-half class='posAbs topLeft h100 w50 pointer' style={{ zIndex: 10 }} />
+			<left-half
+				onClick={e => {
+					e.stopPropagation();
+					if (modes.profile) return setModes(prev => ({ ...prev, profile: false }));
+					navigate(`/event/${obj.id}`);
+				}}
+				class='posAbs topLeft h100 w50 pointer'
+				style={{ zIndex: 10 }}
+			/>
 			<right-half
 				class='posAbs topRight h100 w50 pointer'
 				style={{ zIndex: 10 }}
 				onClick={e => {
 					e.stopPropagation();
+					if (modes.profile) return setModes(prev => ({ ...prev, profile: false }));
 					setModes(prev => ({ ...prev, actions: !prev.actions }));
 				}}
 			/>
@@ -75,7 +84,7 @@ function EventCard(props) {
 	// INTERACTION GUIDES -------------------------
 	// Visual aids shown for the first cards in each column to teach user interaction regions
 	const InteractionGuides = () =>
-		isFirstInCol && (
+		(isFirstInCol || status.embeded) && (
 			<guide-indicators class={'w100 flexRow marTopXs spaceBet'}>
 				<left-half className=' borWhite noBackground  posRel   bInsetBlueBotXs         zinMaXl flexRow aliCen padHorXxs  noPoint' style={{ zIndex: 60 }}>
 					<img src='/icons/open.png' className='mw2-5 marRigXxs ' alt='' />
@@ -202,7 +211,7 @@ function EventCard(props) {
 	// EVENT METADATA SUBTITLE COMPONENT ---
 	const subTitleElement = (centered = false) => (
 		<date-indis-adress class={`flexRow  aliCen ${centered ? 'justCen' : ''} ${cardsView === 2 ? 'marBotXxs' : 'marBotXxs'} wrap ${subTitleClass} posRel`}>
-			{/* ATTENDANCE AND PRIVACY INDICATORS --- */}
+			{/* ATTENDANCE AND PRIVACIES INDICATORS --- */}
 			{status.inter && (
 				<inter-indi class='boRadXxs hvw8 mh1-5 flexInline posRel marRigXs posRel thickBors'>
 					<span className={`xBold padHorS ${subTitleClass} h100 textSha tWhite flexRow ${status.inter === 'may' ? 'bBlue' : status.inter === 'sur' ? 'bGreen' : 'bOrange'} textSha`}>
@@ -398,7 +407,7 @@ function EventCard(props) {
 					</view-three>
 				)}
 				<protocol-top ref={protocolRef} />
-				{isFirstInCol && !modes.actions && <InteractionGuides />}
+				{(isFirstInCol || status.embeded) && !modes.actions && !modes.profile && <InteractionGuides />}
 			</under-image>
 			{modes.actions && actionsComp}
 		</event-card>

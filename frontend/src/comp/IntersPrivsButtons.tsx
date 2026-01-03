@@ -1,10 +1,10 @@
-import { PRIVACY, INTER } from '../../../shared/constants';
+import { PRIVACIES, INTERESTS, PRIVACIES_SET } from '../../../shared/constants';
 import { fetchOwnProfile, forage } from '../../helpers';
 import axios from 'axios';
 import useErrorsMan from '../hooks/useErrorsMan';
 import { updateGalleryArrays } from './bottomMenu/Gallery/updateGalleryArrays';
 
-const attenVisibSrc = { [PRIVACY.PUBLIC]: 'všichni', [PRIVACY.links]: 'spojenci', [PRIVACY.trusted]: 'důvěrní', own: 'autor' };
+const attenVisibSrc = { [PRIVACIES.public]: 'všichni', [PRIVACIES.links]: 'spojenci', [PRIVACIES.trusts]: 'důvěrní', [PRIVACIES.owner]: 'autor' };
 
 function IntersPrivsButtons(props) {
 	// TODO if user removes interest (there needs to be option to "unfollow", not "change interest") from past event remove the event from the user's past events
@@ -13,16 +13,18 @@ function IntersPrivsButtons(props) {
 	const askPriv = brain.user.askPriv;
 	const errorMan = useErrorsMan();
 
-	// DEBOUNCE INTERESTS OR PRIVACY ---------------------------------------------------
+	// DEBOUNCE INTERESTS OR PRIVACIES ---------------------------------------------------
 	const debounceInterOrPriv = async ({ interFlag = '', priv }) => {
 		try {
 			const user = brain.user.unstableObj || brain.user;
 			const profilePromise =
-				obj.type.startsWith('a') && interFlag && !brain.user.priv && [INTER.SURE, INTER.MAYBE].some(str => interFlag.startsWith(str)) ? fetchOwnProfile(brain) : Promise.resolve({});
-			const validPrivs = new Set([PRIVACY.PUBLIC, PRIVACY.links, PRIVACY.OWNER, PRIVACY.trusted]);
-			const finalPriv = interFlag?.startsWith('min') ? null : validPrivs.has(priv) ? priv : PRIVACY.PUBLIC;
+				obj.type.startsWith('a') && interFlag && !brain.user.priv && [INTERESTS.surely, INTERESTS.maybe].some(str => interFlag.startsWith(str)) ? fetchOwnProfile(brain) : Promise.resolve({});
+			const finalPriv = interFlag?.startsWith('min') ? null : PRIVACIES_SET.has(priv) ? priv : PRIVACIES.public;
 			await Promise.all([axios.post('interests', { eventID: obj.id, inter: interFlag || `${status.inter}Priv`, priv: finalPriv }), profilePromise]);
-			Object.assign(obj, { inter: interFlag ? [INTER.INTEREST, INTER.MAYBE, INTER.SURE].find(str => interFlag.startsWith(str)) || null : status.inter, interPriv: finalPriv ?? obj.interPriv });
+			Object.assign(obj, {
+				inter: interFlag ? [INTERESTS.interested, INTERESTS.maybe, INTERESTS.surely].find(str => interFlag.startsWith(str)) || null : status.inter,
+				interPriv: finalPriv ?? obj.interPriv,
+			});
 
 			// update user's interactions data and gallery
 			const eveInters = user.eveInters || [];
@@ -35,9 +37,9 @@ function IntersPrivsButtons(props) {
 				user.eveInters.push([obj.id, obj.inter, finalPriv || 'pub']);
 			}
 
-			if (interFlag && interFlag.startsWith(INTER.INTEREST)) updateGalleryArrays(brain, obj.id, { addToInt: true, removeFromSurMay: interFlag.length > 3 });
-			else if (interFlag && [INTER.SURE, INTER.MAYBE].some(str => interFlag.startsWith(str)))
-				updateGalleryArrays(brain, obj.id, { addToSurMay: true, removeFromInt: interFlag.slice(3) === INTER.INTEREST });
+			if (interFlag && interFlag.startsWith(INTERESTS.interested)) updateGalleryArrays(brain, obj.id, { addToInt: true, removeFromSurMay: interFlag.length > 3 });
+			else if (interFlag && [INTERESTS.surely, INTERESTS.maybe].some(str => interFlag.startsWith(str)))
+				updateGalleryArrays(brain, obj.id, { addToSurMay: true, removeFromInt: interFlag.slice(3) === INTERESTS.interested });
 			setModes(prev => ({ ...prev, privs: false, inter: false })), forage({ mode: 'set', what: 'user', val: brain.user }), delete brain.interInProg[obj.id];
 		} catch (err) {
 			setStatus(prev => ({ ...prev, inter: obj.inter, interPriv: obj.interPriv, surely: obj.surely, maybe: obj.maybe }));
@@ -80,7 +82,7 @@ function IntersPrivsButtons(props) {
 				clearTimeout(timeout);
 				if (oldInterFlag === interFlag) {
 					if (obj.inter && obj.inter !== inter) {
-						// SWITCH TO REMOVAL OF ORIGINAL INTER ----------------------
+						// SWITCH TO REMOVAL OF ORIGINAL INTERESTS ----------------------
 						const curInterFlagExtension = obj.inter.charAt(0).toUpperCase() + obj.inter.slice(1);
 						interFlag = `min${curInterFlagExtension}`;
 						newStatusProps = {
@@ -101,8 +103,8 @@ function IntersPrivsButtons(props) {
 				interFlag,
 				timeout: setTimeout(() => {
 					const cur = brain.interInProg[obj.id] || {};
-					const validPrivs = new Set(['pub', 'lin', 'own', 'tru']);
-					const latestPriv = cur.interFlag?.startsWith('min') ? null : validPrivs.has(cur.priv) ? cur.priv : 'pub';
+					const PRIVACIES_SET = new Set(['pub', 'lin', 'own', 'tru']);
+					const latestPriv = cur.interFlag?.startsWith('min') ? null : PRIVACIES_SET.has(cur.priv) ? cur.priv : 'pub';
 					debounceInterOrPriv({ interFlag: cur.interFlag, priv: latestPriv });
 				}, 800),
 			};
@@ -112,7 +114,7 @@ function IntersPrivsButtons(props) {
 			console.error('Error in setEventInter:', err);
 		}
 	};
-	// SET EVENT PRIVACY -------------------------------------------------------------
+	// SET EVENT PRIVACIES -------------------------------------------------------------
 	const setInterPriv = ({ priv }) => {
 		// Clear the priv visibility timeout since user is manually selecting a priv
 		if (brain.privsTimeout?.[obj.id]) {
@@ -125,8 +127,8 @@ function IntersPrivsButtons(props) {
 			brain.interInProg[obj.id].priv = priv;
 			brain.interInProg[obj.id].timeout = setTimeout(() => {
 				const cur = brain.interInProg[obj.id] || {};
-				const validPrivs = new Set(['pub', 'lin', 'own', 'tru']);
-				const latestPriv = cur.interFlag?.startsWith('min') ? null : validPrivs.has(cur.priv) ? cur.priv : 'pub';
+				const PRIVACIES_SET = new Set(['pub', 'lin', 'own', 'tru']);
+				const latestPriv = cur.interFlag?.startsWith('min') ? null : PRIVACIES_SET.has(cur.priv) ? cur.priv : 'pub';
 				debounceInterOrPriv({ interFlag: cur.interFlag, priv: latestPriv });
 			}, 800);
 		} else {
@@ -144,7 +146,7 @@ function IntersPrivsButtons(props) {
 		{ key: 'maybe', short: 'may', label: 'možná přijdu' },
 	];
 
-	// INTERS BUTTONS ---
+	// INTERESTS BUTTONS ---
 	const intersButtons = (
 		<inters-bs class={`fadingIn ${fadedIn.includes('BsEvent') ? 'fadedIn' : ''} flexCen  aliStretch zinMax gapXxxs w100`}>
 			{intersSrc.map((btn, i) => {

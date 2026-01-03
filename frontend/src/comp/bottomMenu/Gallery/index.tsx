@@ -15,7 +15,7 @@ const modeTexts = {
 	futuSurMay: { full: 'Zúčastníš se', desc: 'Události, kterých máš v plánu se účastnit určitě a nebo možná' },
 	futuInt: { full: 'Sledované události', desc: 'Události, které Tě zaujali, ale nemá v plánu se jich účastnit.' },
 	links: { full: 'Propojení uživatelé', desc: '(VČETNĚ DŮVĚRNÝCH) Uživatelé s nimiž jsi v užším kontaktu' },
-	trusted: { full: 'Důvěrné propojení', desc: 'Uživatelé, které máš ze všech nejraději a v důvěrném propojení' },
+	trusts: { full: 'Důvěrné propojení', desc: 'Uživatelé, které máš ze všech nejraději a v důvěrném propojení' },
 	requests: { full: 'Žádosti o propojení', desc: 'Přehled všech žádostí o spojení, které jsi obdržel a nebo odeslal.' },
 	invitesIn: { full: 'Přijatá pozvání', desc: 'Pozvání na události, která jsi obdržel od jiných uživatelů.' },
 	invitesOut: { full: 'Odeslaná pozvání', desc: 'Pozvání na události, která jsi odeslal jiným uživatelům.' },
@@ -30,7 +30,7 @@ const modeTexts = {
  * Manages display of user's events, connections, and invites in a masonry layout.
  * Handles local filtering of state data + server pagination (fetching/sorting).
  * -------------------------------------------------------------------------- */
-function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMode, superMan, isInvitations, selectedItems }) {
+function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMode, superMan, isInvitations, selectedItems }: any) {
 	// STATE & REFS ------------------------------------------------------------
 	const linkUsers = (brain.user.unstableObj || brain.user).linkUsers || [];
 	const [selSort, setSelSort] = useState(directMode || isInvitations ? 'recent' : null);
@@ -71,7 +71,7 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 		'galleryCats',
 		[menuView],
 		null,
-		Object.keys(modeTexts).filter(k => !isInvitations || (isInvitations === 'userToEvents' ? ['futuOwn', 'futuSurMay'].includes(k) : ['links', 'trusted'].includes(k))).length,
+		Object.keys(modeTexts).filter(k => !isInvitations || (isInvitations === 'userToEvents' ? ['futuOwn', 'futuSurMay'].includes(k) : ['links', 'trusts'].includes(k))).length,
 		wrapperRef
 	);
 
@@ -109,9 +109,9 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 			return items.sort(map[sort] || ((a, b) => (b.rank || calcRank(b)) - (a.rank || calcRank(a))));
 		}
 		if (!['first', 'last'].includes(sort)) {
-			const linksMap = new Map(linkUsers.map((l, i) => [l[0], { idx: i, tru: l[1] ? 1 : 0 }]));
+			const linksMap = new Map(linkUsers.map((linkUserRow: any[], index: number) => [linkUserRow[0], { idx: index, tru: linkUserRow[1] ? 1 : 0 }]));
 			return items.sort((a, b) => {
-				const [lA, lB] = [linksMap.get(a.id), linksMap.get(b.id)];
+				const [lA, lB] = [linksMap.get(a.id) as any, linksMap.get(b.id) as any];
 				if (!lA || !lB) return 0;
 				return lA.tru !== lB.tru ? lB.tru - lA.tru : sort === 'recent' ? lA.idx - lB.idx : lB.idx - lA.idx;
 			});
@@ -139,7 +139,6 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 			if (!selSort) setSelSort(mode.startsWith('futu') ? 'earliest' : 'recent');
 			else man();
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [mode, selSort, menuView]);
 
 	useLayoutEffect(() => () => Object.values(galleryTimers.current).forEach(clearTimeout), []);
@@ -157,13 +156,12 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 			setEmptyNotice(''), clearTimeout(emptyNoticeTimer.current);
 		}
 		return () => clearTimeout(emptyNoticeTimer.current);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [Boolean(content && !content.length && noMoreForMode)]);
 
 	// MANAGER (FETCHING & DATA PROCESSING) ------------------------------------
 	// Main data handler: Switches modes, checks local cache, fetches from server,
 	// merges new data, applies filters, and updates global 'brain' state.
-	async function man(inp, val) {
+	async function man(inp = undefined, val = undefined) {
 		try {
 			// HANDLE INPUT SWITCHES ------------------------------------- */}
 			if (inp === 'selMode') return val !== mode ? (setMode(val), setSelSort(val.startsWith('futu') ? 'earliest' : 'recent'), setShow(null), setContent(null)) : setShow(null);
@@ -201,11 +199,11 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 						pastOwn: i => i.own,
 						pastSurMay: i => i.inter,
 						blocks: i => i.blocked,
-						links: i => i.linked === true || i.trusted,
-						trusted: i => i.trusted,
+						links: i => i.linked === true || i.trusts,
+						trusts: i => i.trusts,
 					};
 
-					Object.values(itemsSrc).forEach(item => {
+					Object.values(itemsSrc as any).forEach((item: any) => {
 						const validState = isEvents
 							? isPast || (check(item, ['mini', 'basi']) && (item.inter || item.own || item.invites))
 							: item[mode === 'blocks' ? 'blocked' : 'linked'] && check(item, ['mini', 'basi']);
@@ -220,9 +218,8 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 			}
 
 			// SERVER FETCH ------------------------------------- */}
-			let newData = (
-				await axios.post('gallery', { mode, offset: locally.current ? null : ids.length, sort: selSort }).catch(e => notifyGlobalError(e, 'Nepodařilo se načíst galerii.') || { data: [] })
-			).data;
+			let newData = ((await (axios.post('gallery', { mode, offset: locally.current ? null : ids.length, sort: selSort }) as any).catch((error: any) => (notifyGlobalError(error, 'Nepodařilo se načíst galerii.'), { data: [] }))) as any)
+				.data;
 			if (!newData) return setInform([]);
 
 			if (newData.length) brain.user.galleryIDs[mode][selSort] = [...(ids || []), ...newData.map(i => i.id || 'pH').filter(id => !new Set(ids).has(id))];
@@ -258,10 +255,10 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 					const final = Object.assign(
 						{
 							...(exist || {}),
-							...(mode === 'trusted' && { trusted: true, linked: true }),
+							...(mode === 'trusts' && { trusts: true, linked: true }),
 							...(mode === 'links' && { linked: true }),
 							...(mode === 'blocks' && { blocked: true }),
-							...(!['blocks', 'links', 'trusted'].includes(mode) && setPropsToContent(isEvents ? 'events' : 'users', [item], brain)[0]),
+							...(!['blocks', 'links', 'trusts'].includes(mode) && setPropsToContent(isEvents ? 'events' : 'users', [item], brain)[0]),
 						},
 						{ state: !exist || exist.state === 'meta' ? 'mini' : exist.state, ...((isInvites || isEvents) && { sync: now }) }
 					);
@@ -321,7 +318,6 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 						logo
 					/>
 				)),
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[content, mode, selSort, stripMenu, selectedItems]
 	);
 
@@ -334,6 +330,13 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 			ref={wrapperRef}
 			onClick={e => e.target === e.currentTarget && e.target.nodeName === 'CONTENT-WRAPPER' && setMenuView('')}
 			class={` ${!selectedItems && !isInvitations ? 'h100' : ''} block flexCol aliCen overAuto justCen w100 marAuto posRel`}>
+			{/* CATEGORY TITLE ------------------------------------- */}
+			{!isInvitations && (
+				<section-title class={`block  textAli ${directMode ? '' : 'marTopL '}`}>
+					{!directMode && <span className='fs35 inlineBlock marTopXs textSha marAuto xBold w100'>{modeTexts[mode]?.full || 'Tvoje profilové úložiště'}</span>}
+					<blue-divider class='hr35 posAbs topCen borTop marTopXs block bInsetBlueTopXl w100 marAuto' />
+				</section-title>
+			)}
 			{content?.length > 0 && <Masonry content={contentStrips} config={{ contType: isEvents ? 'eveStrips' : 'userStrips', numOfCols, noPadTop: isInvitations }} brain={brain} />}
 			{showFetchBtn && (
 				<button
@@ -361,15 +364,7 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 		<gallery-menu
 			class={`boRadXs ${menuView !== 'gallery' && !directMode && !isInvitations ? 'hide' : ''} ${
 				!directMode && !isInvitations ? 'hvh100 mihvh100 shaMega bgWhite' : 'noBackground'
-			} flexCol overAuto fPadHorXxs justStart zinMaXl w100 aliCen ${isInvitations && mode && contentStrips?.length ? 'marBotXxxl' : ''}`}>
-			{/* CATEGORY TITLE ------------------------------------- */}
-			{!isInvitations && (
-				<section-title class={`block borBotLight textAli ${directMode ? '' : 'marTopXl'}`}>
-					{!directMode && <span className='fs35 inlineBlock marTopXs textSha marAuto xBold w100'>{modeTexts[mode]?.full || 'Tvoje profilové úložiště'}</span>}
-					<blue-divider class='hr35 posAbs topCen borTop marTopXs block bInsetBlueTopXl w100 marAuto' />
-				</section-title>
-			)}
-
+			} flexCol overAuto 	 justStart zinMaXl w100 aliCen ${isInvitations && mode && contentStrips?.length ? 'marBotXxxl' : ''}`}>
 			{!isInvitations && <ContentWrapper />}
 
 			{/* BOTTOM MENU SECTION ------------------------------------- */}
@@ -383,10 +378,10 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 						{show === 'menu' ? (
 							<menu-bs class='w100 flexCen wrap marAuto padVerXs posRel aliStretch shaTop bgTransXs'>
 								{(!isInvitations
-									? ['futuOwn', 'futuSurMay', 'futuInt', 'links', 'trusted', 'requests', 'invitesIn', 'invitesOut', 'pastOwn', 'pastSurMay', 'blocks']
+									? ['futuOwn', 'futuSurMay', 'futuInt', 'links', 'trusts', 'requests', 'invitesIn', 'invitesOut', 'pastOwn', 'pastSurMay', 'blocks']
 									: isInvitations === 'userToEvents'
 									? ['futuOwn', 'futuSurMay']
-									: ['links', 'trusted']
+									: ['links', 'trusts']
 								).map(m => (
 									<button
 										key={m}

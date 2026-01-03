@@ -44,7 +44,7 @@ function RateAwards(props) {
 		let scoreFromUser, newAwards, awardsCode, newRating;
 		const label = { event: 'rateEve', user: 'rateUsers', comment: 'rateComm' }[thisIs];
 
-		function calculate(mark = 0, awards = [], getCode) {
+		function calculate(mark = 0, awards = [], getCode = false) {
 			if (getCode) return awards.reduce((acc, cur) => acc + cur, 0);
 			if (awards.length === 0) return mark;
 			const coefs = { event: [-8, -2, 4, 5, 5, 10], meeting: [-8, 4, 5, 10], user: [3, 5, 10, 10], comment: {} };

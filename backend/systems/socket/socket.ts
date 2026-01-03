@@ -1,14 +1,15 @@
-import { jwtQuickies } from '../../modules/jwtokens';
-import { MIN_MODE } from '../../startup/config';
+import { jwtQuickies } from '../../modules/jwtokens.ts';
+import { MIN_MODE } from '../../startup/config.ts';
 import { Server } from 'socket.io';
 import { setupWorker } from '@socket.io/sticky';
 import { createShardedAdapter } from '@socket.io/redis-adapter';
-import { joinRoom, sendMessage, punishment, messSeen, socketSetter, blocking } from './chatHandlers';
-import { socketSetter as entranceSocketSetter } from '../../modules/entrance/index';
-import { Redis } from '../systems';
-import { getLogger } from '../handlers/loggers';
-import { sanitizeSocketPayload } from '../../utilities/sanitize';
-import { REDIS_KEYS, LIMITS } from '../../../shared/constants';
+import { joinRoom, sendMessage, punishment, messSeen, socketSetter, blocking } from './chatHandlers.ts';
+import { socketSetter as entranceSocketSetter } from '../../modules/entrance/index.ts';
+import { Redis } from '../systems.ts';
+import { getLogger } from '../handlers/loggers.ts';
+import { sanitizeSocketPayload } from '../../utilities/sanitize.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
+import { reportSubsystemReady } from '../../cluster/readiness.ts';
 
 const logger = getLogger('Socket.IO');
 
@@ -22,7 +23,7 @@ const CORS_ORIGINS = [
 ].filter(Boolean);
 
 const ONLINE_USERS_KEY = REDIS_KEYS.onlineUsers;
-const MAX_PAYLOAD_SIZE = LIMITS.MAX_PAYLOAD_SIZE;
+const MAX_PAYLOAD_SIZE = 262144;
 
 // Singleton state
 let io = null;
@@ -30,6 +31,13 @@ let redis = null;
 let initialized = false;
 
 const ioRedisSetter = client => (redis = client);
+
+// SOCKET GETTER ---------------------------------------------------------------
+// Steps: allow other modules to emit without passing an HTTP server handle.
+// LEARNING NOTE: `Socket(server)` is an initializer; callers that only need the live instance should use this getter.
+function getSocketIOInstance() {
+	return io;
+}
 
 // SOCKET SERVER INITIALIZATION -------------------------------------------------
 // Steps: initialize singleton io once, wire redis adapter for cross-worker fanout, configure transport/ping for proxy stability,
@@ -39,10 +47,8 @@ async function Socket(server) {
 	if (initialized) return io;
 
 	try {
-		if (!redis) {
-			logger.alert('Socket initialized without Redis client - creating new connection');
-			redis = await Redis.getClient();
-		}
+		// NOTE: If setter hasn't fired yet, fetch client directly (normal during startup)
+		if (!redis) redis = await Redis.getClient();
 
 		const pub = redis;
 		const sub = await pub.duplicate();
@@ -50,7 +56,9 @@ async function Socket(server) {
 		io = new Server(server, {
 			cors: { origin: CORS_ORIGINS, methods: ['GET', 'POST'], credentials: true },
 			connectionStateRecovery: { maxDisconnectionDuration: 300000 },
-			adapter: createShardedAdapter(pub, sub, { requestsTimeout: 5000 }),
+			// ADAPTER OPTIONS -------------------------------------------------------
+			// LEARNING NOTE: adapter typing lags behind runtime options; keep the option but cast locally.
+			adapter: createShardedAdapter(pub, sub, { requestsTimeout: 5000 } as any),
 			pingInterval: 25000,
 			pingTimeout: 20000,
 			transports: ['websocket', 'polling'],
@@ -64,9 +72,9 @@ async function Socket(server) {
 		}
 
 		// CLEANUP STALE DATA ---------------------------------------------------
-		// Steps: clear online-users set only in MIN_MODE (single process) so dev/test restarts don’t leave stale online markers; cluster mode cannot safely clear shared state.
+		// Steps: clear online-users set only in MIN_MODE (single process) so dev/test restarts don't leave stale online markers; cluster mode cannot safely clear shared state.
 		if (MIN_MODE) await redis.del(ONLINE_USERS_KEY);
-		logger.info('Socket server initialized');
+		// NOTE: Removed per-worker "Socket server initialized" log - 20 workers = noise
 
 		io.on('connection', handleConnection);
 		io.on('error', err => logger.error('Socket server error', { error: err?.message }));
@@ -75,6 +83,7 @@ async function Socket(server) {
 		entranceSocketSetter(io);
 
 		initialized = true;
+		reportSubsystemReady('SOCKET_IO');
 		return io;
 	} catch (error) {
 		logger.error('Socket init failed', { error: error?.message });
@@ -91,19 +100,21 @@ async function authenticateSocket(socket) {
 
 	let decoded;
 	try {
-		decoded = jwtQuickies({ mode: 'verify', payload: token });
+		// JWT VERIFY ------------------------------------------------------------
+		// LEARNING NOTE: jwtQuickies typing expects extra fields even in verify mode; cast locally to avoid infecting callsites.
+		decoded = (jwtQuickies as any)({ mode: 'verify', payload: token });
 	} catch (err) {
 		logger.alert('Socket auth token verification failed', { error: err?.message });
 		throw new Error(err?.message === 'tokenExpired' ? 'needNewAccessToken' : 'unauthorized');
 	}
 
-	const { userID, devID, exp } = decoded;
+	const { userID, devID, exp } = decoded as any;
 	if (!userID || !devID) throw new Error('unauthorized');
 
 	if (clientDevID && clientDevID !== devID) throw new Error('unauthorized');
 
 	const redisKey = `${userID}_${devID}`;
-	const storedEntry = await redis.hget(REDIS_KEYS.REFRESH_TOKENS, redisKey);
+	const storedEntry = await redis.hget(REDIS_KEYS.refreshTokens, redisKey);
 	if (!storedEntry) throw new Error('sessionInvalidated');
 
 	// Handle print values that may contain colons (same fix as jwtokens.js) ---------------------------
@@ -181,7 +192,7 @@ function installMiddleware(socket) {
 					if (size > MAX_PAYLOAD_SIZE) {
 						return typeof ack === 'function' ? ack({ error: 'payloadTooLarge' }) : next(new Error('payloadTooLarge'));
 					}
-				} catch (_) {}
+				} catch {}
 			}
 
 			if (data && event !== 'refreshAuth' && typeof sanitizeSocketPayload === 'function') {
@@ -219,16 +230,16 @@ function setupEventHandlers(socket) {
 	socket.on('messSeen', (data, cb) => messSeen(socket, data, cb));
 	socket.on('blocking', (data, cb) => blocking(socket, data, cb));
 
-	socket.on('refreshAuth', async ({ token, expiresAt } = {}, cb) => {
+	socket.on('refreshAuth', async ({ token, expiresAt }: any = {}, cb) => {
 		try {
 			if (!token) return cb?.({ error: 'unauthorized' });
 
-			const decoded = jwtQuickies({ mode: 'verify', payload: token });
-			const { userID, devID, exp } = decoded;
+			const decoded = (jwtQuickies as any)({ mode: 'verify', payload: token });
+			const { userID, devID, exp } = decoded as any;
 
 			if (userID !== socket.userID || devID !== socket.devID) return cb?.({ error: 'unauthorized' });
 
-			const sessionExists = await redis.hexists(REDIS_KEYS.REFRESH_TOKENS, socket.redisKey);
+			const sessionExists = await redis.hexists(REDIS_KEYS.refreshTokens, socket.redisKey);
 			if (!sessionExists) {
 				socket.emit('error', 'sessionInvalidated');
 				return cb?.({ error: 'sessionInvalidated' });
@@ -236,7 +247,7 @@ function setupEventHandlers(socket) {
 
 			socket.tokenExpiry = expiresAt ? Math.min(Number(expiresAt), exp * 1000) : exp * 1000;
 			cb?.({ ok: true });
-		} catch (error) {
+		} catch {
 			cb?.({ error: 'needNewAccessToken' });
 		}
 	});
@@ -400,7 +411,10 @@ async function emitToUsers({ mode, userID, otherUserID, miniProfiles = {}, messa
 		let emitSuccess = false;
 
 		if (otherUserIsOnline) {
-			const payloadIn = { dir: 'in', target: userID };
+			// PAYLOAD SHAPE --------------------------------------------------------
+			// LEARNING NOTE: TS infers `{ dir, target }` as a fixed shape; adding `.data` later errors.
+			// Use `any` at this boundary because Socket.IO payloads are runtime-validated elsewhere.
+			const payloadIn: any = { dir: 'in', target: userID };
 			if (miniProfiles[userID]) payloadIn.data = { ...miniProfiles[userID], ...(message && { message }) };
 			io.to(String(otherUserID)).emit(mode, payloadIn);
 			emitSuccess = true;
@@ -414,7 +428,7 @@ async function emitToUsers({ mode, userID, otherUserID, miniProfiles = {}, messa
 		try {
 			const senderSockets = await io.in(String(userID)).allSockets();
 			if (senderSockets.size > 1) {
-				const payloadOut = { dir: 'out', target: otherUserID };
+				const payloadOut: any = { dir: 'out', target: otherUserID };
 				if (miniProfiles[otherUserID]) payloadOut.data = { ...miniProfiles[otherUserID], ...(note && { note }) };
 				io.to(String(userID)).emit(mode, payloadOut);
 			}
@@ -455,4 +469,4 @@ async function getOnlineStatus(userIds) {
 	}
 }
 
-export { Socket, emitToUsers, ioRedisSetter, getOnlineStatus };
+export { Socket, emitToUsers, ioRedisSetter, getOnlineStatus, getSocketIOInstance };

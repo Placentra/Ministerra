@@ -22,7 +22,7 @@ This backend now ships with an opt-in MySQL replica that lives beside the primar
         - `DB_READ_WARMUP_TABLE` (defaults to `miscellaneous`) or `DB_READ_WARMUP_SQL`
         - `DB_READ_WARMUP_DELAY_MS` / `DB_READ_WARMUP_RETRY_MS` to change the polling cadence
     - Optional: override `MYSQL_PRIMARY_SERVER_ID` / `MYSQL_REPLICA_SERVER_ID`.
-3. For a brand-new database the replica will immediately catch up. For an existing dataset take a fresh `mysqldump` (or use `CLONE`) to seed the replica before letting `mysql-replica-init` run, otherwise replication will start from the current binlog position and older rows will be missing.
+3. For a brand-new database the replica will immediately catch up. For an existing dataset takeWith a fresh `mysqldump` (or use `CLONE`) to seed the replica before letting `mysql-replica-init` run, otherwise replication will start from the current binlog position and older rows will be missing.
 
 The helper container is idempotent and will re-run on each `compose up`. It can be disabled entirely if you prefer to manage replication manually.
 

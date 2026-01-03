@@ -210,11 +210,10 @@ async function ensureGroup({ redis, streamName, group, logPrefix }) {
 	}
 
 	try {
-		// Allow configurable start ID for initial bootstrap; default '$'
 		const startId = process.env.STREAM_GROUP_START_ID || '$';
 		await redis.xgroup('CREATE', streamName, group, startId, 'MKSTREAM');
 		createdGroups.set(groupKey, now);
-		logger.info('streamer.group_created', { streamName, group, startId, logPrefix });
+		// NOTE: Removed group_created log - too noisy during startup with multiple worker threads
 	} catch (e) {
 		const msg = String(e?.message || e);
 		if (!msg.includes('BUSYGROUP') && !msg.includes('Consumer Group name already exists')) {

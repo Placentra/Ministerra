@@ -2,9 +2,9 @@ import { useState, useRef, useEffect, useContext } from 'react';
 import { globalContext } from '../contexts/globalContext';
 import { MAX_CHARS, REGEXES } from '../../../shared/constants';
 
-function FavouriteExpertTopics(p) {
+function FavouriteExpertTopics(p: any) {
 	const { isMobile } = useContext(globalContext);
-	const { data = {}, superMan, inform, setInform } = p;
+	const { data = {} as any, superMan, inform, setInform } = p || {};
 	// FAVEX LIMITS ---------------------------------------------------------------
 	// Total char limit across BOTH categories (favs + exps) mirrors backend sanitizer
 	const charsLimit = MAX_CHARS.favourExpertTopics;
@@ -21,7 +21,7 @@ function FavouriteExpertTopics(p) {
 	const man = (a, c, i = null) => {
 		setInputWarn([]);
 		const arr = [...(data[c] || [])];
-		const getFavexTotalChars = (override = {}) => {
+		const getFavexTotalChars = (override: any = {}) => {
 			const favs = override.favs ?? data.favs ?? [];
 			const exps = override.exps ?? data.exps ?? [];
 			return [...favs, ...exps].reduce((total, topic) => total + String(topic || '').length, 0);
@@ -155,7 +155,7 @@ function FavouriteExpertTopics(p) {
 				}}
 				className={`${somethingsWrong ? 'borderRed' : ''} padAllS  arrowDown1 posRel fs12 bold grow shaComment textAli hr5 w100`}
 				placeholder='Zadej oblíbené či expertní téma ...'
-				maxLength='200'
+				maxLength={200}
 			/>
 			{informSrc.top.some(m => inputWarn.includes(m)) && (
 				<input-warnings className='marTopXxs marBotXxs block'>

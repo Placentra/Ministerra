@@ -1,12 +1,40 @@
-import Geohash from 'https://cdn.jsdelivr.net/npm/latlon-geohash@2.0.0';
 import axios from 'axios';
 import { EVENT_META_INDEXES, USER_META_INDEXES, USER_BASI_KEYS } from '../shared/constants';
 const eveBasiKeys = 'location,city,ends,imgVers,place,title,shortDesc,basiVers,hashID';
-const eveDetaKeys = 'meetHow,meetWhen,organizer,contacts,links,detail,fee,take,detaVers';
+const eveDetailsKeys = 'meetHow,meetWhen,organizer,contacts,links,detail,fee,takeWith,detaVers';
 import { getDistance } from './src/utils/locationUtils';
 import { disconnectSocketIO } from './src/hooks/useSocketIO';
 
-const { evePrivIdx, eveOwnerIdx, eveCityIDIdx, eveTypeIdx, eveStartsIdx, eveGeohashIdx, eveSurelyIdx, eveMaybeIdx, eveCommentsIdx, eveScoreIdx, eveBasiVersIdx, eveDetaVersIdx } = EVENT_META_INDEXES;
+// GEOHASH DECODE (NO CDN/DEPS) ---------------------------------------------------------------------------
+// Decodes geohash to the center-point lat/lon; we only need this for distance/map UI.
+function decodeGeohashToLatitudeLongitude(geohashString) {
+	// INPUT GUARD ---------------------------------------------------------------------------
+	if (!geohashString || typeof geohashString !== 'string') return {};
+
+	// BASE32 MAP ---------------------------------------------------------------------------
+	const base32Chars = '0123456789bcdefghjkmnpqrstuvwxyz';
+	let [isEvenBit, latitudeRange, longitudeRange] = [true, [-90, 90], [-180, 180]];
+
+	// RANGE REFINEMENT ---------------------------------------------------------------------------
+	for (const geohashCharacter of geohashString.toLowerCase()) {
+		const characterIndex = base32Chars.indexOf(geohashCharacter);
+		if (characterIndex === -1) return {};
+		for (let bitIndex = 4; bitIndex >= 0; bitIndex--) {
+			const bitIsSet = (characterIndex >> bitIndex) & 1;
+			const [rangeMin, rangeMax] = isEvenBit ? longitudeRange : latitudeRange;
+			const rangeMid = (rangeMin + rangeMax) / 2;
+			if (bitIsSet) isEvenBit ? (longitudeRange[0] = rangeMid) : (latitudeRange[0] = rangeMid);
+			else isEvenBit ? (longitudeRange[1] = rangeMid) : (latitudeRange[1] = rangeMid);
+			isEvenBit = !isEvenBit;
+		}
+	}
+
+	// CENTERPOINT OUTPUT ---------------------------------------------------------------------------
+	return { lat: (latitudeRange[0] + latitudeRange[1]) / 2, lon: (longitudeRange[0] + longitudeRange[1]) / 2 };
+}
+
+const { evePrivIdx, eveOwnerIdx, eveCityIDIdx, eveTypeIdx, eveStartsIdx, eveGeohashIdx, eveSurelyIdx, eveMaybeIdx, eveCommentsIdx, eveScoreIdx, eveBasiVersIdx, eveDetailsVersIdx } =
+	EVENT_META_INDEXES;
 const { userPrivIdx, userAgeIdx, userGenderIdx, userIndisIdx, userBasicsIdx, userGroupsIdx, userScoreIdx, userImgVersIdx, userBasiVersIdx, userAttendIdx } = USER_META_INDEXES;
 // TODO implement ends of events into metas (big task)
 
@@ -19,7 +47,7 @@ export function createSubsetObj(obj, props) {
 }
 
 // GET TIME-FRAMES ---------------------------------------------------------------------------
-export function getTimeFrames(timeFrameName) {
+export function getTimeFrames(timeFrameName: any = null) {
 	const getDayTimestamp = (base, hours = 0, days = 0) => {
 		const d = new Date(base);
 		d.setDate(d.getDate() + days);
@@ -84,12 +112,12 @@ export async function logoutCleanUp(brain, emptyBrain, logOut = false) {
 }
 
 // CONTENT METAS PROCESS ---------------------------------------------------------------------------
-export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contSync, isNewContent = false }) {
+export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contSync, isNewContent = false }: any) {
 	try {
 		const delProps = (obj, keys) => keys.forEach(key => delete obj[key]);
 		const splitNum = str => str?.split(',').map(Number) || [];
 
-		const timeFramesObj = getTimeFrames();
+		const timeFramesObj = (getTimeFrames as any)();
 		const setMeetStats = (cityID, type) => ((brain.meetStats[cityID] ??= {}), (brain.meetStats[cityID][type] ??= { events: 0, people: 0 }));
 		const thisCity = eveMetas.cityID || userMetas.cityID;
 		delete eveMetas.cityID, delete userMetas.cityID;
@@ -97,8 +125,8 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 		const [userIDs, eventIDs] = [new Set(Object.keys(userMetas).filter(id => !brain.users[id])), new Set(Object.keys(eveMetas).filter(id => !brain.events[id]))];
 		const bestOfIDsSet = brain.homeView === 'topEvents' ? new Set(brain.bestOfIDs) : null;
 
-		for (const what of ['events', 'users']) for (const item of await forage({ mode: 'get', what, id: [...(what === 'events' ? eventIDs : userIDs)] })) brain[what][item.id] = item;
-		const typesInTimes = Object.keys(timeFramesObj).reduce((acc, frame) => ((acc[frame] = new Set()), acc), {});
+		for (const what of ['events', 'users']) for (const item of (await forage({ mode: 'get', what, id: [...(what === 'events' ? eventIDs : userIDs)] })) as any[]) brain[what][item.id] = item;
+		const typesInTimes: any = Object.keys(timeFramesObj).reduce((acc, frame) => ((acc[frame] = new Set()), acc), {} as any);
 		if (isNewContent) brain.user.prevLoadedContIDs[thisCity] = { events: [], users: [] }; // Arrays for JSON serialization
 
 		// EVENT METAS PROCESSING ---------------------------------------------------------------------------
@@ -115,7 +143,7 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 				meta[eveCommentsIdx] || 0,
 				meta[eveScoreIdx] || 0,
 				meta[eveBasiVersIdx],
-				meta[eveDetaVersIdx],
+				meta[eveDetailsVersIdx],
 			];
 			const convStarts = parseInt(starts, 36);
 
@@ -132,7 +160,7 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 
 			// CREATE EVENT OBJECT ----------------------------------------------------------------
 			const event = brain.events[id];
-			const { lat, lon } = geohash?.length === 9 ? Geohash.decode(geohash) : {};
+			const { lat, lon } = geohash?.length === 9 ? decodeGeohashToLatitudeLongitude(geohash) : {};
 			const [ulat, ulng] = Array.isArray(brain.user.location) ? brain.user.location : [];
 			const hasUserLocation = Number.isFinite(ulat) && Number.isFinite(ulng);
 			const hasEventLocation = Number.isFinite(lat) && Number.isFinite(lon);
@@ -158,7 +186,7 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 
 			// MERGE WITH EXISTING EVENT OR CREATE NEW ---------------------------------------------------------------------
 			if (event) {
-				if (detaVers != (event.detaVers || detaVers)) delProps(event, eveDetaKeys), (event.state = 'basi'), delete event.detaVers;
+				if (detaVers != (event.detaVers || detaVers)) delProps(event, eveDetailsKeys), (event.state = 'basi'), delete event.detaVers;
 				if (basiVers != (event.basiVers || basiVers)) delProps(event, eveBasiKeys), (event.state = event.state === 'basiDeta' ? 'Deta' : 'meta'), delete event.basiVers;
 				Object.assign(event, eventObj);
 			} else brain.events[id] = eventObj;
@@ -178,7 +206,6 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 				meta[userBasiVersIdx],
 				meta[userAttendIdx] || [],
 			];
-			console.log('attend', attend);
 			if (id == brain.user.id) continue;
 
 			// CREATE USER OBJECT ----------------------------------------------------------------
@@ -219,7 +246,8 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 
 		// CONVERT SETS TO ARRAYS ----------------------------------------------------------------------
 		if (bestOfIDsSet) brain.bestOfIDs = [...bestOfIDsSet];
-		if (isNewContent) !bestOfIDsSet && (brain.citiesTypesInTimes[thisCity] = Object.fromEntries(Object.entries(typesInTimes).map(([frame, types]) => [frame, Array.from(types)])));
+		if (isNewContent)
+			!bestOfIDsSet && (brain.citiesTypesInTimes[thisCity] = Object.fromEntries(Object.entries(typesInTimes).map(([frame, types]: any[]) => [frame, Array.from(types as any)])));
 	} catch (error) {
 		console.error('PROCESS METAS ERROR', error);
 		throw error;
@@ -228,7 +256,7 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 
 // UPDATE INTERACTIONS ---------------------------------------------------------------
 // INFO should probably delete openEve regularly
-export function updateInteractions({ brain, add, del }) {
+export function updateInteractions({ brain, add, del }: { brain: any; add?: any; del?: any }) {
 	const [targetObj, now] = [brain.user.unstableObj || brain.user, Date.now()];
 	const keys = ['eveInters', 'rateEve', 'rateComm', 'rateUsers', 'linkUsers', 'openEve'];
 	keys.forEach(key => (targetObj[key] ??= [])), brain.user.unstableObj && ['events', 'users'].forEach(key => (brain.user.unstableObj.gotSQL[key] ??= []));
@@ -293,7 +321,7 @@ export function getDeviceFingerprint() {
 		new Date().getTimezoneOffset(),
 		navigator.language || '',
 		navigator.hardwareConcurrency || '',
-		navigator.deviceMemory || '',
+		(navigator as any).deviceMemory || '',
 		navigator.maxTouchPoints || 0,
 	].join(' | ');
 	return hashGenerate(data);
@@ -313,7 +341,7 @@ export async function deriveKeyFromPassword(password, salt) {
 		return btoa(String.fromCharCode(...new Uint8Array(derivedBits)));
 	}
 	// HTTP FALLBACK (testing only) - simple iterative hash ---------------------------
-	console.alert('Using insecure key derivation (HTTP context) - for testing only!');
+	console.warn('Using insecure key derivation (HTTP context) - for testing only!');
 	let derived = password + salt;
 	for (let i = 0; i < 1000; i++) derived = hashGenerate(derived + salt + i);
 	return btoa(derived.slice(0, 32));
@@ -390,7 +418,7 @@ function hashGenerate(ascii) {
 }
 
 export function splitStrgOrJoinArr(obj, method = 'split') {
-	const applyMethod = (key, delimiter, isNum) => {
+	const applyMethod = (key, delimiter, isNum?) => {
 		if (Object.prototype.hasOwnProperty.call(obj, key)) {
 			if (method === 'split' && typeof obj[key] === 'string') obj[key] = obj[key]?.split(delimiter).map(item => (isNum ? Number(item) : item)) || [];
 			else if (method === 'join' && Array.isArray(obj[key]) && !obj[key].some(item => typeof item === 'object')) obj[key] = obj[key].join(delimiter);
@@ -459,7 +487,7 @@ function executeWorker(worker, { mode, what, id, val }) {
 }
 
 // LOCAL FORAGE ROUTER ---------------------------------------------------------------------------
-export async function forage({ mode, what, id, val }) {
+export async function forage({ mode, what, id, val }: { mode: string; what?: string; id?: string | string[]; val?: any }): Promise<any> {
 	try {
 		const params = { mode, what, id, val };
 		const createWorker = () => new Worker(new URL('./workers/forageSetWorker.js', import.meta.url), { type: 'module' });
@@ -547,7 +575,7 @@ export async function forage({ mode, what, id, val }) {
 			try {
 				return await executeWorker(encryptionWorkers[workerKey], params);
 			} catch (error) {
-				console.alert(`Restarting worker for ${what} due to error:`, error);
+				console.warn(`Restarting worker for ${what} due to error:`, error);
 				encryptionWorkers[workerKey].terminate();
 				encryptionWorkers[workerKey] = createWorker();
 				await initWorker(encryptionWorkers[workerKey]);
@@ -576,7 +604,7 @@ export function trim(snap) {
 }
 
 // DELETE FALSY VALUES ------------------------------------------------------------------
-export function delUndef(obj, empStr = false, zeros = false, falses = false) {
+export function delUndef(obj: any, empStr = false, zeros = false, falses = false): any {
 	const trimmedObj = Object.keys(obj).reduce((acc, key) => {
 		const value = obj[key];
 		if (
@@ -593,7 +621,7 @@ export function delUndef(obj, empStr = false, zeros = false, falses = false) {
 }
 
 // GET CONTENT OR SHERLOCK  -AVAIL -------------------------------------------------------------
-export function getFilteredContent({ what, brain, snap = {}, event = {}, show = {}, avail, sherData, isForMap }) {
+export function getFilteredContent({ what, brain, snap = {}, event = {}, show = {}, avail, sherData, isForMap }: any) {
 	let [curCitiesSet, arrs] = [new Set(snap.cities || brain.user.curCities), ['indis', 'basics', 'groups']];
 	let [items, sherAvail] = [[], { genders: [], minAge: 0, maxAge: 0, ...arrs.reduce((acc, key) => ({ ...acc, [key]: new Set() }), {}) }];
 	const { time = 'anytime', types = [], contView = 'events', sort } = snap || {};
@@ -601,7 +629,7 @@ export function getFilteredContent({ what, brain, snap = {}, event = {}, show = 
 	const sortItems = (a, b) => {
 		if (contView === 'events') {
 			const sortFns = {
-				popular: () => b.rank - a.rank || new Date(a.starts) - new Date(b.starts),
+				popular: () => b.rank - a.rank || new Date(a.starts).getTime() - new Date(b.starts).getTime(),
 				earliest: () => a.starts - b.starts,
 				nearest: () => {
 					const aDistance = Number.isFinite(a.distance) ? a.distance : Infinity;
@@ -643,23 +671,25 @@ export function getFilteredContent({ what, brain, snap = {}, event = {}, show = 
 
 	try {
 		if (what === 'topEvents') {
-			const bestOfIDs = new Set(brain.bestOfIDs);
-			items = [...bestOfIDs].map(id => brain.events[id]).filter(Boolean);
+			const bestOfIDs = new Set(brain.bestOfIDs as any);
+			items = [...bestOfIDs].map((id: any) => (brain.events as any)[id]).filter(Boolean);
 		} else if (event.id) {
-			if (brain.user.eveUserIDs?.[event.id]) items = brain.user.eveUserIDs[event.id].map(id => brain.users[id]);
-			else (items = Object.values(brain.users).filter(user => user.eveInters?.some(([eveID]) => eveID === event.id))), (brain.user.eveUserIDs[event.id] = items.map(user => user.id));
+			if (brain.user.eveUserIDs?.[event.id]) items = brain.user.eveUserIDs[event.id].map((id: any) => (brain.users as any)[id]);
+			else
+				(items = Object.values(brain.users as any).filter((user: any) => user.eveInters?.some(([eveID]: any[]) => eveID === event.id))),
+					(brain.user.eveUserIDs[event.id] = items.map((user: any) => user.id));
 		} else {
 			const { start, end } = time !== 'anytime' ? getTimeFrames(time) : {};
 			const selTypesSet = new Set(types.filter(type => !avail || avail.types.includes(type)));
-			const itemsOnMapSet = !isForMap && show.map === true && brain.itemsOnMap ? new Set(brain.itemsOnMap) : null;
+			const itemsOnMapSet = !isForMap && show.map === true && brain.itemsOnMap ? new Set(brain.itemsOnMap as any) : null;
 			const allowedStates = new Set(['meta', 'basi', 'basiDeta']);
 
 			// FIND RELEVANT EVENTS ------------------------------------------------------------------
 			items =
 				itemsOnMapSet && !isForMap
-					? [...itemsOnMapSet].map(id => brain.events[id]).filter(Boolean)
-					: Object.values(brain.events).filter(
-							({ cityID, type, starts, id, lat, state }) =>
+					? [...itemsOnMapSet].map((id: any) => (brain.events as any)[id]).filter(Boolean)
+					: Object.values(brain.events as any).filter(
+							({ cityID, type, starts, id, lat, state }: any) =>
 								curCitiesSet.has(cityID) &&
 								selTypesSet.has(type) &&
 								allowedStates.has(state) &&
@@ -670,13 +700,13 @@ export function getFilteredContent({ what, brain, snap = {}, event = {}, show = 
 			if ((show.sherlock && what === 'sherAvail') || (!isForMap && what === 'content' && contView === 'users')) {
 				const relevantEventIds = new Set(items.filter(e => e?.type.startsWith('a')).map(e => e.id));
 				const gendersSet = new Set();
-				items = [brain.user, ...Object.values(brain.users)].filter(user => {
-					const relevantInters = user.eveInters?.filter(([id]) => relevantEventIds.has(id)) || [];
+				items = [brain.user, ...Object.values(brain.users as any)].filter((user: any) => {
+					const relevantInters = user.eveInters?.filter(([id]: any[]) => relevantEventIds.has(id)) || [];
 					if (!relevantInters.length) return false;
 					gendersSet.add(user.gender);
 					user.sortProps = relevantInters.reduce(
-						(acc, [id, inter]) => {
-							const ev = brain.events[id];
+						(acc: any, [id, inter]: any[]) => {
+							const ev = (brain.events as any)[id];
 							const sureScore = 3 * (ev?.surely || 0) + (ev?.maybe || 0);
 							if (inter === 'sur') user.id === brain.user.id ? (acc.interScore += 100) : acc.interScore++;
 							acc.starts = Math.min(acc.starts, Number.isFinite(ev?.starts) ? ev.starts : Infinity);
@@ -727,7 +757,7 @@ export function getFilteredContent({ what, brain, snap = {}, event = {}, show = 
 		}
 
 		if (what === 'sherAvail') {
-			arrs.forEach(a => (sherAvail[a] = Array.from(sherAvail[a])));
+			arrs.forEach(a => (sherAvail[a] = Array.from(sherAvail[a] as any)));
 			sherAvail.minAge = Number.isFinite(sherAvail.minAge) ? sherAvail.minAge : null;
 			sherAvail.maxAge = Number.isFinite(sherAvail.maxAge) && sherAvail.maxAge !== -Infinity ? sherAvail.maxAge : null;
 			return sherAvail;
@@ -760,7 +790,7 @@ const badgeArrs = ['indis', 'basics', 'groups'];
 
 // INFO integrate extractInteractions into SET PROPS TO CONTENT
 
-export function extractInteractions(items, mode, brain) {
+export function extractInteractions(items, mode, brain, _unused = undefined) {
 	try {
 		if (!items) return;
 		const unstableObj = brain.user.unstableObj;
@@ -794,9 +824,9 @@ export function extractInteractions(items, mode, brain) {
 				if (interactions.eveInters[inter]) interactions.eveInters[inter].push([id, inter, interPriv]);
 				else if (inter === 'del')
 					delete item.inter,
-						Object.values(unstableObj.eveInters).forEach(arr =>
-							arr.splice(
-								arr.findIndex(item => item[0] === id),
+						Object.values(unstableObj.eveInters as any).forEach((interactionsArray: any[]) =>
+							interactionsArray.splice(
+								interactionsArray.findIndex((interactionRow: any[]) => interactionRow[0] === id),
 								1
 							)
 						);
@@ -815,25 +845,25 @@ export function extractInteractions(items, mode, brain) {
 
 // TODO meetstats setting should be here??? really??? why its not in meta processsing??? just a quick thought, verify.
 // SET PROPS TO CONTENT ------------------------------------------------------------------
-export function setPropsToContent(mode, items, brain, isNewCont) {
+export function setPropsToContent(mode, items, brain, isNewCont = false) {
 	try {
 		const { eveInters = [], rateEve, rateUsers, linkUsers = [], rateComm } = brain.user.unstableObj || brain.user;
 		const ratingIDsSrc = (mode === 'events' ? rateEve : mode === 'users' ? rateUsers : rateComm) || [];
 
 		const ratingMap = new Map(ratingIDsSrc.map(([id, mark, awards]) => [id, [mark, awards]]));
-		const linksMap = mode === 'users' ? new Map(linkUsers.map(([id, trusted]) => [id, [id, trusted]])) : null;
+		const linksMap = mode === 'users' ? new Map(linkUsers.map(([id, trusts]) => [id, [id, trusts]])) : null;
 		// Ensure eveInters is iterable array
 		const eveIntersArr = Array.isArray(eveInters) ? eveInters : [];
 		const intersMap = mode === 'events' ? new Map(eveIntersArr.map(([eveID, inter, priv]) => [eveID, [inter, priv]])) : null;
 
-		for (const item of !Array.isArray(items) ? Object.values(items) : items) {
-			const [{ id, surely, owner, user, flag, state }, [mark, awards]] = [item, ratingMap.get(item.id) || []];
-			let inter, priv, badges, linkedId, trusted;
+		for (const item of (Array.isArray(items) ? items : Object.values((items || {}) as any)) as any[]) {
+			const [{ id, surely, owner, user, flag, state }, [mark, awards]] = [item, (ratingMap.get((item as any).id) as any) || []];
+			let inter, priv, badges, linkedId, trusts;
 
 			if (mode === 'users') {
-				[linkedId, trusted] = linksMap.get(id) || [];
+				[linkedId, trusts] = ((linksMap?.get(id) as any[]) || []) as any[];
 				if (isNewCont) {
-					for (const [eveID, inter] of item.eveInters || []) {
+					for (const [eveID, inter] of ((item.eveInters || []) as any[])) {
 						if (inter === 'sur') {
 							eventBadges[eveID] ??= { indis: {}, basics: {}, groups: {} };
 							for (const arr of badgeArrs) for (const i of item[arr]) eventBadges[eveID][arr][i] = (eventBadges[eveID][arr][i] || 0) + 1;
@@ -854,7 +884,7 @@ export function setPropsToContent(mode, items, brain, isNewCont) {
 										.sort((a, b) => obj[b] - obj[a]),
 								])
 							)),
-						badges && !Object.values(badges).some(arr => arr.length) && (badges = null),
+						badges && !Object.values(badges as any).some((badgeArray: any) => badgeArray?.length) && (badges = null),
 						true;
 			}
 
@@ -874,7 +904,7 @@ export function setPropsToContent(mode, items, brain, isNewCont) {
 					...(brain.user.invitesIn[id]?.some(u => u.flag === 'ok') && !brain.user.invitesIn[id]?.some(u => u.flag === 'acc') && { invited: true }),
 					own: owner == brain.user.id,
 				}),
-				...(mode === 'users' && linkedId && { linked: true, trusted: Boolean(trusted) }),
+				...(mode === 'users' && linkedId && { linked: true, trusts: Boolean(trusts) }),
 				...(['comments', 'messages'].includes(mode) && { own: user == brain.user.id }),
 				...{
 					mark: Number(mark || 0),
@@ -917,9 +947,9 @@ export function humanizeDateTime(inp) {
 		const sameDayAsPrev = prevDate && date.toDateString() === prevDate.toDateString();
 		const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
 		const currentDateOnly = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-		const daysDiff = Math.floor((dateOnly - currentDateOnly) / (1000 * 3600 * 24));
+		const daysDiff = Math.floor((dateOnly.getTime() - currentDateOnly.getTime()) / (1000 * 3600 * 24));
 		const isToday = daysDiff === 0;
-		const secsDiff = Math.floor((date - currentDate) / 1000);
+		const secsDiff = Math.floor((date.getTime() - currentDate.getTime()) / 1000);
 		const minsDiff = Math.floor(secsDiff / 60);
 		const hoursDiff = Math.floor(minsDiff / 60);
 

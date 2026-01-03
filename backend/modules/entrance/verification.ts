@@ -21,7 +21,7 @@ const setRedis = r => (redis = r);
 async function verifyMail({ userID }, con) {
 	await con.execute(/*sql*/ `UPDATE users SET status = "unintroduced" WHERE id = ?`, [userID]);
 	const verifyCode = nanoid(32),
-		expiry = Date.now() + EXPIRATIONS.VERIFY_MAIL; // GENERATE SHORT-LIVED VERIFICATION CODE ---
+		expiry = Date.now() + EXPIRATIONS.verifyMailLink; // GENERATE SHORT-LIVED VERIFICATION CODE ---
 	await redis.setex(`verifyCode:${verifyCode}`, 1800, `${userID}:unintroduced:${expiry}`);
 	return { redirect: `${process.env.FRONT_END}/entrance?mode=introduction&code=${verifyCode}` };
 }
@@ -39,7 +39,9 @@ async function verifyNewMail({ userID }, con) {
 		if (prev_mail)
 			await sendEmail({
 				mode: 'revertEmailChange',
-				token: `${jwtQuickies({ mode: 'create', payload: { userID, is: 'revertEmailChange' }, expiresIn: EXPIRATIONS.REVERT_EMAIL })}:${Date.now() + EXPIRATIONS.REVERT_EMAIL}`,
+				token: `${jwtQuickies({ mode: 'create', payload: { userID, is: 'revertEmailChange' }, expiresIn: EXPIRATIONS.revertEmailChangeLink })}:${
+					Date.now() + EXPIRATIONS.revertEmailChangeLink
+				}`,
 				email: prev_mail,
 			});
 		await con.commit();

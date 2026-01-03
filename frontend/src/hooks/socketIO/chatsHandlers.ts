@@ -9,7 +9,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
  * Processes incoming socket events for chat messages and room updates.
  * Manages message processing, member updates, punishments, and room status.
  * -------------------------------------------------------------------------- */
-export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, depsRef, showToast, setMenuView, getTargetChat, bottomScroll }) {
+export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, depsRef, showToast, setMenuView, getTargetChat, bottomScroll, setScrollDir }) {
 	// PENDING MEMBER FETCH DEDUPE ---------------------------------------------
 	// Steps: prevent bursty events from triggering multiple identical “getMembers” calls for the same (chat,user) pair.
 	const pendingMemberFetches = new Set();
@@ -54,7 +54,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 				// Steps: unhide/unarchive indicators, merge message idempotently (avoid dupes), set seen=false for incoming, set notif dots/toast as needed, then persist + reorder chats.
 				if (chat.hidden) chat.hidden = false;
 				if (chat.archived) setNotifDots(prev => ({ ...prev, archive: 1 }));
-				const authorMemberObj = chat.members.find(m => m.id === user);
+				const authorMemberObj = chat.members.find(m => String(m.id) === String(user));
 				console.log('🚀 ~ PROCESS MESSAGE AUTHOR MEMBER OBJ:', authorMemberObj);
 
 				if (authorMemberObj?.punish) ['punish', 'until', 'who', 'mess'].forEach(prop => delete authorMemberObj[prop]);
@@ -92,9 +92,9 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 								what: 'message',
 								target: chatID,
 								data: {
-									content: message.content,
-									attach: message.attach,
-									user: chat.members.find(m => m.id === user) || { id: user },
+						content: message.content,
+								attach: message.attach,
+								user: chat.members.find(m => String(m.id) === String(user)) || { id: user },
 									chatName: chat.type !== 'private' ? chat.name : undefined,
 								},
 								created: Date.now(),
@@ -154,7 +154,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 			}
 
 			default:
-				console.alert(`Unknown message mode: ${mode}`);
+				console.warn(`Unknown message mode: ${mode}`);
 				return false;
 		}
 	}
@@ -175,21 +175,24 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 
 	// CHAT MEMBERS CHANGED -----------------------------------------------------
 	// Steps: forward member deltas into the shared member processor so roles/punishments/flags stay consistent across all views.
-	async function handleMembersChangedEvent({ chatID, members = [], allMembers = false, membSync } = {}) {
+	async function handleMembersChangedEvent({ chatID, members = [], allMembers = false, membSync }: any = {}) {
 		depsRef.processChatMembers({ chatObj: getTargetChat(chatID), members, allMembers, membSync });
 	}
 
 	// CHAT ENDED -----------------------------------------------------------
-	// Steps: mark chat ended, strip volatile props, mark room not joined, then trigger member update so UI removes active membership affordances.
+	// Steps: mark chat ended, strip volatile props, mark room not joined, then demote all members to spect role.
 	async function handleChatEndedEvent({ chatID }) {
 		const chat = getTargetChat(chatID);
 		const basicProps = ['id', 'members', 'messages', 'cursors', 'seen'];
 		if (chat) {
 			chat.ended = true;
-			chat.joinedRoom = false; // Force re-join on next interaction if needed
+			chat.joinedRoom = false;
 			Object.keys(chat).forEach(prop => !basicProps.includes(prop) && delete chat[prop]);
+			// Demote all members to spect role when chat ends
+			chat.members?.forEach(m => (m.role = 'spect'));
+			depsRef.run('refreshChatIdx', chat);
+			depsRef.run('store', chat);
 		}
-		await handleMembersChangedEvent({ chatID, removed: chat?.members?.map(m => m.id) });
 	}
 
 	// FETCH SINGLE MEMBER DATA ----------------------------------------------------------
@@ -278,7 +281,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 			const targetChat = getTargetChat(chatID);
 			if (targetChat) {
 				if (membSync) targetChat.membSync = membSync;
-				const idx = targetChat.members.findIndex(m => m.id == userID);
+				const idx = targetChat.members.findIndex(m => String(m.id) === String(userID));
 				if (idx > -1) {
 					// Handle un-punishments (unban, ungag) ---------------------------
 					if (how && how.startsWith('un')) {
@@ -298,11 +301,12 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 					}
 				}
 				// If current user was banned, mark room as left ---------------------------
-				if (userID == brain.user.id && how === 'ban') targetChat.joinedRoom = false;
-				if (userID == brain.user.id && how === 'unban') targetChat.joinedRoom = true;
+				const isCurrentUser = String(userID) === String(brain.user.id);
+				if (isCurrentUser && how === 'ban') targetChat.joinedRoom = false;
+				if (isCurrentUser && how === 'unban') targetChat.joinedRoom = true;
 
 				// EPHEMERAL PUNISHMENT NOTIFICATION (NOT STORED, NOT FOR TARGET USER) ---------------------------
-				if (userID != brain.user.id) {
+				if (!isCurrentUser) {
 					if (!targetChat.punishNotifs) targetChat.punishNotifs = [];
 					targetChat.punishNotifs.push({ how, who, userID, mess, until, ts: Date.now() });
 					setTimeout(() => {
@@ -312,7 +316,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 				}
 
 				depsRef.run('refreshChatIdx', targetChat);
-				depsRef.run('store', targetChat), depsRef.setScrollDir('up');
+				depsRef.run('store', targetChat), setScrollDir('up');
 				setChats(prev => [...prev]);
 			}
 		} catch (error) {
@@ -364,11 +368,11 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 		try {
 			const chat = getTargetChat(chatID);
 			if (chat) {
-				const member = chat.members.find(m => m.id == userID);
+				const member = chat.members.find(m => String(m.id) === String(userID));
 				if (member) {
 					member.seenId = messID;
 
-					if (userID === brain.user.id) {
+					if (String(userID) === String(brain.user.id)) {
 						const lastMessID = chat.messages.slice(-1)[0]?.id;
 						if (lastMessID && messID >= lastMessID) chat.seen = true;
 					}
@@ -380,6 +384,20 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 		} catch (error) {
 			console.error('Error processing messSeen:', error);
 			notifyGlobalError(error, 'Nepodařilo se aktualizovat stav přečtení zpráv.');
+		}
+	};
+
+	// USER LEFT CHAT --------------------------------------------------------------
+	// Steps: handle userLeft event when another user disconnects or leaves the chat room; update their online status in the member list.
+	const handleUserLeft = async ({ chatID, userID }) => {
+		try {
+			const chat = getTargetChat(chatID);
+			if (!chat) return;
+			const member = chat.members?.find(m => String(m.id) === String(userID));
+			if (member) member.online = false;
+			setChats(prev => [...prev]);
+		} catch (error) {
+			console.error('Error handling userLeft:', error);
 		}
 	};
 
@@ -427,6 +445,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 		handleChatPunishment,
 		handleBlocking,
 		handleMessageSeen,
+		handleUserLeft,
 		reenterChat,
 	};
 }

@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 60
+    },
+    "auditLog": "c:\\Ministerra\\logging\\error\\.ee469628d70edd5faec97b9f1e798e97bceb275e-audit.json",
+    "files": [
+        {
+            "date": 1767381978311,
+            "name": "c:\\Ministerra\\logging\\error\\error-2026-01-02.log",
+            "hash": "07d51edead837213931bd63b22ff5e8c3590ff4384ba10977130d7a391ee4d72"
+        }
+    ],
+    "hashType": "sha256"
+}

@@ -26,7 +26,7 @@ export function Search(props) {
 	const [content, setContent] = useState(null);
 	const contentRef = useRef();
 	const [showCats, setShowCats] = useState(!cat && (cat !== 'chats' || isInvitations) ? true : false);
-	const target = ['users', 'links', 'trusted'].includes(cat) ? 'users' : cat;
+	const target = ['users', 'links', 'trusts'].includes(cat) ? 'users' : cat;
 	const [inform, setInform] = useState([]);
 	const [stripMenu, setStripMenu] = useState(null);
 	const [showingLocalContent, setShowingLocalContent] = useState(false);
@@ -35,7 +35,7 @@ export function Search(props) {
 	const searchDebounce = useRef(null);
 
 	// LAYOUT HOOKS ------------------------------------------------------------
-	const contType = `${{ events: 'eve', pastEvents: 'eve', users: 'user', links: 'user', trusted: 'user', chats: 'chat' }[cat]}Strips`;
+	const contType = `${{ events: 'eve', pastEvents: 'eve', users: 'user', links: 'user', trusts: 'user', chats: 'chat' }[cat]}Strips`;
 	const [numOfCols] = useMasonResize({ wrapper: contentRef, brain, contType, contLength: content?.length });
 
 	// RESET EFFECT ------------------------------------------------------------
@@ -49,12 +49,11 @@ export function Search(props) {
 		if (menuView !== 'search' && !isInvitations && !isChatSetup) setContent(null);
 		if (selectedItems?.length === 0) setContent(null), setSearchQ('');
 		if (brain.restoreStripMenu && menuView === 'search') setStripMenu(brain.restoreStripMenu), delete brain.restoreStripMenu;
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [JSON.stringify(selectedItems?.map(item => item.id)), menuView]);
 
 	// SEARCH LOGIC ------------------------------------------------------------
 	// Handles local filtering and server fetching strategies
-	const performSearch = async (inp, queryServer) => {
+	const performSearch = async (inp, queryServer = undefined) => {
 		if (inp.length < 2) {
 			setContent(null);
 			return false; // no local handled
@@ -92,11 +91,11 @@ export function Search(props) {
 			const localContent = [
 				...Object.values(brain.user.search[cat] || {})
 					.flat()
-					.filter(obj => !brain[target][obj.id] || !['basi', 'basiDeta', 'mini'].includes(brain[target][obj.id].state)),
-				...(cat === 'chats' ? chats || [] : Object.values(cat === 'pastEvents' ? brain.user.pastEve || {} : brain[target])).filter(
-					obj => cat === 'chats' || (!obj.blocked && ['basi', 'basiDeta', 'mini'].includes(obj.state))
+					.filter((obj: any) => !brain[target][obj.id] || !['basi', 'basiDeta', 'mini'].includes(brain[target][obj.id].state)),
+				...(cat === 'chats' ? (chats || []) : Object.values(cat === 'pastEvents' ? brain.user.pastEve || {} : brain[target])).filter(
+					(obj: any) => cat === 'chats' || (!obj.blocked && ['basi', 'basiDeta', 'mini'].includes(obj.state))
 				),
-			].filter(obj => obj.id && checkIfIncludes(getStrToCompare(obj)));
+			].filter((obj: any) => obj.id && checkIfIncludes(getStrToCompare(obj)));
 
 			if (localContent.length) {
 				setShowingLocalContent(true);
@@ -177,7 +176,7 @@ export function Search(props) {
 					? 'Zadej jméno uživatele'
 					: cat === 'links'
 					? 'Zadej jméno spojence'
-					: cat === 'trusted'
+					: cat === 'trusts'
 					? 'Zadej jméno důvěrníka'
 					: cat === 'chats'
 					? 'Zadej jméno chatu nebo uživatele'
@@ -227,7 +226,6 @@ export function Search(props) {
 				/>
 			));
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [content, numOfCols, selectedItems, selectedItems?.length, brain.chatSetupData?.members, chats, brain.openedChat, cat, stripMenu, manageMode, isChatSetup]);
 
 	const catsToShow = !isInvitations ? ['users', 'events', 'pastEvents', 'links'] : isInvitations === 'userToEvents' ? ['events'] : ['links', 'users'];
@@ -248,22 +246,12 @@ export function Search(props) {
 						<img
 							className={'zinMenu posRel'}
 							src={`/icons/${
-								cat === 'users' ? 'people' : cat === 'events' ? 'event' : cat === 'pastEvents' ? 'history' : cat === 'links' ? 'indicators/0' : cat === 'trusted' ? 'types/11' : 'error'
+								cat === 'users' ? 'people' : cat === 'events' ? 'event' : cat === 'pastEvents' ? 'history' : cat === 'links' ? 'indicators/0' : cat === 'trusts' ? 'types/11' : 'error'
 							}.png`}
 							alt=''
 						/>
 						<span className='fs5 bold'>
-							{cat === 'users'
-								? 'Uživatelé'
-								: cat === 'events'
-								? 'Události'
-								: cat === 'pastEvents'
-								? 'Proběhlé'
-								: cat === 'links'
-								? 'Spojenci'
-								: cat === 'trusted'
-								? 'Důvěrníci'
-								: 'Zpět'}
+							{cat === 'users' ? 'Uživatelé' : cat === 'events' ? 'Události' : cat === 'pastEvents' ? 'Proběhlé' : cat === 'links' ? 'Spojenci' : cat === 'trusts' ? 'Důvěrníci' : 'Zpět'}
 						</span>
 					</button>
 					{/* INPUT --- */}
@@ -281,10 +269,10 @@ export function Search(props) {
 					{catsToShow
 						.filter(
 							b =>
-								!['trusted', 'links'].includes(b) ||
+								!['trusts', 'links'].includes(b) ||
 								isInvitations ||
 								(b === 'links' && (brain.user.unstableObj || brain.user).linkUsers.length) ||
-								(b === 'trusted' && (brain.user.unstableObj || brain.user).linkUsers.some(link => link[1] === 'tru'))
+								(b === 'trusts' && (brain.user.unstableObj || brain.user).linkUsers.some(link => link[1] === 'tru'))
 						)
 						.map(m => (
 							<button
@@ -297,11 +285,11 @@ export function Search(props) {
 								className={`fs7 boldXs textSha bHover grow bgTransXs iw33 grow ${isInvitations && nowAt !== 'event' ? 'imw4 padAllS' : 'imw10 padAllS'}`}>
 								{showCats && (
 									<img
-										src={`/icons/${m === 'users' ? 'people' : m === 'links' ? 'indicators/0' : m === 'trusted' ? 'types/11' : m === 'pastEvents' ? 'history' : 'event'}.png`}
+										src={`/icons/${m === 'users' ? 'people' : m === 'links' ? 'indicators/0' : m === 'trusts' ? 'types/11' : m === 'pastEvents' ? 'history' : 'event'}.png`}
 										alt={`${m} icon`}
 									/>
 								)}
-								{m === 'pastEvents' ? 'proběhlé' : m === 'links' ? 'spojence' : m === 'trusted' ? 'důvěrníky' : m === 'users' ? 'uživatele' : m === 'events' ? 'události' : m}
+								{m === 'pastEvents' ? 'proběhlé' : m === 'links' ? 'spojence' : m === 'trusts' ? 'důvěrníky' : m === 'users' ? 'uživatele' : m === 'events' ? 'události' : m}
 							</button>
 						))}
 				</menu-bs>

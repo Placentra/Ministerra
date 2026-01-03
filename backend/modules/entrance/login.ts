@@ -132,7 +132,7 @@ export async function logoutUserDevices({ userID, devID = null, excludeCurrentDe
 			? `local k=KEYS[1] local p=ARGV[1] local e=ARGV[2] local f=redis.call('HKEYS',k) local d=0 for _,v in ipairs(f) do if string.sub(v,1,#p)==p and v~=e then redis.call('HDEL',k,v) d=d+1 end end return d`
 			: `local k=KEYS[1] local p=ARGV[1] local f=redis.call('HKEYS',k) local d=0 for _,v in ipairs(f) do if string.sub(v,1,#p)==p then redis.call('HDEL',k,v) d=d+1 end end return d`;
 		await Promise.all([
-			redis.eval(lua, 1, REDIS_KEYS.REFRESH_TOKENS, `${userID}_`, ...(excludeCurrentDevice ? [`${userID}_${devID}`] : [])),
+			redis.eval(lua, 1, REDIS_KEYS.refreshTokens, `${userID}_`, ...(excludeCurrentDevice ? [`${userID}_${devID}`] : [])),
 			con.execute(`DELETE FROM rjwt_tokens WHERE user = ?${excludeCurrentDevice ? ' AND device != ?' : ''}`, excludeCurrentDevice ? [userID, devID] : [userID]),
 		]);
 		if (socketIO) (await socketIO.in(userID).fetchSockets()).forEach(s => (!excludeCurrentDevice || s.handshake?.auth?.devID !== devID) && (s.emit('error', reason), s.disconnect(true)));
@@ -145,7 +145,7 @@ export async function logoutDevice({ userID, devID }, con) {
 	try {
 		// SINGLE DEVICE LOGOUT -------------------------------------------------
 		// Steps: delete the specific refresh token key, delete matching SQL row, then disconnect sockets for that device only.
-		await Promise.all([redis.hdel(REDIS_KEYS.REFRESH_TOKENS, `${userID}_${devID}`), con.execute('DELETE FROM rjwt_tokens WHERE user = ? AND device = ?', [userID, devID])]);
+		await Promise.all([redis.hdel(REDIS_KEYS.refreshTokens, `${userID}_${devID}`), con.execute('DELETE FROM rjwt_tokens WHERE user = ? AND device = ?', [userID, devID])]);
 		if (socketIO) (await socketIO.in(userID).fetchSockets()).forEach(s => (s.devID || s.handshake?.auth?.devID) === devID && (s.emit('error', 'logout'), s.disconnect(true)));
 	} catch (error) {
 		logger.error('logoutDevice', { error, userID, devID });

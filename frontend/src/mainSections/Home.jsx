@@ -66,8 +66,8 @@ function Home(props) {
 		// EFFECTIVE TYPE SELECTION ------------------------------------------------------
 		// Raw `snap.types` can contain types that are not available for current cats/time/cities. Treat those as unselected.
 		effectiveSelectedTypes = useMemo(() => types.filter(type => avail.types.includes(type)), [types, avail.types]),
-		hasEffectiveTypeSelection = avail.types?.length > 0 && effectiveSelectedTypes.length > 0,
-		noMeetSel = !avail.types?.filter(type => type.startsWith('a')).some(type => types.includes(type)),
+		hasEffectiveTypeSelection = !avail.types?.length || effectiveSelectedTypes.length > 0,
+		noMeetSel = avail.types?.length && !avail.types?.filter(type => type.startsWith('a')).some(type => types.includes(type)),
 		[sherData, setSherData] = useState({ ...sherlockObj }),
 		sherAvail = useMemo(() => {
 			if (!show.sherlock) return;
@@ -123,8 +123,6 @@ function Home(props) {
 		},
 		[brain.user.history, brain.user.curCities, snap]
 	);
-
-	console.log(brain, 'BRAAAAAAAAIN');
 
 	const setAvailOrGetAvaTypes = useCallback(
 		(inpSnap, returnTypes, returnSnap) => {
@@ -477,7 +475,7 @@ function Home(props) {
 							)}
 						</tools-strip>
 						{!hasEffectiveTypeSelection && (
-							<span className='tWhite padAllXxs w30 bRed posAbs botCen downLittle zin2500 posRel inlineBlock boldS'>{`Ve zvolených kategoriích nemáš vybrané události. `}</span>
+							<span className='tWhite padAllXxs w30 mw40 bRed posAbs botCen downLittle zin2500 posRel inlineBlock boldS'>{`Ve zvolených kategoriích nemáš vybrané události. `}</span>
 						)}
 					</filtering-system>
 

@@ -1,29 +1,21 @@
-import { eventsCols } from '../../variables';
-import { Sql } from '../systems';
-import dailyRecalc from '../../tasks/dailyRecalc/index';
+import { Sql } from '../systems.ts';
+import dailyRecalc from '../../tasks/dailyRecalc/index.ts';
 import { encode } from 'cbor-x';
-import { getStateVariables, processUserMetas, processNewUsers, processNewEvents, processNewEveMetas, fillContentPipeline, fillBasiDetaPipe, clearState } from '../../utilities/contentHelpers';
-import { getLogger } from './loggers';
-import { REDIS_KEYS, USER_GENERIC_KEYS } from '../../../shared/constants';
-import { toMySqlDateFormat } from '../../../shared/utilities';
+import { getStateVariables, processUserMetas, processNewUsers, processNewEvents, processNewEveMetas, loadMetaPipes, loadBasicsDetailsPipe, clearState } from '../../utilities/contentHelpers.ts';
+import { getLogger } from './loggers.ts';
+import { REDIS_KEYS, USER_GENERIC_KEYS, EVENT_COLUMNS } from '../../../shared/constants.ts';
+import { toMySqlDateFormat } from '../../../shared/utilities.ts';
+import { reportSubsystemReady } from '../../cluster/readiness.ts';
 
 const logger = getLogger('Cacher');
-const getRowsAfter = toMySqlDateFormat(new Date().setMonth(new Date().getMonth() - 3));
-
-// DATA WINDOW -----------------------------------------------------------------
-// Limits some rebuild queries to a recent time range to reduce cold-start load.
-// This is a performance heuristic, not a correctness boundary.
-// Steps: use this window only for “heavy” tables where older rows would not materially affect hot caches; canonical data still lives in SQL/Redis sources.
-
-// HELPERS ---------------------------------------------------------------------
+const getRowsAfter = toMySqlDateFormat(new Date(new Date().setMonth(new Date().getMonth() - 3)));
 
 // MAP-OF-ARRAYS PUSH -----------------------------------------------------------
-// Convenience helper: ensures map has an array value and pushes into it.
-// Used to build redis set payloads without repeated boilerplate.
-const addToMap = (map, key, value) => (map.get(key) || map.set(key, []).get(key)).push(value);
+// Steps: keep hot-path map building dense while preserving type intent at call sites.
+const addToMap = (map, key, value) => (map.get(key) || (map.set(key, []), map.get(key))).push(value);
 
-// HELPER: STREAMING QUERY PROCESSOR -------------------------------------------
-// Steps: stream rows from mysql2 query, batch them to cap memory, await the processor per batch to respect backpressure, then flush a final partial batch.
+// STREAM AND PROCESS -----------------------------------------------------------
+// Steps: stream SQL rows and process in batches to cap memory and preserve backpressure.
 async function streamAndProcess({ con, sql, params = [], batchSize = 1000, processor }) {
 	const promisePool = con.getPrimaryPool ? con.getPrimaryPool() : con;
 	const rawPool = promisePool.pool || promisePool;
@@ -42,8 +34,7 @@ async function streamAndProcess({ con, sql, params = [], batchSize = 1000, proce
 }
 
 // CACHER SYSTEM ---------------------------------------------------------------
-// Manages system startup state reconstruction.
-// Rebuilds Redis caches from SQL (Cities, Events, Users, Tokens, Social Graphs).
+// Manages system startup state reconstruction. Rebuilds Redis caches from SQL (Cities, Events, Users, Tokens, Social Graphs).
 // Performs daily recalculations if needed.
 
 export async function Cacher(redis) {
@@ -56,23 +47,35 @@ export async function Cacher(redis) {
 		await con.execute(`SET time_zone = '+00:00'`);
 
 		// DAILY RECALC GATE ---
-		// Steps: if daily job is stale, run it before any rebuild so derived caches aren’t built from outdated base tables.
+		// Steps: if daily job is stale, run it before any rebuild so derived caches aren't built from outdated base tables.
 		const day = 864e5;
-		if (!lastDailyRecalc || Date.now() - new Date(lastDailyRecalc).getTime() > day)
-			await Promise.all([dailyRecalc(con, redis), con.execute(`UPDATE miscellaneous SET last_daily_recalc = NOW() WHERE id = 0`)]);
+		let dailyRecalcEndTime = null;
+		if (!lastDailyRecalc || Date.now() - new Date(lastDailyRecalc).getTime() > day) {
+			await dailyRecalc(con, redis);
+			dailyRecalcEndTime = Date.now();
+			await con.execute(`UPDATE miscellaneous SET last_daily_recalc = NOW() WHERE id = 0`);
+			reportSubsystemReady('DAILY_RECALC');
+		}
 
 		// REBUILD SKIP GATE ---
 		// Steps: when server already started recently, avoid a full flush+rebuild to reduce boot latency; this is an ops optimization.
-		if ((await redis.exists('serverStarted')) && lastServerStart && Date.now() - new Date(lastServerStart).getTime() <= 3 * day) {
-			logger.info('Skipping cache rebuild (Recent start detected)');
+		const serverStartedExists = await redis.exists(REDIS_KEYS.serverStarted);
+		const timeSinceLastStart = lastServerStart ? Date.now() - new Date(lastServerStart).getTime() : Infinity;
+		if (serverStartedExists && lastServerStart && timeSinceLastStart <= 3 * day) {
+			if (dailyRecalcEndTime) await redis.hset(REDIS_KEYS.tasksFinishedAt, 'dailyRecalc', dailyRecalcEndTime.toString());
+			logger.info(`Cache rebuild skipped (last start ${Math.round(timeSinceLastStart / 1000)}s ago)`);
+			reportSubsystemReady('CACHE_REBUILD');
 			return;
 		}
+		logger.info(`Cache rebuild required (serverStartedExists=${serverStartedExists}, timeSinceLastStart=${Math.round(timeSinceLastStart / 1000)}s)`);
 
 		// FULL REBUILD ----------------------------------------------------------
 		// Steps: flush Redis, materialize active user set, then rebuild independent cache buckets in parallel using streaming processors.
 		logger.info('Starting full cache rebuild...');
 		const state = getStateVariables();
 		await redis.flushall();
+		// Restore tasksFinishedAt after flushall so task threads don't re-run dailyRecalc
+		if (dailyRecalcEndTime) await redis.hset(REDIS_KEYS.tasksFinishedAt, 'dailyRecalc', dailyRecalcEndTime.toString());
 		// ACTIVE USER MATERIALIZATION ---------------------------------------
 		// The rebuild uses a temp table so multiple joins can share the same active user set.
 		await con.execute(`CREATE TEMPORARY TABLE active_users (user VARCHAR(20) PRIMARY KEY) AS SELECT user FROM logins WHERE inactive = FALSE`);
@@ -86,23 +89,21 @@ export async function Cacher(redis) {
 				const [cities] = await con.execute(`SELECT id, city, hashID, ST_Y(coords) as lat, ST_X(coords) as lng FROM cities`);
 				if (cities.length)
 					await Promise.all([
-						redis.hset('citiesData', ...cities.flatMap(c => [c.id, encode({ city: c.city, hashID: c.hashID, lat: c.lat, lng: c.lng })])),
-						redis.hset('cityIDs', ...cities.flatMap(c => [c.hashID, c.id])),
+						redis.hset(REDIS_KEYS.citiesData, ...cities.flatMap(c => [c.id, encode({ city: c.city, hashID: c.hashID, lat: c.lat, lng: c.lng })])),
+						redis.hset(REDIS_KEYS.cityIDs, ...cities.flatMap(c => [c.hashID, c.id])),
 					]);
+				logger.info(`Cached ${cities.length} cities`);
 			})(),
 
 			// 2. EVENTS & USERS CONTENT ---
 			// Steps: stream events/users, pack metas + payloads, flush to Redis incrementally, and clear state maps between batches to cap RAM.
 			(async () => {
-				// EVENTS STREAMING ---------------------------------------------------
-				// Fetch events in a stream, process them one by one, and pipeline to Redis.
-				// This avoids loading all events into an array at once.
-				const EVENTS_BATCH_SIZE = 1000;
+				const EVENTS_BATCH_SIZE = 5000;
 				let eventsCount = 0;
 
 				await streamAndProcess({
 					con,
-					sql: `SELECT ${eventsCols}, c.city FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.flag NOT IN ('pas', 'del') ORDER BY 3 * e.surely + e.maybe + 0.2 * e.score DESC`,
+					sql: `SELECT ${EVENT_COLUMNS} FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.flag NOT IN ('pas', 'del') ORDER BY 3 * e.surely + e.maybe + 0.2 * e.score DESC`,
 					batchSize: EVENTS_BATCH_SIZE,
 					processor: async batch => {
 						eventsCount += batch.length;
@@ -114,8 +115,8 @@ export async function Cacher(redis) {
 								// Steps: flush per-batch so state maps don’t balloon; keep only cross-batch essentials via clearState keep-list.
 								processNewEveMetas({ data, state });
 								const pipe = redis.pipeline();
-								fillContentPipeline(state, pipe, pipe, 'streaming'); // Partial flush
-								fillBasiDetaPipe(state, pipe); // Partial flush of basics/details
+								loadMetaPipes(state, pipe, pipe, 'streaming'); // Partial flush
+								loadBasicsDetailsPipe(state, pipe); // Partial flush of basics/details
 								await pipe.exec();
 								// STATE TRIM ---
 								// Steps: drop per-batch maps immediately; keep cross-batch indexes that are needed for user attendance partitioning.
@@ -124,11 +125,10 @@ export async function Cacher(redis) {
 						});
 					},
 				});
-				logger.info(`Streamed and cached ${eventsCount} events.`);
 
 				// USERS STREAMING ----------------------------------------------------
 				// Similar streaming approach for users to avoid OOM on large user bases.
-				const USERS_BATCH_SIZE = 1000;
+				const USERS_BATCH_SIZE = 5000;
 				let usersCount = 0;
 
 				await streamAndProcess({
@@ -146,16 +146,16 @@ export async function Cacher(redis) {
 								const pipe = redis.pipeline();
 								// USER META BUILD ---
 								// Steps: rebuild attendance, per-city fanout, and scored sets, then flush same as events.
-								await processUserMetas({ data, is, state, pipe });
-								fillContentPipeline(state, pipe, pipe, 'streaming');
-								fillBasiDetaPipe(state, pipe);
+								await processUserMetas({ data, is, newAttenMap: null, privUse: null, state, pipe });
+								loadMetaPipes(state, pipe, pipe, 'streaming');
+								loadBasicsDetailsPipe(state, pipe);
 								await pipe.exec();
 								clearState(state, ['eveCityIDs', 'best100EveIDs']);
 							},
 						});
 					},
 				});
-				logger.info(`Streamed and cached ${usersCount} users.`);
+				logger.info(`Streamed and cached ${eventsCount} events and ${usersCount} users.`);
 			})(),
 
 			// 3. REFRESH TOKENS ---
@@ -167,12 +167,11 @@ export async function Cacher(redis) {
 				await streamAndProcess({
 					con,
 					sql: `SELECT user, device, token, print FROM rjwt_tokens WHERE created > NOW() - INTERVAL 3 DAY`,
-					batchSize: 2000,
+					batchSize: 5000,
 					processor: async batch => {
 						if (!batch.length) return;
 						const args = batch.flatMap(t => [`${t.user}_${t.device}`, `${t.token}:${t.print}`]);
 						pipe.hset('refreshTokens', ...args);
-						// Flush periodically to avoid massive pipeline buffer
 						await pipe.exec();
 						count += batch.length;
 					},
@@ -180,7 +179,7 @@ export async function Cacher(redis) {
 				if (count > 0) logger.info(`Restored ${count} refresh tokens`);
 			})(),
 
-			// 4. USER SETS (LINKS, BLOCKS, TRUSTED) ---
+			// 4. USER SETS (LINKS, BLOCKS, TRUSTS) ---
 			// Rebuilds relationship sets used for feed filtering and permissions.
 			// Sequential streaming of links then blocks to manage connection usage.
 			(async () => {
@@ -190,31 +189,36 @@ export async function Cacher(redis) {
 					}`;
 
 				// PROCESS LINKS
-				const maps = { links: new Map(), trusted: new Map() };
+				const maps = { links: new Map(), trusts: new Map() };
 				const pipe = redis.pipeline();
+				let linksCount = 0,
+					trustsCount = 0,
+					blocksCount = 0;
 
 				await streamAndProcess({
 					con,
 					sql: getQ('user_links'),
 					params: [getRowsAfter],
-					batchSize: 2000,
+					batchSize: 5000,
 					processor: async batch => {
 						maps.links.clear();
-						maps.trusted.clear();
+						maps.trusts.clear();
 
 						for (const { user, user2, who, link } of batch) {
 							if (link === 'tru') {
-								if (who == 3) [user, user2].forEach(u => activeUsersSet.has(u) && addToMap(maps.trusted, u, u === user ? user2 : user));
+								trustsCount++;
+								if (who == 3) [user, user2].forEach(u => activeUsersSet.has(u) && addToMap(maps.trusts, u, u === user ? user2 : user));
 								else {
 									const s = [user, user2].sort();
-									addToMap(maps.trusted, s[who - 1], s[2 - who]);
+									addToMap(maps.trusts, s[who - 1], s[2 - who]);
 								}
 							}
+							linksCount++;
 							[user, user2].forEach(u => activeUsersSet.has(u) && addToMap(maps.links, u, u === user ? user2 : user));
 						}
 
 						for (const [k, v] of maps.links) if (v?.length) pipe.sadd(`${REDIS_KEYS.links}:${k}`, ...v);
-						for (const [k, v] of maps.trusted) if (v?.length) pipe.sadd(`${REDIS_KEYS.trusted}:${k}`, ...v);
+						for (const [k, v] of maps.trusts) if (v?.length) pipe.sadd(`${REDIS_KEYS.trusts}:${k}`, ...v);
 
 						await pipe.exec();
 					},
@@ -226,15 +230,19 @@ export async function Cacher(redis) {
 					con,
 					sql: getQ('user_blocks'),
 					params: [getRowsAfter],
-					batchSize: 2000,
+					batchSize: 5000,
 					processor: async batch => {
 						blocksMap.clear();
-						for (const { user, user2 } of batch) [user, user2].forEach(u => activeUsersSet.has(u) && addToMap(blocksMap, u, u === user ? user2 : user));
+						for (const { user, user2 } of batch) {
+							blocksCount++;
+							[user, user2].forEach(u => activeUsersSet.has(u) && addToMap(blocksMap, u, u === user ? user2 : user));
+						}
 
 						for (const [k, v] of blocksMap) if (v?.length) pipe.sadd(`${REDIS_KEYS.blocks}:${k}`, ...v);
 						await pipe.exec();
 					},
 				});
+				logger.info(`Cached ${linksCount} links, ${trustsCount} trusts, ${blocksCount} blocks`);
 			})(),
 
 			// 5. INVITES & COMM CHANGES ---
@@ -242,21 +250,24 @@ export async function Cacher(redis) {
 			(async () => {
 				const pipe = redis.pipeline();
 				const iMap = new Map();
+				let invitesCount = 0;
 
 				await streamAndProcess({
 					con,
 					// INVITES REHYDRATION (RECIPIENT-BASED) ---
 					// Steps: `eve_invites.user` is the sender; `eve_invites.user2` is the recipient (invitee). The permission check uses invites:{recipient}.
-					// Semantics: "ever invited unless refused/deleted/canceled", so include 'ok' + 'acc' and exclude 'ref' + 'del'.
+					// Semantics: "always invited unless refused/deleted/canceled" (refused invite can be reverted through users Gallery).
 					sql: `SELECT ei.user2 AS user, ei.event FROM eve_invites ei JOIN active_users au ON ei.user2 = au.user WHERE ei.flag IN ('ok','acc')`,
-					batchSize: 2000,
+					batchSize: 5000,
 					processor: async batch => {
 						iMap.clear();
+						invitesCount += batch.length;
 						batch.forEach(({ user, event }) => addToMap(iMap, user, event));
 						for (const [u, evs] of iMap) pipe.sadd(`${REDIS_KEYS.invites}:${u}`, ...evs);
 						await pipe.exec();
 					},
 				});
+				logger.info(`Cached ${invitesCount} event invites`);
 			})(),
 
 			// Rehydrates last-comment timestamps preventing needless SQL lookups
@@ -266,8 +277,9 @@ export async function Cacher(redis) {
 					`SELECT c.event, c.created FROM comments c JOIN events e ON c.event = e.id WHERE c.id IN (SELECT MAX(c2.id) FROM comments c2 JOIN events e2 ON c2.event = e2.id WHERE e2.flag != 'del' AND e2.starts > ? GROUP BY c2.event)`,
 					[getRowsAfter]
 				);
-				if (changes.length) await redis.hset(REDIS_KEYS.LAST_NEW_COMM_AT, ...changes.flatMap(c => [c.event, c.created]));
+				if (changes.length) await redis.hset(REDIS_KEYS.lastNewCommAt, ...changes.flatMap(c => [c.event, c.created]));
 				await pipe.exec();
+				logger.info(`Cached ${changes.length} last-comment timestamps`);
 			})(),
 
 			// 6. CHAT MEMBERS & ROLES ---
@@ -276,30 +288,35 @@ export async function Cacher(redis) {
 				const memMap = new Map();
 				const roleMap = new Map();
 				const pipe = redis.pipeline();
+				let membersCount = 0,
+					chatsCount = new Set();
 
 				await streamAndProcess({
 					con,
 					sql: `SELECT cm.chat, cm.punish, cm.id, cm.role, cm.archived FROM chat_members cm LEFT JOIN active_users au ON cm.id = au.user LEFT JOIN chats c ON cm.chat = c.id WHERE cm.flag = 'ok' AND c.dead = 0 AND (cm.punish != 'ban' OR cm.until < NOW())`,
-					batchSize: 2000,
+					batchSize: 5000,
 					processor: async batch => {
 						memMap.clear();
 						roleMap.clear();
 
 						for (const { chat, id, role, punish, archived } of batch) {
+							membersCount++;
+							chatsCount.add(chat);
 							if (!archived) addToMap(memMap, chat, id);
 							roleMap.set(`${id}_${chat}`, punish === 'gag' ? 'gagged' : role);
 						}
 
 						for (const [c, ids] of memMap) pipe.sadd(`${REDIS_KEYS.chatMembers}:${c}`, ...ids);
-						if (roleMap.size) pipe.hset(REDIS_KEYS.userChatRoles, ...roleMap.entries().flatMap(x => x));
+						if (roleMap.size) pipe.hset(REDIS_KEYS.userChatRoles, ...Array.from(roleMap.entries()).flatMap(x => x));
 
 						await pipe.exec();
 					},
 				});
+				logger.info(`Cached ${membersCount} chat memberships across ${chatsCount.size} chats`);
 			})(),
 
 			// 7. METADATA UPDATES ---
-			// Restores small “lookup” hashes used to avoid repeated SQL lookups.
+			// Restores small "lookup" hashes used to avoid repeated SQL lookups.
 			(async () => {
 				const [chatChanges] = await con.execute(`SELECT id, changed FROM chats WHERE type != 'private' AND dead = 0`);
 				if (chatChanges.length) await redis.hset(REDIS_KEYS.lastMembChangeAt, ...chatChanges.flatMap(x => [x.id, new Date(x.changed).getTime()]));
@@ -314,6 +331,7 @@ export async function Cacher(redis) {
 
 				const [events] = await con.execute(`SELECT id, title, owner FROM events`);
 				if (events.length) await redis.hset(REDIS_KEYS.eveTitleOwner, ...events.flatMap(e => [e.id, encode([e.title?.slice(0, 50) || '', e.owner || ''])]));
+				logger.info(`Cached metadata: ${chatChanges.length} chat changes, ${eveUserChanges.length} event changes, ${users.length} user names, ${events.length} event titles`);
 			})(),
 
 			// 8. USER SUMMARY & ALERTS ---
@@ -361,6 +379,7 @@ export async function Cacher(redis) {
 					}
 				}
 				await summaryPipe.exec();
+				logger.info(`Cached user summaries and alerts for ${activeUsersSet.size} active users`);
 			})(),
 		]);
 
@@ -368,24 +387,25 @@ export async function Cacher(redis) {
 		// Steps: flush remaining leftovers, mark last_server_start, mark serverStarted, and seed monotonic counters for writers.
 		const [metasPipe, basiDetaPipe, attenPipe] = Array.from({ length: 4 }, () => redis.pipeline());
 
-		logger.info(`Pipeline stats: cityPubMetas keys: ${[...state.cityPubMetas.keys()]}`);
-		if (state.cityPubMetas.has(1)) logger.info(`CityPubMetas[1] size: ${state.cityPubMetas.get(1).size}`);
+		logger.info(`Pipe stats: cityPubMetas keys: ${[...state.cityPubMetas.keys()]}`);
+		if (state.cityPubMetas.has('1')) logger.info(`CityPubMetas[1] size: ${state.cityPubMetas.get('1')?.size}`);
 
-		fillContentPipeline(state, metasPipe, attenPipe, 'serverStart');
-		fillBasiDetaPipe(state, basiDetaPipe);
+		loadMetaPipes(state, metasPipe, attenPipe, 'serverStart');
+		loadBasicsDetailsPipe(state, basiDetaPipe);
 		await Promise.all([
 			metasPipe.exec(),
 			basiDetaPipe.exec(),
 			attenPipe.exec(),
 			con.execute(`UPDATE miscellaneous SET last_server_start = NOW() WHERE id = 0`),
 			clearState(state),
-			redis.set('serverStarted', Date.now()),
+			redis.set(REDIS_KEYS.serverStarted, Date.now()),
 		]);
 
 		// COUNTERS START ---
 		// Initializes monotonic ID counters used by writers to allocate new IDs safely.
 		const [[{ id: lastComm }], [{ id: lastMess }]] = await Promise.all([con.execute(`SELECT MAX(id) as id FROM comments`), con.execute(`SELECT MAX(id) as id FROM messages`)]);
-		await Promise.all([redis.set('lastCommID', (lastComm || 0) + 1), redis.set('lastMessID', (lastMess || 0) + 1), con.execute(`DROP TEMPORARY TABLE IF EXISTS active_users`)]);
+		await Promise.all([redis.set(REDIS_KEYS.lastCommID, (lastComm || 0) + 1), redis.set(REDIS_KEYS.lastMessID, (lastMess || 0) + 1), con.execute(`DROP TEMPORARY TABLE IF EXISTS active_users`)]);
+		reportSubsystemReady('CACHE_REBUILD');
 	} catch (error) {
 		logger.error('cacher.unhandled', { error });
 	} finally {

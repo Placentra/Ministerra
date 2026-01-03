@@ -1,14 +1,15 @@
 import { defineConfig } from 'vite';
+import type { Plugin, PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'node:fs';
 import path from 'node:path';
 
-function devRestartPlugin() {
+function devRestartPlugin(): Plugin {
 	// DEV RESTART PLUGIN -------------------------------------------------------
 	// Steps: register a dev-only middleware endpoint that touches a marker file; external watchers can use the marker to restart the dev process deterministically.
 	return {
 		name: 'dev-restart-plugin',
-		apply: 'serve',
+		apply: 'serve' as const,
 		configureServer(server) {
 			server.middlewares.use('/__restart', (req, res) => {
 				// DEV RESTART ENDPOINT -------------------------------------------
@@ -37,7 +38,7 @@ function devRestartPlugin() {
 
 // https://vitejs.dev/config/
 export default defineConfig(() => ({
-	appType: 'spa', // THIS IS SPA ROUTING --- explicit, avoid relying on ignored options
+	appType: 'spa' as const, // THIS IS SPA ROUTING --- explicit, avoid relying on ignored options
 	server: {
 		// DEV SERVER ---------------------------------------------------------
 		// Steps: bind to 0.0.0.0 for LAN testing, keep HMR on, use polling watch for Windows/Docker FS consistency.
@@ -45,16 +46,17 @@ export default defineConfig(() => ({
 		hmr: true,
 		watch: { usePolling: true, interval: 100 },
 	},
-	plugins: [
+	plugins: (() => {
 		// PLUGINS ------------------------------------------------------------
-		// Steps: use React plugin first, then install dev restart middleware.
-		react({
+		// Steps: normalize react() into a flat PluginOption[]; plugin-react returns Plugin | Plugin[] depending on config.
+		const reactPlugin = react({
 			// babel: {
 			// 	plugins: [['babel-plugin-react-compiler']],
 			// },
-		}),
-		devRestartPlugin(),
-	],
+		});
+		const reactPlugins: PluginOption[] = Array.isArray(reactPlugin) ? reactPlugin : [reactPlugin];
+		return [...reactPlugins, devRestartPlugin()];
+	})(),
 	optimizeDeps: {
 		esbuildOptions: {
 			mainFields: ['module', 'main'],

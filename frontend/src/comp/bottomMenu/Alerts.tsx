@@ -101,13 +101,11 @@ function Alerts(props) {
 
 		if (menuView !== 'alerts' || fetchInProg.current) return;
 		if (shouldFetch) fetchAlerts();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [menuView]);
 
 	// RESTORE STRIP MENU STATE ---
 	useLayoutEffect(() => {
 		if (brain.restoreStripMenu && menuView === 'alerts') setStripMenu(brain.restoreStripMenu), delete brain.restoreStripMenu;
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [menuView]);
 
 	// FETCH ALERTS ------------------------------------------------------------

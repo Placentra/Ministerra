@@ -16,12 +16,12 @@ const httpMetricsLogger = getLogger('HTTP');
 // creation idempotent across dev reloads and clustered imports.
 // Steps: return existing metric if present; otherwise attempt create; if creation races, re-fetch and return the winner.
 export function getOrCreateGauge(name, help, labelNames = []) {
-	const existing = client.register.getSingleMetric(name);
+	const existing = client.register.getSingleMetric(name) as client.Gauge<string> | undefined;
 	if (existing) return existing;
 	try {
 		return new client.Gauge({ name, help, labelNames });
 	} catch (e) {
-		const retry = client.register.getSingleMetric(name);
+		const retry = client.register.getSingleMetric(name) as client.Gauge<string> | undefined;
 		if (retry) return retry;
 		throw e;
 	}
@@ -32,12 +32,12 @@ export function getOrCreateGauge(name, help, labelNames = []) {
 // so callers can tune based on expected magnitude (seconds vs ms, etc).
 // Steps: same pattern as gauge, but for histogram with explicit buckets.
 export function getOrCreateHistogram(name, help, labelNames = [], buckets) {
-	const existing = client.register.getSingleMetric(name);
+	const existing = client.register.getSingleMetric(name) as client.Histogram<string> | undefined;
 	if (existing) return existing;
 	try {
 		return new client.Histogram({ name, help, labelNames, buckets });
 	} catch (e) {
-		const retry = client.register.getSingleMetric(name);
+		const retry = client.register.getSingleMetric(name) as client.Histogram<string> | undefined;
 		if (retry) return retry;
 		throw e;
 	}
@@ -47,12 +47,12 @@ export function getOrCreateHistogram(name, help, labelNames = [], buckets) {
 // Counter is used for monotonically increasing counts (requests, errors, etc).
 // Steps: same pattern as gauge, but for counter; counters must be monotonic.
 export function getOrCreateCounter(name, help, labelNames = []) {
-	const existing = client.register.getSingleMetric(name);
+	const existing = client.register.getSingleMetric(name) as client.Counter<string> | undefined;
 	if (existing) return existing;
 	try {
 		return new client.Counter({ name, help, labelNames });
 	} catch (e) {
-		const retry = client.register.getSingleMetric(name);
+		const retry = client.register.getSingleMetric(name) as client.Counter<string> | undefined;
 		if (retry) return retry;
 		throw e;
 	}
@@ -217,7 +217,7 @@ export function initializeMetrics(app) {
 			}
 		});
 
-		metricsLogger.info('Metrics endpoint ready', { pid: process.pid, workerId: process.env.WORKER_ID });
+		// NOTE: Removed per-worker log - 20 workers = 20 identical logs
 	} catch (e) {
 		metricsLogger.error('Failed to initialize metrics', { error: e });
 	}

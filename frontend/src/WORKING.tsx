@@ -7,7 +7,7 @@ import { globalContext } from '../../contexts/globalContext';
 import UserCard from '../UserCard';
 import { notifyGlobalError } from '../../hooks/useErrorsMan';
 
-export const showUsersProfile = async ({ obj, brain, chatObj = {}, setModes }) => {
+export const showUsersProfile = async ({ obj, brain, chatObj = {}, setModes }: any) => {
 	let profileObj;
 	if (obj.id === brain.user.id) !brain.user.priv && (await fetchOwnProfile(brain)), forage({ mode: 'set', what: 'user', val: brain.user }), (profileObj = brain.user);
 	else {
@@ -27,7 +27,7 @@ export const showUsersProfile = async ({ obj, brain, chatObj = {}, setModes }) =
 	setModes(p => ({ ...p, profile: profileObj }));
 };
 
-const UserMenuStrip = ({ obj = {}, chatObj = {}, modes = {}, setStatus, isNarrow, galleryMode, isChatMember, isSearch, brain = {}, status = {}, setModes, nowAt }) => {
+const UserMenuStrip = ({ obj = {}, chatObj = {}, modes = {}, setStatus, isNarrow, galleryMode, isChatMember, isSearch, brain = {}, status = {}, setModes, nowAt }: any) => {
 	const { id } = obj,
 		[selButton, setSelButton] = useState(null),
 		[{ linked, blocked }, { protocol }] = [status, modes],
@@ -69,7 +69,7 @@ const UserMenuStrip = ({ obj = {}, chatObj = {}, modes = {}, setStatus, isNarrow
 		mode === 'block' && updateArray('remove', id, (brain.user.unstableObj || brain.user).linkUsers);
 	};
 
-	const setupNewChat = async ({ content } = {}) => ((brain.chatSetupData = { launchSetup: true, type: 'private', members: [obj], content }), setMenuView('chat'));
+	const setupNewChat = async ({ content }: any = {}) => ((brain.chatSetupData = { launchSetup: true, type: 'private', members: [obj], content }), setMenuView('chat'));
 
 	const src = {
 		profil: !obj.blocked && galleryMode !== 'blocks' && isNarrow && !isSearch ? () => showUsersProfile({ obj, brain, chatObj, setModes }) : null,

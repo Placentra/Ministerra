@@ -1,4 +1,4 @@
-function HeaderImage({ fadedIn, isLastVisible, thisIs, currentSection }) {
+function HeaderImage({ fadedIn = [], isLastVisible = false, thisIs, currentSection }: any) {
 	const imgSrc = { introduction: `/covers/introduction.png`, home: '/covers/home.png' }[thisIs];
 
 	const sectionTexts = {

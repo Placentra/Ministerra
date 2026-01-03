@@ -30,14 +30,12 @@ function AlertStrip(props) {
 	useEffect(() => {
 		if (stripMenu === alert?.id && !modes.menu) setModes(prev => ({ ...prev, menu: true }));
 		else if (stripMenu !== alert?.id && modes.menu) setModes(prev => ({ ...prev, menu: null }));
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [stripMenu]);
 
 	// CLOSE MENU ON VIEW CHANGE ---
 	useEffect(() => {
 		if (!modes.menu) return;
 		else if (menuView !== 'gallery' && menuView !== 'alerts') setModes(prev => ({ ...prev, menu: null }));
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [menuView]);
 
 	// CONTENT FORMATTING ------------------------------------------------------

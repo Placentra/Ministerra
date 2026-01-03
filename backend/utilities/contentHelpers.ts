@@ -1,27 +1,29 @@
-import { delFalsy } from '../../shared/utilities';
-import { createEveMeta, createUserMeta } from './helpers/metasCreate';
+import { delFalsy, calculateAge } from '../../shared/utilities.ts';
+import { createEveMeta, createUserMeta } from './helpers/metasCreate.ts';
 import { encode, decode } from 'cbor-x';
-import { getLogger } from '../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../shared/constants';
-import { RedisKey } from '../../shared/types';
+import { getLogger } from '../systems/handlers/logging/index.ts';
+import { REDIS_KEYS } from '../../shared/constants.ts';
+import { getGeohash } from './helpers/location.ts';
 
 const logger = getLogger('ContentHelpers');
 
 // CONSTANTS & INDICES --------------------------------------------------------
-import { EVENT_META_INDEXES, USER_META_INDEXES } from '../../shared/constants';
+import { EVENT_META_INDEXES, USER_META_INDEXES } from '../../shared/constants.ts';
 const { evePrivIdx, eveCityIDIdx, eveOwnerIdx, eveTypeIdx, eveSurelyIdx, eveMaybeIdx } = EVENT_META_INDEXES;
-const { userPrivIdx, userScoreIdx } = USER_META_INDEXES;
+const { userPrivIdx, userScoreIdx, userAttendIdx } = USER_META_INDEXES;
 
 let redis;
+let geohash = null;
+
 // REDIS CLIENT SETTER ----------------------------------------------------------
-const ioRedisSetter = c => (redis = c);
+export const ioRedisSetter = c => (redis = c);
 
-// HELPERS ---------------------------------------------------------------------
-// Steps: keep allocation patterns centralized (Map-of-Map, Map-of-Array) so downstream loops stay dense and consistent.
-const getMap = (m, k) => m.get(k) || m.set(k, new Map()).get(k);
-const getArr = (m, k) => m.get(k) || m.set(k, []).get(k);
+// MAP INITIALIZERS -------------------------------------------------------------
+// Steps: centralize “get or create” patterns so the hot loops don’t repeat boilerplate and don’t accidentally allocate multiple containers per key.
+const getMap = (map, key) => map.get(key) || (map.set(key, new Map()), map.get(key));
+const getArr = (map, key) => map.get(key) || (map.set(key, []), map.get(key));
 
-// STATE MANAGEMENT -------------------------------------------------------------
+// STATE VARIABLES --------------------------
 // Steps: allocate a fresh state container used by boot rebuild + recalc tasks; these maps get progressively filled, then flushed into Redis.
 const getStateVariables = () => ({
 	cityMetas: new Map(),
@@ -39,33 +41,36 @@ const getStateVariables = () => ({
 });
 
 // NEW EVENTS PROCESSING --------------------------------------------------------
-// Steps: for each DB event row, split heavy vs indexable fields, build compact meta array, then populate basi/deta maps;
-// mutate `data` in-place into `[id, metaArray]` so downstream processors can be generic and avoid re-destructuring.
+// Steps: for each DB event row, split heavy vs indexable fields, build compact meta array, then populate basics/ils maps;
+// mutate `data` in-place into `[id, meta]` so downstream processors can be generic and avoid re-destructuring.
 async function processNewEvents({ data, state: { eveBasics, eveDetails, eveCityIDs, best100EveIDs }, newEventsProcessor }) {
-	data.forEach((event, idx) => {
-		// ROW SPLIT ---
-		// Steps: isolate meta-critical fields first, then keep the remainder for basi/deta payloads.
-		const { id, priv, cityID, type, starts, lat, lng, surely, maybe, score, comments, basiVers, detaVers, ...rest } = event;
-		const owner = rest.owner?.startsWith('orphaned') ? null : rest.owner;
-		const { meetHow, meetWhen, organizer, contacts, links, detail, fee, take, place, location, hashID, ...basic } = rest;
+	geohash ??= getGeohash();
+	const packed = [];
+	data.forEach((eventRow, idx) => {
+		const { id, priv, cityID, type, starts, lat, lng, surely, maybe, score, comments, basiVers, detaVers, ...rest } = eventRow;
+		const eventIDString = String(id);
+		const owner = rest.owner?.startsWith('orphaned') ? 'orphaned' : rest.owner;
+		const { meetHow, meetWhen, organizer, contacts, links, detail, fee, takeWith, place, location, hashID, ...basics } = rest;
 
-		if (basic.flag === 'can') basic.canceled = true;
+		if (basics.flag === 'can') basics.canceled = true;
 
 		// META PACKING ---
 		// Steps: pack into fixed index positions so privacy filtering is array-index based rather than object-key based.
-		data[idx] = [id, createEveMeta({ priv, owner, cityID, type, starts, lat, lng, surely, maybe, comments, score, basiVers, detaVers })];
+		const startsBase36 = new Date(starts).getTime().toString(36);
+		packed[idx] = [id, createEveMeta({ priv, owner, cityID, type, starts: startsBase36, geohash: geohash.encode(lat, lng, 9), surely, maybe, comments, score, basiVers, detaVers })];
 
-		// PAYLOAD MAPS ---
-		// Steps: store compact “basi” and “deta” payloads with falsy stripping to reduce Redis+RAM footprint.
-		eveBasics.set(id, delFalsy({ ...basic, basiVers: Number(basiVers), ...(place || location ? { ...(place ? { place } : { location }), hashID } : {}), ends: Number(new Date(basic.ends)) }));
-		eveDetails.set(id, delFalsy({ meetHow, meetWhen, organizer, contacts, location, links, detail, fee, take, detaVers: Number(detaVers), ...(place ? { location } : {}) }));
-		eveCityIDs.set(id, cityID);
+		eveBasics.set(
+			eventIDString,
+			delFalsy({ ...basics, basiVers: Number(basiVers), ...(place || location ? { ...(place ? { place } : { location }), hashID } : {}), ends: Number(new Date(basics.ends)) })
+		);
+		eveDetails.set(eventIDString, delFalsy({ meetHow, meetWhen, organizer, contacts, location, links, detail, fee, takeWith, detaVers: Number(detaVers), ...(place ? { location } : {}) }));
+		eveCityIDs.set(eventIDString, Number(cityID));
 
 		// BEST-OF CANDIDATES ---
 		// Steps: opportunistically fill best100 set from public, non-archive-ish event types to avoid a second pass.
 		if (best100EveIDs.size < 100 && priv === 'pub' && !type.startsWith('a')) best100EveIDs.add(id);
 	});
-	await newEventsProcessor({ data });
+	await newEventsProcessor({ data: packed });
 }
 
 // NEW USERS PROCESSING ---------------------------------------------------------
@@ -73,68 +78,76 @@ async function processNewEvents({ data, state: { eveBasics, eveDetails, eveCityI
 // attendance parsing is done here to avoid repeated joins/expansion during hot path reads.
 async function processNewUsers({ data, state: { userBasics }, userMetasProcessor }) {
 	const today = Date.now();
-	data.forEach((user, idx) => {
-		const { id, priv, score, birth, gender, basiVers, imgVers, eveInterPriv, indis, basics, groups, ...basic } = user;
-		// ATTENDANCE PARSE ---
-		// Steps: parse SQL GROUP_CONCAT string into compact tuples; keep per-event privacy only for ind users.
+	const packed = [];
+	data.forEach((userRow, idx) => {
+		const { id, priv, score, birth, gender, basiVers, imgVers, eveInterPriv, indis, basics, groups, ...rest } = userRow;
+		const userIDString = String(id);
+
 		const attend =
 			eveInterPriv?.split(',').map(e => {
 				const [eid, inter, ep] = e.split(':');
 				return [eid, inter, ...(priv === 'ind' && ep !== 'pub' ? [ep] : [])];
 			}) ?? [];
 
-		data[idx] = [id, createUserMeta({ priv, birth, today, gender, indis, basics, groups, score, imgVers, basiVers, attend })];
-		userBasics.set(id, { ...basic, basiVers });
+		const age = calculateAge(birth, today);
+		packed[idx] = [id, createUserMeta({ priv, age, gender, indis, basics, groups, score, imgVers, basiVers, attend })];
+		userBasics.set(userIDString, { ...rest, basiVers });
 	});
-	await userMetasProcessor({ data, is: 'new' });
+	await userMetasProcessor({ data: packed, is: 'new' });
 }
 
-// EVENT META PROCESSING HELPERS ---------------------------------------------
-// Steps: unify all “event meta” build variants so city maps + filtering maps are updated identically (only owner label differs).
+// EVENT META PROCESSING -------------------------------------------------------
+// Steps: process event metas into city maps + filtering maps.
 const processEveMetas = (data, { eveMetas, cityMetas, cityPubMetas, cityFiltering, eveCityIDs }, metaType) =>
 	data.forEach(([id, meta]) => {
+		const eventIDString = String(id);
 		if (metaType === 'orp') meta[eveOwnerIdx] = 'orphaned';
-		const [strMeta, cID, p, o] = [encode(meta), meta[eveCityIDIdx], meta[evePrivIdx], meta[eveOwnerIdx]];
+
+		const [metaBuffer, cityID, priv, owner] = [encode(meta), meta[eveCityIDIdx], meta[evePrivIdx], meta[eveOwnerIdx]];
+		const cityIDString = String(cityID);
 
 		// CITY ROUTING ---
 		// Steps: public metas go into pub map; everything else goes into private map, and filtering map records the gate string.
-		getMap(p === 'pub' ? cityPubMetas : cityMetas, cID).set(id, strMeta);
-		getMap(cityFiltering, cID).set(id, metaType === 'orp' ? `${p}:orphaned` : `${p}:${o}`);
-		eveMetas.set(id, strMeta);
-		if (metaType === 'new') eveCityIDs.set(id, cID);
+		getMap(priv === 'pub' ? cityPubMetas : cityMetas, cityIDString).set(eventIDString, metaBuffer);
+		getMap(cityFiltering, cityIDString).set(eventIDString, metaType === 'orp' ? `${priv}:orphaned` : `${priv}:${owner}`);
+		eveMetas.set(eventIDString, metaBuffer);
+		if (metaType === 'new') eveCityIDs.set(eventIDString, Number(cityID));
 	});
 
 // CONTEXT WRAPPERS ------------------------------------------------------------
 // Steps: keep callsites readable by binding the `metaType` once.
-const processOrpEveMetas = p => processEveMetas(p.data, p.state, 'orp'),
-	processRecEveMetas = p => processEveMetas(p.data, p.state, 'rec'),
-	processNewEveMetas = p => processEveMetas(p.data, p.state, 'new');
+const processOrpEveMetas = p => processEveMetas(p.data, p.state, 'orp');
+const processRecEveMetas = p => processEveMetas(p.data, p.state, 'rec');
+const processNewEveMetas = p => processEveMetas(p.data, p.state, 'new');
 
 // REMOVED EVENTS PROCESSING -------------------------------------------------
-// Steps: remove event from city maps + event keys, then for scored events recalc impacted users by re-processing their metas.
-const keys = [REDIS_KEYS.eveMeta, REDIS_KEYS.eveBasi, REDIS_KEYS.eveDeta, REDIS_KEYS.friendlyEveScoredUserIDs],
-	hKeys = [REDIS_KEYS.eveTitleOwner, REDIS_KEYS.eveCityIDs, REDIS_KEYS.eveLastCommentAt, REDIS_KEYS.eveLastAttendChangeAt, REDIS_KEYS.topEvents, 'newEveCommsCounts'] as RedisKey[];
+// Steps: remove event from city maps + event keys, then for friendly events recalc impacted users by re-processing their metas.
+const keys = [REDIS_KEYS.eveMetas, REDIS_KEYS.eveBasics, REDIS_KEYS.eveDetails, REDIS_KEYS.friendlyEveScoredUserIDs],
+	hKeys = [REDIS_KEYS.eveTitleOwner, REDIS_KEYS.eveCityIDs, REDIS_KEYS.eveLastCommentAt, REDIS_KEYS.eveLastAttendChangeAt, REDIS_KEYS.topEvents, REDIS_KEYS.newEveCommsCounts];
+
+// NOTE: ProcessRemEveMetasInput typing removed (minimal backend typing).
 
 async function processRemEveMetas({ data, state: { remEve, eveCityIDs, cityMetas, cityPubMetas, cityFiltering }, deletionsPipe: pipe, userMetasProcessor }) {
 	for (const [id, meta] of data) {
 		const [eventCityID, eventType] = [meta[eveCityIDIdx], meta[eveTypeIdx]];
+		const [eventIDString, eventCityIDString] = [String(id), String(eventCityID)];
 		remEve.add(id);
 
 		// DELETE QUEUE ---
 		// Steps: delete from memory first, then queue Redis deletions into the caller pipeline for atomic-ish flush.
-		[cityMetas, cityPubMetas, cityFiltering].forEach(map => map.get(eventCityID)?.delete(id));
-		[REDIS_KEYS.CITY_METAS, REDIS_KEYS.cityPubMetas, REDIS_KEYS.cityFiltering].forEach(k => pipe.hdel(`${k}:${eventCityID}`, id));
-		keys.forEach(k => pipe.del(`${k}:${id}`));
-		hKeys.forEach(k => pipe.hdel(k, id));
+		[cityMetas, cityPubMetas, cityFiltering].forEach(map => map.get(eventCityIDString)?.delete(eventIDString));
+		[REDIS_KEYS.cityMetas, REDIS_KEYS.cityPubMetas, REDIS_KEYS.cityFiltering].forEach(k => pipe.hdel(`${k}:${eventCityIDString}`, eventIDString));
+		keys.forEach(k => pipe.del(`${k}:${eventIDString}`));
+		hKeys.forEach(k => pipe.hdel(k, eventIDString));
 
-		// USER RECALC (SCORED EVENTS) ---
-		// Steps: scored events have user meta ties; rebuild those users so derived indexes remain consistent.
+		// USER RECALC (FRIENDLY EVENTS) ---
+		// Steps: friendly events have user meta ties; rebuild those users so derived indexes remain consistent.
 		if (eventType.startsWith('a')) {
 			try {
 				const userIDs = (await redis.zrange(`${REDIS_KEYS.friendlyEveScoredUserIDs}:${id}`, 0, -1)).map(s => s.split('_')[0]);
 				if (!userIDs.length) continue;
 				const users = (await redis.hmgetBuffer(REDIS_KEYS.userMetas, ...userIDs)).map((mb, i) => (mb ? [userIDs[i], decode(mb)] : null)).filter(Boolean);
-				eveCityIDs.set(id, eventCityID);
+				eveCityIDs.set(eventIDString, Number(eventCityID));
 				if (users.length) await userMetasProcessor({ data: users, is: 'rec' });
 			} catch (e) {
 				logger.error('contentHelpers.process_event_users_failed', { error: e, eventId: id });
@@ -145,29 +158,31 @@ async function processRemEveMetas({ data, state: { remEve, eveCityIDs, cityMetas
 
 // USER META PROCESSING ------------------------------------------------------
 // Updates user metas, handles attendance changes, and syncs city lists
-const userKeys = [REDIS_KEYS.USER_BASI, REDIS_KEYS.tempProfile, REDIS_KEYS.blocks, REDIS_KEYS.links, REDIS_KEYS.invites, REDIS_KEYS.userSummary, REDIS_KEYS.trusted, REDIS_KEYS.userActiveChats],
+const userKeys = [REDIS_KEYS.userBasics, REDIS_KEYS.tempProfile, REDIS_KEYS.blocks, REDIS_KEYS.links, REDIS_KEYS.invites, REDIS_KEYS.userSummary, REDIS_KEYS.trusts, REDIS_KEYS.userActiveChats],
 	userMapKeys = [REDIS_KEYS.userMetas, REDIS_KEYS.userNameImage, REDIS_KEYS.userChatRoles];
 
 // Helper: Add user score to Redis sorted set
-const addScored = (meta, eveID, id, inter, priv, map) =>
-	getArr(map, eveID).push(
-		inter === 'sur' ? 1 + meta[userScoreIdx] / 1000 : meta[userScoreIdx] / 1000,
-		`${id}${priv ? `_${priv}` : !['pub', 'ind'].includes(meta[userPrivIdx]) ? `_${meta[userPrivIdx]}` : ''}`
-	);
+// USER SCORE INDEXING ----------------------------------------------------------
+const addScored = (meta, eveID, id, inter, priv, map) => {
+	const score = Number(meta[userScoreIdx] ?? 0);
+	getArr(map, eveID).push(inter === 'sur' ? 1 + score / 1000 : score / 1000, `${id}${priv ? `_${priv}` : !['pub', 'ind'].includes(meta[userPrivIdx]) ? `_${meta[userPrivIdx]}` : ''}`);
+};
 
-async function processUserMetas({ data, is, newAttenMap, privUse, state, redis, pipe }) {
-	// USER META PIPELINE ---
-	// Steps: for each user meta, detach attendance array, apply diffs (newAttenMap / removals / priv changes), rebuild scored sets,
-	// then fan the user meta back into per-city maps and filtering indexes.
+// USER META PIPELINE ---
+// Steps: for each user meta, detach attendance array, apply diffs (newAttenMap / removals / priv changes), rebuild scored sets,
+// then fan the user meta back into per-city maps and filtering indexes.
+async function processUserMetas({ data, is, newAttenMap, privUse, state, pipe }) {
 	const { eveCityIDs, remEve, cityMetas, cityPubMetas, userMetas, friendlyEveScoredUserIDs, cityFiltering } = state,
-		missed = new Set(),
+		missed = new Set<string | number>(),
 		localPipe = pipe || redis?.pipeline();
 
 	for (const [id, meta] of data) {
 		try {
-			// Extract attendance (last item in meta array)
-			let attend = meta.length ? meta[meta.length - 1] : [],
-				newAtt = newAttenMap?.get(id);
+			const userIDString = String(id);
+
+			const userPrivValue = String(meta[userPrivIdx] ?? '');
+			let attend = meta[userAttendIdx] ?? [],
+				newAtt = newAttenMap?.get(userIDString);
 			if (meta.length && Array.isArray(attend)) meta.length--; // Detach for processing
 
 			// Update attendance if changed or new
@@ -175,7 +190,7 @@ async function processUserMetas({ data, is, newAttenMap, privUse, state, redis, 
 				// Process existing attendances (reverse loop for safe splice)
 				for (let i = attend.length - 1; i >= 0; i--) {
 					const [eveID, inter, evePriv] = attend[i],
-						city = eveCityIDs.get(eveID);
+						city = eveCityIDs.get(String(eveID));
 					if (!city) {
 						missed.add(eveID);
 						continue;
@@ -183,43 +198,44 @@ async function processUserMetas({ data, is, newAttenMap, privUse, state, redis, 
 
 					if (newAtt) {
 						// Handle intersection with new data
-						const [newInter, newPriv] = newAtt.get(eveID) || [];
+						const [newInter, newPriv] = newAtt.get(String(eveID)) || [];
 						if (!newInter) continue;
-						newAtt.delete(eveID);
+						newAtt.delete(String(eveID));
 						if (!['sur', 'may'].includes(newInter)) {
 							attend.splice(i, 1);
-							localPipe?.zrem(`${REDIS_KEYS.friendlyEveScoredUserIDs}:${eveID}`, `${id}${evePriv || !['pub', 'ind'].includes(meta[userPrivIdx]) ? `_${meta[userPrivIdx]}` : ''}`);
+							localPipe?.zrem(`${REDIS_KEYS.friendlyEveScoredUserIDs}:${eveID}`, `${userIDString}${evePriv || !['pub', 'ind'].includes(userPrivValue) ? `_${userPrivValue}` : ''}`);
 						} else {
-							attend[i] = [eveID, newInter, ...(meta[userPrivIdx] === 'ind' && newPriv ? [newPriv] : [])];
-							addScored(meta, eveID, id, newInter, newPriv, friendlyEveScoredUserIDs);
+							attend[i] = [eveID, newInter, ...(userPrivValue === 'ind' && newPriv ? [newPriv] : [])];
+							addScored(meta, eveID, userIDString, newInter, newPriv, friendlyEveScoredUserIDs);
 						}
 					} else if (remEve.has(eveID)) attend.splice(i, 1); // Remove deleted events
 					else if (is === 'rem') {
 						// Decrement event counts if removed
 						let em = state.eveMetas.get(eveID);
 						if (!em) {
-							const b = await redis.hgetBuffer(REDIS_KEYS.eveMetas, eveID);
+							const b = await redis.hgetBuffer(REDIS_KEYS.eveMetas, String(eveID));
 							if (b) (em = decode(b)), em[inter === 'sur' ? eveSurelyIdx : eveMaybeIdx]--, state.eveMetas.set(eveID, em);
 						} else em[inter === 'sur' ? eveSurelyIdx : eveMaybeIdx]--;
-						localPipe?.zrem(`${REDIS_KEYS.friendlyEveScoredUserIDs}:${eveID}`, `${id}${evePriv ? `_${evePriv}` : ''}`);
-					} else if (is === 'new') addScored(meta, eveID, id, inter, evePriv, friendlyEveScoredUserIDs);
+						localPipe?.zrem(`${REDIS_KEYS.friendlyEveScoredUserIDs}:${eveID}`, `${userIDString}${evePriv ? `_${evePriv}` : ''}`);
+					} else if (is === 'new') addScored(meta, eveID, userIDString, inter, evePriv, friendlyEveScoredUserIDs);
 				}
 				// Add completely new attendances
 				if (newAtt?.size)
 					for (const [eventID, [inter, interPriv]] of newAtt) {
 						if (['sur', 'may'].includes(inter)) {
-							attend.push([eventID, inter, ...(meta[userPrivIdx] === 'ind' && interPriv ? [interPriv] : [])]);
-							addScored(meta, eventID, id, inter, interPriv, friendlyEveScoredUserIDs);
+							attend.push([eventID, inter, ...(userPrivValue === 'ind' && interPriv ? [interPriv] : [])]);
+							addScored(meta, eventID, userIDString, inter, interPriv, friendlyEveScoredUserIDs);
 						}
 					}
 			}
 
 			// Finalize user meta and distribute to cities
 			if (is !== 'rem' && attend.length) {
-				// Backfill missing city IDs
-				if (missed.size && redis)
+				if (missed.size)
 					try {
-						(await redis.hmget(REDIS_KEYS.eveCityIDs, ...missed)).forEach((c, i) => c && eveCityIDs.set([...missed][i], c));
+						const missedArr = [...missed];
+						const results = await redis.hmget(REDIS_KEYS.eveCityIDs, ...missedArr.map(String));
+						results.forEach((c, i) => c && eveCityIDs.set(String(missedArr[i]), Number(c)));
 					} catch (e) {
 						logger.error('contentHelpers.fetch_city_ids_failed', { error: e });
 					}
@@ -228,45 +244,47 @@ async function processUserMetas({ data, is, newAttenMap, privUse, state, redis, 
 					newPriv = privUse?.get(id);
 				// Partition attendance by city
 				for (const arr of attend) {
-					const cityID = eveCityIDs.get(arr[0]);
+					const cityID = eveCityIDs.get(String(arr[0]));
 					if (!cityID) continue;
 					if (is === 'pri') {
 						const [eventID, interest, attenPriv] = arr,
-							key = attenPriv ? `${id}_${attenPriv}` : id;
+							key = attenPriv ? `${userIDString}_${attenPriv}` : userIDString;
 						if (attenPriv && newPriv === 'ind') arr.pop();
 						localPipe?.zrem(`${REDIS_KEYS.friendlyEveScoredUserIDs}:${eventID}`, key);
-						addScored(meta, eventID, id, interest, attenPriv, friendlyEveScoredUserIDs);
+						addScored(meta, eventID, userIDString, interest, attenPriv, friendlyEveScoredUserIDs);
 					}
 					getArr(filtered, cityID).push(arr);
 				}
 
 				if (is === 'pri') meta[userPrivIdx] = newPriv;
-				userMetas.set(id, encode(meta.concat([attend])));
+				userMetas.set(userIDString, encode(meta.concat([attend])));
 
 				// Store filtered metas per city
 				filtered.forEach((cityAtten, cityID) => {
 					const uniquePrivs = [...new Set(cityAtten.filter(([, , p]) => p && p !== 'pub').map(([, , p]) => p))];
 					const finalPriv =
-						meta[userPrivIdx] === 'ind' && cityAtten && uniquePrivs.length
+						userPrivValue === 'ind' && cityAtten && uniquePrivs.length
 							? uniquePrivs.length === 1
 								? uniquePrivs[0]
 								: `ind:${uniquePrivs.join(',')}`
-							: meta[userPrivIdx] === 'ind'
+							: userPrivValue === 'ind'
 							? 'pub'
-							: meta[userPrivIdx];
+							: userPrivValue;
 
-					getMap(finalPriv === 'pub' ? cityPubMetas : cityMetas, cityID).set(id, encode(meta.concat([cityAtten ?? []])));
-					getMap(cityFiltering, cityID).set(id, finalPriv);
+					const cityIDString = String(cityID);
+					getMap(finalPriv === 'pub' ? cityPubMetas : cityMetas, cityIDString).set(userIDString, encode(meta.concat([cityAtten ?? []])));
+					getMap(cityFiltering, cityIDString).set(userIDString, String(finalPriv));
 				});
 			} else if (redis) {
 				// Cleanup user if no attendance remains
-				const cityIDs = new Set(attend.map(a => eveCityIDs.get(a[0])).filter(Boolean));
+				const cityIDs = new Set(attend.map((a: any[]) => eveCityIDs.get(a[0])).filter(Boolean));
 				for (const cityID of cityIDs) {
-					[cityMetas, cityPubMetas, cityFiltering].forEach(map => map.get(cityID)?.delete(id));
-					[REDIS_KEYS.CITY_METAS, REDIS_KEYS.cityPubMetas, REDIS_KEYS.cityFiltering].forEach(k => localPipe?.hdel(`${k}:${cityID}`, id));
+					const cityIDString = String(cityID);
+					[cityMetas, cityPubMetas, cityFiltering].forEach(map => map.get(cityIDString)?.delete(userIDString));
+					[REDIS_KEYS.cityMetas, REDIS_KEYS.cityPubMetas, REDIS_KEYS.cityFiltering].forEach(k => localPipe?.hdel(`${k}:${cityIDString}`, userIDString));
 				}
-				userKeys.forEach(k => localPipe?.del(`${k}:${id}`));
-				userMapKeys.forEach(k => localPipe?.hdel(k, id));
+				userKeys.forEach(k => localPipe?.del(`${k}:${userIDString}`));
+				userMapKeys.forEach(k => localPipe?.hdel(k, userIDString));
 			}
 		} catch (e) {
 			logger.error('contentHelpers.process_user_meta_failed', { error: e, userId: id });
@@ -282,10 +300,10 @@ async function processUserMetas({ data, is, newAttenMap, privUse, state, redis, 
 
 // PIPELINE FILLING ----------------------------------------------------------
 // Steps: flatten accumulated state maps into Redis hset/zadd operations; caller controls pipeline lifetime and exec timing.
-function fillContentPipeline({ eveMetas, eveCityIDs, userMetas, friendlyEveScoredUserIDs, cityMetas, cityPubMetas, cityFiltering, best100EveIDs }, metasPipe, attenPipe, mode) {
+function loadMetaPipes({ eveMetas, eveCityIDs, userMetas, friendlyEveScoredUserIDs, cityMetas, cityPubMetas, cityFiltering, best100EveIDs }, metasPipe, attenPipe, mode) {
 	if (mode === 'serverStart' && best100EveIDs.size) {
 		const bestEntries = [...best100EveIDs]
-			.map(id => [id, eveMetas.get(id)])
+			.map(id => [String(id), eveMetas.get(String(id))])
 			.filter(([, m]) => m)
 			.flat();
 		if (bestEntries.length) metasPipe.hset(REDIS_KEYS.topEvents, ...bestEntries);
@@ -293,23 +311,21 @@ function fillContentPipeline({ eveMetas, eveCityIDs, userMetas, friendlyEveScore
 	[eveMetas, eveCityIDs, userMetas].forEach((map, k) => map.size && metasPipe.hset([REDIS_KEYS.eveMetas, REDIS_KEYS.eveCityIDs, REDIS_KEYS.userMetas][k], ...[...map].flat()));
 	for (const [eve, uids] of friendlyEveScoredUserIDs) attenPipe.zadd(`${REDIS_KEYS.friendlyEveScoredUserIDs}:${eve}`, ...uids);
 	[cityMetas, cityPubMetas, cityFiltering].forEach((map, i) =>
-		map.forEach((m, c) => m.size && metasPipe.hset(`${[REDIS_KEYS.CITY_METAS, REDIS_KEYS.cityPubMetas, REDIS_KEYS.cityFiltering][i]}:${c}`, ...[...m].flat()))
+		map.forEach((m, c) => m.size && metasPipe.hset(`${[REDIS_KEYS.cityMetas, REDIS_KEYS.cityPubMetas, REDIS_KEYS.cityFiltering][i]}:${c}`, ...[...m].flat()))
 	);
 }
 
-function fillBasiDetaPipe({ eveBasics, eveDetails, userBasics }, pipe) {
-	// BASI/DETA FLATTEN ---
-	// Steps: write object payloads as alternating field/value pairs into per-ID hashes.
-	Object.entries({ [REDIS_KEYS.eveBasi]: eveBasics, eveDeta: eveDetails, [REDIS_KEYS.USER_BASI]: userBasics }).forEach(([k, map]) =>
-		map.forEach((data, id) => pipe.hset(`${k}:${id}`, ...Object.entries(data)))
+// BASI/DETA FLATTEN ---
+// Steps: write object payloads as alternating field/value pairs into per-ID hashes
+function loadBasicsDetailsPipe({ eveBasics, eveDetails, userBasics }, pipe) {
+	[eveBasics, eveDetails, userBasics].forEach((map, i) =>
+		map.forEach((data, id) => pipe.hset(`${[REDIS_KEYS.eveBasics, REDIS_KEYS.eveDetails, REDIS_KEYS.userBasics][i]}:${id}`, ...Object.entries(data).flat()))
 	);
 }
 
-// UTILITY: CLEAR STATE ------------------------------------------------------
 // CLEAR STATE ---
 // Steps: clear all Map/Set containers except the ones explicitly kept; this prevents memory growth during streaming rebuilds.
 function clearState(state, keep = []) {
-	if (!state) return logger.alert('contentHelpers.clear_null_state_requested', { __skipRateLimit: true });
 	try {
 		const keepSet = new Set(keep);
 		Object.entries(state).forEach(([k, v]) => {
@@ -330,8 +346,7 @@ export {
 	processNewEveMetas,
 	processRemEveMetas,
 	processUserMetas,
-	fillContentPipeline,
-	fillBasiDetaPipe,
+	loadMetaPipes,
+	loadBasicsDetailsPipe,
 	clearState,
-	ioRedisSetter,
 };

@@ -7,8 +7,8 @@
  * Replace with actual implementation once ready.
  * --------------------------------------------------------------------------- */
 
-import { ALLOWED_IDS, PRIVS_SET, GENDER_VALUES, MAX_COUNTS, MAX_CHARS, MIN_CHARS, MIN_COUNTS, REGEXES } from '../../../shared/constants';
-import { getFavexQualityIssues } from '../../../shared/utilities';
+import { ALLOWED_IDS, PRIVACIES_SET, GENDER_VALUES, MAX_COUNTS, MAX_CHARS, MIN_CHARS, MIN_COUNTS, REGEXES } from '../../../shared/constants';
+import { checkFavouriteExpertTopicsQuality } from '../../../shared/utilities';
 
 // VALIDATION CONSTANTS ---------------------------------------------------------
 // Favex strict limits (mirror frontend `FavexAreas.jsx`)
@@ -78,7 +78,7 @@ function sanitizeTopics(value, { minItems = 0 } = {}) {
 // SANITIZE ID LIST (BASICS/INDICATORS/GROUPS) ----------------------------------
 // Validates list items against allowed IDs set, removes duplicates
 // Used for basics, indicators, and groups arrays
-function sanitizeIDList(value, { minItems = 0, allowedSet, maxItems = 50 } = {}) {
+function sanitizeIDList(value, { minItems = 0, allowedSet = new Set(), maxItems = 50 } = {}) {
 	const list = ensureArray(value);
 	const normalized = [];
 	const seen = new Set();
@@ -86,7 +86,7 @@ function sanitizeIDList(value, { minItems = 0, allowedSet, maxItems = 50 } = {})
 		if (entry === undefined || entry === null) continue;
 		// Try numeric conversion for numeric allowed sets
 		const item = typeof entry === 'string' && /^\d+$/.test(entry) ? Number(entry) : entry;
-		if (!allowedSet.has(item)) continue;
+	if (!allowedSet.has(item)) continue;
 		if (seen.has(item)) continue;
 		seen.add(item);
 		normalized.push(item);
@@ -100,7 +100,7 @@ function sanitizeIDList(value, { minItems = 0, allowedSet, maxItems = 50 } = {})
 // Normalizes city entries to either numeric IDs or hashID objects
 // Handles multiple input formats: numbers, strings (numeric or hash), or objects
 // Removes duplicates and limits to 10 cities maximum
-function sanitizeCities(value, { minItems = 0 } = {}) {
+function sanitizeCities(value, { minItems = 0, maxItems = MAX_COUNTS.cities } = {}) {
 	if (value === undefined) return undefined;
 	const list = ensureArray(value);
 	const sanitized = [];
@@ -138,7 +138,7 @@ function sanitizeCities(value, { minItems = 0 } = {}) {
 			} else continue;
 		} else continue;
 		sanitized.push(formatted);
-		if (sanitized.length >= MAX_COUNTS.cities) break;
+		if (sanitized.length >= maxItems) break;
 	}
 	if (sanitized.length < minItems) throw new Error('badRequest');
 	return sanitized;
@@ -149,8 +149,8 @@ function sanitizeCities(value, { minItems = 0 } = {}) {
 // For introductions, enforces required fields (first, last, birth, gender, cities, favs, basics)
 // Removes defPriv if privacy is not 'ind' (individual privacy mode)
 // Steps: sanitize each domain field (names/birth/favex/ids/cities), enforce introduction-required minimums, then drop invalid/extra fields so SQL update remains narrow.
-function normalizeSetupPayload(input, { isIntroduction }) {
-	const payload = {};
+function normalizeSetupPayload(input: any, { isIntroduction }: any) {
+	const payload: any = {};
 	const first = sanitizeName(input.first, 'badRequest');
 	const last = sanitizeName(input.last, 'badRequest');
 	if (first !== undefined) payload.first = first;
@@ -161,8 +161,8 @@ function normalizeSetupPayload(input, { isIntroduction }) {
 
 	if (input.gender !== undefined) {
 		const gender = String(input.gender).trim().toLowerCase();
-		if (!GENDER_VALUES.includes(gender)) throw new Error('badRequest');
-		payload.gender = gender;
+		if (!GENDER_VALUES.includes(gender as any)) throw new Error('badRequest');
+		payload.gender = gender as any;
 	}
 
 	if (input.shortDesc !== undefined) {
@@ -174,14 +174,14 @@ function normalizeSetupPayload(input, { isIntroduction }) {
 
 	if (input.priv !== undefined) {
 		const priv = String(input.priv).trim();
-		if (!PRIVS_SET.has(priv)) throw new Error('badRequest');
-		payload.priv = priv;
+		if (!PRIVACIES_SET.has(priv as any)) throw new Error('badRequest');
+		payload.priv = priv as any;
 	}
 
 	if (input.defPriv !== undefined) {
 		const defPriv = String(input.defPriv).trim();
-		if (!PRIVS_SET.has(defPriv)) throw new Error('badRequest');
-		payload.defPriv = defPriv;
+		if (!PRIVACIES_SET.has(defPriv as any)) throw new Error('badRequest');
+		payload.defPriv = defPriv as any;
 	}
 
 	if (input.askPriv !== undefined) payload.askPriv = Boolean(input.askPriv);
@@ -194,7 +194,7 @@ function normalizeSetupPayload(input, { isIntroduction }) {
 	if (favexTotalChars > MAX_CHARS.favourExpertTopics) throw new Error('badRequest');
 	// FAVEX QUALITY HEURISTICS ---------------------------------------------------
 	// Centralized logic; threshold for short words is <=3 (shared/utilities.js).
-	if (getFavexQualityIssues({ favs: payload.favs, exps: payload.exps, shortWordMaxLength: 3 }).length) throw new Error('badRequest');
+	if (checkFavouriteExpertTopicsQuality({ favs: payload.favs, exps: payload.exps, shortWordMaxLength: 3 }).length) throw new Error('badRequest');
 
 	if (input.basics !== undefined) payload.basics = sanitizeIDList(input.basics, { minItems: isIntroduction ? 3 : 0, allowedSet: ALLOWED_IDS.basics, maxItems: MAX_COUNTS.basics });
 	if (input.indis !== undefined) payload.indis = sanitizeIDList(input.indis, { allowedSet: ALLOWED_IDS.indis, maxItems: MAX_COUNTS.indis });

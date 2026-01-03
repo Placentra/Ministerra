@@ -162,7 +162,8 @@ function TextArea(props) {
 				if (!selection.rangeCount) return;
 				const range = selection.getRangeAt(0);
 				const parentNode = range.startContainer.parentNode;
-				if (parentNode && parentNode.classList.contains('blue-rectangle')) event.preventDefault(), parentNode.remove();
+				const parentElement = parentNode as HTMLElement | null;
+				if (parentElement?.classList?.contains('blue-rectangle')) event.preventDefault(), parentElement.remove?.();
 			}
 		};
 		if ((thisIs === 'newMessage' || id) && !isMobile) textAreaEl.focus({ preventScroll: true }), textAreaEl.innerText === getPlaceholder() && setTimeout(() => (textAreaEl.innerText = ''), 100); // SKIP AUTOFOCUS ON MOBILE ---------------------------

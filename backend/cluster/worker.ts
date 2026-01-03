@@ -11,11 +11,11 @@ import fs from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { Worker } from 'worker_threads';
 import { encode } from 'cbor-x';
-import type { Socket as NetSocket } from 'net';
-import { CONFIG, ENABLE_CBOR, MIN_MODE, DEBUG_LOG_ENABLED } from '../startup/config';
-import { setupMiddleware } from '../startup/middleware';
-import { Sql, Catcher, Socket, Redis } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
+import { CONFIG, ENABLE_CBOR, MIN_MODE, DEBUG_LOG_ENABLED } from '../startup/config.ts';
+import { setupMiddleware } from '../startup/middleware.ts';
+import { Sql, Catcher, Socket, Redis } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/logging/index.ts';
+import { reportSubsystemReady } from './readiness.ts';
 
 const workerLogger = getLogger('Worker');
 const shutdownLogger = getLogger('Shutdown');
@@ -24,26 +24,14 @@ const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const FORCE_SHUTDOWN_MS = Number(process.env.FORCE_SHUTDOWN_MS || (MIN_MODE ? 5000 : 30000));
 
 // WORKER THREAD MAP TYPES ------------------------------------------------------
-// Keeps the workerThreads map strongly typed so scaling/restart logic doesn't degrade to `unknown`.
-type WorkerThreadType = 'helper' | 'task';
-type WorkerThreadInfo = { worker: Worker; type: WorkerThreadType; taskName?: string | null; lastPing: number; terminating?: boolean };
-const WORKER_THREAD_TYPES = { helper: 'helper', task: 'task' } as const satisfies Record<string, WorkerThreadType>;
+// NOTE: Type-only worker thread typings removed (minimal backend typing).
+const WORKER_THREAD_TYPES = { helper: 'helper', task: 'task' };
+const TASK_THREAD_NAMES = ['chatTasks', 'contentTasks', 'hourlyRecalc', 'dailyRecalc'];
+const taskThreadsInitialized = new Set<string>();
 
 // WORKER THREAD INFO ---
 // Shared entry shape for helper and task thread tracking.
-function buildWorkerThreadInfo({
-	workerThread,
-	type,
-	taskName = null,
-	lastPing,
-	terminating = false,
-}: {
-	workerThread: Worker;
-	type: WorkerThreadType;
-	taskName?: string | null;
-	lastPing: number;
-	terminating?: boolean;
-}): WorkerThreadInfo {
+function buildWorkerThreadInfo({ workerThread, type, taskName = null, lastPing, terminating = false }) {
 	return { worker: workerThread, type, ...(taskName ? { taskName } : {}), lastPing, ...(terminating ? { terminating } : {}) };
 }
 
@@ -51,7 +39,7 @@ let httpServerRef,
 	socketOnlyServerRef,
 	workerThreadsRef,
 	shutdownStarted = false;
-const sockets = new Set<NetSocket>();
+const sockets = new Set();
 
 // CBOR RESPONSE PATCH ----------------------------------------------------------
 // Patches Express `res.json` / `res.send` so clients that advertise CBOR via Accept header
@@ -86,7 +74,7 @@ function createWorkerThread(workerId, taskName, isHelper, workers = null, worker
 	const jsEntry = path.resolve(backendDir, 'systems', 'worker', 'worker.js');
 
 	let entrypointPath = jsEntry;
-	let execArgv = [] as string[];
+	let execArgv = [];
 
 	// ALTERNATIVE SOLUTION: Use worker-loader.mjs wrapper that registers tsx programmatically
 	// This avoids all the --import flag issues in worker_threads
@@ -106,7 +94,7 @@ function createWorkerThread(workerId, taskName, isHelper, workers = null, worker
 		execArgv = ['--import', loaderPath, '--experimental-specifier-resolution=node'];
 	}
 
-	const worker = new Worker(entrypointPath, { execArgv, workerData: { workerId, taskName, isHelper } } as any);
+	const worker = new Worker(entrypointPath, { execArgv, workerData: { workerId, taskName, isHelper } });
 	worker.postMessage({ type: 'initialize', workerId, taskName, isHelper });
 
 	worker.on('message', msg => {
@@ -122,7 +110,14 @@ function createWorkerThread(workerId, taskName, isHelper, workers = null, worker
 				!isHelper && process.send?.({ type: 'worker_status', workerId: process.env.WORKER_ID, ...msg });
 				break;
 			case 'initialized':
-				DEBUG_LOG_ENABLED && workerLogger.info(`[Worker:${process.pid}] Thread ${workerId} initialized (${taskName || (isHelper ? 'helper' : '')})`);
+				// Track task thread initialization; report when all 4 are ready
+				if (!isHelper && taskName && TASK_THREAD_NAMES.includes(taskName)) {
+					taskThreadsInitialized.add(taskName);
+					if (taskThreadsInitialized.size === TASK_THREAD_NAMES.length) {
+						reportSubsystemReady('TASK_THREADS');
+						workerLogger.info(`✓ All ${TASK_THREAD_NAMES.length} task threads ready`);
+					}
+				}
 				break;
 			case 'error':
 				DEBUG_LOG_ENABLED && workerLogger.info(`[Worker:${process.pid}] Thread ${workerId} error: ${msg.error}`);
@@ -181,7 +176,7 @@ function createWorkerThread(workerId, taskName, isHelper, workers = null, worker
 // Manages dynamic pool of helper threads based on load.
 // invoked via control-plane messages from the primary process.
 // Steps: on scale_up create helper if under cap, on scale_down terminate one helper, on overload_status toggle local overload gate for task worker.
-async function handleScaling(msg, workers: Map<string, WorkerThreadInfo>, state) {
+async function handleScaling(msg, workers, state) {
 	if (msg.type === 'scale_up' && state.helperCount < CONFIG.MAX_HELPERS / 2) {
 		const id = `helper-${Date.now()}-${state.helperCount}`;
 		try {
@@ -223,7 +218,7 @@ export async function initializeWorker() {
 
 	const app = express();
 	const server = http.createServer(app);
-	const workers = new Map<string, WorkerThreadInfo>();
+	const workers = new Map();
 	const state = { helperCount: 0, workerId, isTaskWorkerOverloaded: false };
 
 	httpServerRef = server;
@@ -277,10 +272,9 @@ export async function initializeWorker() {
 		// BACKGROUND TASKS ---
 		// Only the designated "Task Worker" runs background jobs.
 		if (state.workerId === CONFIG.TASK_WORKER_ID) {
-			workerLogger.info(`Initializing background tasks (Worker ${workerId})`);
 			for (const { id, taskName } of [
-				{ id: 'chatMessages', taskName: 'chatMessages' },
-				{ id: 'contentInteractions', taskName: 'contentInteractions' },
+				{ id: 'chatTasks', taskName: 'chatTasks' },
+				{ id: 'contentTasks', taskName: 'contentTasks' },
 				{ id: 'hourlyRecalc', taskName: 'hourlyRecalc' },
 				{ id: 'dailyRecalc', taskName: 'dailyRecalc' },
 			]) {
@@ -297,10 +291,7 @@ export async function initializeWorker() {
 		// START SERVER ---
 		// Start listening only after middleware + optional sockets + optional tasks are initialized.
 		const port = Number(process.env.BE_PORT || 2208);
-		server.listen(port, '0.0.0.0', () => {
-			workerLogger.info(`Server running`, { port, workerId, pid: process.pid, sticky: process.env.USE_STICKY === '1' });
-			process.send?.({ type: 'worker_ready', workerId: state.workerId });
-		});
+		server.listen(port, '0.0.0.0', () => process.send?.({ type: 'worker_ready', workerId: state.workerId }));
 	} catch (e) {
 		workerLogger.error('Worker initialization failed', { error: e, pid: process.pid });
 		process.exit(1);
@@ -318,11 +309,7 @@ export function gracefulShutdown(signal) {
 
 	const close = server => new Promise<void>(resolve => server?.close?.(() => resolve()) || resolve());
 	const killThreads = async () =>
-		Promise.all(
-			Array.from((workerThreadsRef as Map<string, WorkerThreadInfo> | undefined)?.values() || []).map(async info =>
-				info.worker?.terminate?.().catch(e => console.error(`Terminating thread error: ${e.message}`))
-			)
-		);
+		Promise.all(Array.from((workerThreadsRef || new Map()).values()).map(async info => info.worker?.terminate?.().catch(e => console.error(`Terminating thread error: ${e.message}`))));
 
 	// Force close active connections to allow fast restart
 	for (const socket of sockets) {
@@ -340,14 +327,14 @@ export function gracefulShutdown(signal) {
 
 	(async () => {
 		try {
-			await (Sql as any)?.end?.().catch(e => console.alert('DB close failed', e));
+			await Sql?.end?.().catch(e => console.warn('DB close failed', e));
 			// Also try to close replica if it exists
 			try {
-				const mysqlModule = (await import('../systems/mysql/mysql.js')) as any;
+				const mysqlModule = await import('../systems/mysql/mysql.js');
 				await mysqlModule?.SqlRead?.end?.();
 			} catch {}
 
-			await Redis?.shutDown?.().catch(e => console.alert('Redis close failed', e));
+			await Redis?.shutDown?.().catch(e => console.warn('Redis close failed', e));
 			await Promise.all([close(httpServerRef), close(socketOnlyServerRef), close(global.stickyServerRef), killThreads()]);
 
 			if (cluster.isPrimary) {

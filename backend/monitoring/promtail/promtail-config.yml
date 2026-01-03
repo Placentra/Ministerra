@@ -9,12 +9,14 @@ positions:
     filename: /tmp/positions.yaml
 
 scrape_configs:
+    # PRODUCTION LOGS ---
+    # These paths match the production promtail volume mounts
     - job_name: app-alert-logs
       static_configs:
           - targets: [localhost]
             labels:
                 job: app-alert
-                __path__: /var/log/app/alert/*.log
+                __path__: /usr/src/app/logging/alert/*.log
       pipeline_stages:
           - json:
                 expressions:
@@ -37,7 +39,7 @@ scrape_configs:
           - targets: [localhost]
             labels:
                 job: app-error
-                __path__: /var/log/app/error/*.log
+                __path__: /usr/src/app/logging/error/*.log
       pipeline_stages:
           - json:
                 expressions:
@@ -60,7 +62,7 @@ scrape_configs:
           - targets: [localhost]
             labels:
                 job: app-slow
-                __path__: /var/log/app/slow/*.log
+                __path__: /usr/src/app/logging/slow/*.log
       pipeline_stages:
           - json:
                 expressions:

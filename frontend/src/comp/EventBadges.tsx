@@ -1,4 +1,4 @@
-import { basicsSrc, groupsSrc } from '../../../shared/constants';
+import { BASIC_TOPICS, USER_GROUPS } from '../../../shared/constants';
 
 // EVENT BADGES COMPONENT DEFINITION ---
 // Displays summarized demographic and interest indicators based on confirmed event participants
@@ -42,7 +42,7 @@ function EventBadges(props) {
 						<span className='boldXs tDarkBlue'>
 							{obj.badges.basics
 								.filter(basic => basic <= 19)
-								.map(basic => basicsSrc.get(Number(basic)))
+								.map(basic => BASIC_TOPICS.get(Number(basic)))
 								.filter(Boolean)
 								.join(', ')
 								.toLowerCase()}
@@ -58,7 +58,7 @@ function EventBadges(props) {
 							{obj.badges.groups
 								.map(group => {
 									// Search in all group categories
-									for (const [, map] of groupsSrc) {
+									for (const [, map] of USER_GROUPS) {
 										if (map.has(String(group))) return map.get(String(group));
 									}
 									return null;

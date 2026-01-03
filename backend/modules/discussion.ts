@@ -2,13 +2,13 @@ import { Sql, Catcher } from '../systems/systems';
 import { getLogger } from '../systems/handlers/logging/index';
 import { filterComments } from '../utilities/contentFilters';
 import { encode } from 'cbor-x';
-import { REDIS_KEYS, LIMITS } from '../../shared/constants';
+import { REDIS_KEYS } from '../../shared/constants';
 
 let redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Discussion uses redis for comment preview cache, stream fanout, and block filtering.
 export const ioRedisSetter = r => (redis = r);
-const [logger, STREAM_MAXLEN] = [getLogger('Discussion'), Number(process.env.STREAM_MAXLEN) || LIMITS.STREAM_MAXLEN_DEFAULT];
+const [logger, STREAM_MAXLEN] = [getLogger('Discussion'), Number(process.env.STREAM_MAXLEN) || 50000];
 
 // SQL EXECUTOR -----------------------------------------------------------------
 // Steps: execute query and return rows only; keeps handler code focused on shaping/pagination rather than mysql2 tuple unpacking.
@@ -27,7 +27,7 @@ const updateRedis = async ops => {
 const getComments = async ({ firstID, lastID, target, selSort, cursOrOffset, devIsStable, userID, eventID, lastSync }, con) => {
 	// SYNC CHECK ---
 	// Steps: compare client lastSync with eveLastCommentAt so we can return empty payload when nothing changed (saves SQL work and bandwidth).
-	const lastAdd = Number(await redis.hget('eveLastCommentAt', eventID));
+	const lastAdd = Number(await redis.hget(REDIS_KEYS.eveLastCommentAt, eventID));
 	if (lastSync && lastAdd && lastAdd <= lastSync && !cursOrOffset) return { comms: [], sync: Date.now() };
 
 	const [canOrder, hasFirst, hasLast] = [['recent', 'oldest'].includes(selSort), firstID != null, lastID != null];
@@ -56,15 +56,19 @@ const getComments = async ({ firstID, lastID, target, selSort, cursOrOffset, dev
 	const CTE = `WITH Selected AS (SELECT c.id${hasFirst || hasLast ? `, (${pred}) AS isBase` : ''}, ROW_NUMBER() OVER (${orderBy}) AS pos FROM comments c WHERE c.event = ? ${
 		target ? 'AND c.target = ?' : 'AND c.target IS NULL'
 	} ${curCond} ${orderBy} ${limit})`;
-	const BASE = `SELECT s.id, NULL AS user, c.replies, c.score, c.flag, NULL AS content, NULL AS created, NULL AS first, NULL AS last, NULL AS imgVers${
-		!devIsStable ? ', NULL AS mark, NULL AS awards' : ''
-	}, s.pos FROM Selected s JOIN comments c ON c.id = s.id WHERE s.isBase = 1`;
-	const FULL = `SELECT s.id, c.user, c.replies, c.score, c.flag, CASE WHEN c.flag != 'del' THEN c.content ELSE NULL END AS content, c.created, u.first, u.last, u.imgVers${
-		!devIsStable ? ', r.mark, r.awards' : ''
-	}, s.pos FROM Selected s JOIN comments c ON c.id = s.id JOIN users u ON c.user = u.id ${!devIsStable ? 'LEFT JOIN comm_rating r ON c.id = r.comment AND r.user = ?' : ''}`;
+	const ratingJoin = !devIsStable ? 'LEFT JOIN comm_rating r ON c.id = r.comment AND r.user = ?' : '';
+	const ratingCols = !devIsStable ? ', NULL AS mark, NULL AS awards' : '';
+	const ratingColsFull = !devIsStable ? ', r.mark, r.awards' : '';
+	// BASE: skeleton row for already-loaded comments (isBase = 1)
+	const BASE = `SELECT s.id, NULL AS user, c.replies, c.score, c.flag, NULL AS content, NULL AS created, NULL AS first, NULL AS last, NULL AS imgVers${ratingCols}, s.pos FROM Selected s JOIN comments c ON c.id = s.id WHERE s.isBase = 1`;
+	// FULL: complete row with user info and content; baseFilter adds WHERE clause for UNION context
+	const fullSelect = `SELECT s.id, c.user, c.replies, c.score, c.flag, CASE WHEN c.flag != 'del' THEN c.content ELSE NULL END AS content, c.created, u.first, u.last, u.imgVers${ratingColsFull}, s.pos FROM Selected s JOIN comments c ON c.id = s.id JOIN users u ON c.user = u.id ${ratingJoin}`;
+	const FULL = baseFilter => `${fullSelect}${baseFilter ? ' WHERE s.isBase = 0' : ''}`;
 
 	const qParams = [eventID, ...(target ? [target] : []), ...(canOrder && cursOrOffset ? [cursOrOffset] : [])];
-	const query = !hasFirst && !hasLast ? `${CTE} ${FULL} ORDER BY s.pos` : `${CTE} SELECT * FROM (${BASE} UNION ALL ${FULL} WHERE s.isBase = 0) x ORDER BY pos`;
+	// QUERY ASSEMBLY ---
+	// Fresh load: use FULL directly; delta load: UNION BASE (skeleton) with FULL filtered to non-base rows
+	const query = !hasFirst && !hasLast ? `${CTE} ${FULL(false)} ORDER BY s.pos` : `${CTE} SELECT * FROM (${BASE} UNION ALL ${FULL(true)}) x ORDER BY pos`;
 
 	// EXECUTE + FILTER --------------------------------------------------------
 	// Steps: execute once, then apply block filtering using redis blocks set so client never sees comments from blocked users.
@@ -91,7 +95,7 @@ const postComment = async ({ eventID, userID, content, target = null, attach = n
 const editComment = async ({ content = null, attach = null, id, userID }, con) => {
 	const res = await executeQuery(con, `UPDATE comments SET content = IFNULL(?, content), attach = IFNULL(?, attach) WHERE id = ? AND user = ?`, [content, attach, id, userID]);
 	if (!res?.affectedRows) return 'denied';
-	await redis.hset('commentAuthorContent', id, encode([userID, (content || '').slice(0, 40)]));
+	await redis.hset(REDIS_KEYS.commentAuthorContent, id, encode([userID, (content || '').slice(0, 40)]));
 	return 'edited';
 };
 

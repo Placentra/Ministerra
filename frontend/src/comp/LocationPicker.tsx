@@ -468,7 +468,7 @@ function LocationPicker(props) {
 								style={{ width: `calc(100%/${arr.length})px` }}
 								className='grow bgTrans fs7  bInsetBlueTopXs bInsetBlueTopXs padVerXxxs  xBold posRel mw30  shaBlue tDarkBlue  boRadXs    borBotLight  bHover '>
 								{button}
-								{!isNaN(button) ? ' km' : ''}
+								{typeof button === 'number' ? ' km' : ''}
 							</button>
 						))}
 				</quick-sel>

@@ -34,7 +34,7 @@ function EveMenuStrip({
 	nowAt,
 	userCardSetModes,
 	setGalleryContent,
-}) {
+}: any) {
 	const navigate = useNavigate();
 	const { id: eventID } = eventObj;
 	const { menuView } = useContext(globalContext);
@@ -59,7 +59,7 @@ function EveMenuStrip({
 	const allowFeedback = Boolean(brain.user?.id && feedbackBaseTime && !eventObj.type.startsWith('a') && Date.now() >= feedbackBaseTime && Date.now() <= feedbackBaseTime + 2592000000);
 
 	// UTILITY FUNCTIONS ---------------------------------------------------------
-	const toggleMode = (mode, value) =>
+	const toggleMode = (mode, value = undefined) =>
 		setModes(prev => ({
 			...Object.keys(prev).reduce((acc, key) => ({ ...acc, [key]: false }), {}),
 			menu: true,
@@ -89,7 +89,7 @@ function EveMenuStrip({
 			}
 
 			// Cleanup User Interactions
-			if (brain.users) Object.values(brain.users).forEach(user => user.eveInters?.[eventID] && delete user.eveInters[eventID]);
+			if (brain.users) Object.values(brain.users).forEach((user: any) => user.eveInters?.[eventID] && delete user.eveInters[eventID]);
 			if (brain.user.eveInters?.[eventID]) delete brain.user.eveInters[eventID];
 
 			// Update UI

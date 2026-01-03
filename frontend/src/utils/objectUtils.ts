@@ -38,7 +38,7 @@ export function trim(snap) {
 // SPLIT/REJOIN “ARRAY STRINGS” -------------------------------------------------
 // Steps: normalize common persisted string fields into arrays (split) for runtime logic, or back into strings (join) for storage; keeps numeric lists numeric where expected.
 export function splitStrgOrJoinArr(obj, method = 'split') {
-	const applyMethod = (key, delimiter, isNum) => {
+	const applyMethod = (key, delimiter, isNum = false) => {
 		if (Object.prototype.hasOwnProperty.call(obj, key)) {
 			if (method === 'split' && typeof obj[key] === 'string') obj[key] = obj[key]?.split(delimiter).map(item => (isNum ? Number(item) : item)) || [];
 			else if (method === 'join' && Array.isArray(obj[key]) && !obj[key].some(item => typeof item === 'object')) obj[key] = obj[key].join(delimiter);

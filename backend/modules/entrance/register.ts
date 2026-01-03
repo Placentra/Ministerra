@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 import { jwtQuickies } from '../jwtokens';
 import sendEmail from '../mailing';
 import { getLogger } from '../../systems/handlers/logging/index';
+import { getPasswordStrengthScore } from '../../../shared/utilities';
 
 const logger = getLogger('Entrance:Register');
 const EMAIL_REGEX =
@@ -51,9 +52,8 @@ async function register({ email, pass, ip }, con) {
 	await enforceRegisterRateLimit(ip);
 
 	// PASSWORD POLICY ---------------------------------------------------------
-	// Steps: enforce strength server-side so weak clients can’t bypass; fail before hashing to keep CPU bounded.
-	const strongEnough = typeof pass === 'string' && pass.length >= 8 && /[A-Z]/.test(pass) && /\d/.test(pass) && /[^\w\s]/.test(pass);
-	if (!strongEnough) throw new Error('weakPass');
+	// Steps: enforce strength server-side so weak clients can't bypass; fail before hashing to keep CPU bounded.
+	if (typeof pass !== 'string' || Number(getPasswordStrengthScore(false, pass, undefined)) < 7) throw new Error('weakPass');
 
 	const passCrypt = await bcrypt.hash(pass, 10);
 	async function createUser(attempt = 0) {

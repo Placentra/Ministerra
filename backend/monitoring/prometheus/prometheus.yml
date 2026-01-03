@@ -58,7 +58,7 @@ scrape_configs:
           - targets: ['backend:9464', 'backend-app:9464']
       authorization:
           type: Bearer
-          credentials_file: /etc/prometheus/secrets/MONITORING_TOKEN
+          credentials_file: /etc/prometheus/secrets/metrics_token
       scheme: http
 
     # Removed redundant worker scrape; backend exposes /metrics for app-level metrics

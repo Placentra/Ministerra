@@ -1,21 +1,23 @@
 import { useState, useRef, memo } from 'react';
 const lang = { Expertise: 'Odbornost', Services: 'Služby', Hobbies: 'Zájmy', Persona: 'Osobnost', Special: 'Speciální', Ethnics: 'Etnicita' };
 import useCentralFlex from '../hooks/useCentralFlex';
-import { groupsSrc } from '../../../shared/constants';
+import { USER_GROUPS } from '../../../shared/constants';
 import { MAX_COUNTS } from '../../../shared/constants';
 
-function Groups({ data = {}, superMan, nowAt, avail = {}, sherMode }) {
+const test = USER_GROUPS.get('test');
+
+function Groups({ data = {}, superMan, nowAt, avail = {}, sherMode }: any) {
 	const topEdge = useRef(null);
-	const [activeCat, setActiveCat] = useState(Array.from(groupsSrc.keys())[0]);
+	const [activeCat, setActiveCat] = useState(Array.from(USER_GROUPS.keys())[0]);
 	const [design, setDesign] = useState(1),
 		[invertButton, setInvertButton] = useState(null),
 		invertTimeout = useRef(null),
-		bWidth = useCentralFlex('groupsCats', [], nowAt, Array.from(groupsSrc.keys()).length);
+		bWidth = (useCentralFlex as any)('groupsCats', [], nowAt, Array.from(USER_GROUPS.keys()).length);
 
 	// MANAGER -----------------------------------------------------------------------------
 	function man(inp, cat) {
 		let [curGroups, newGroups] = [[...(data.groups || [])], null];
-		const tarGroups = cat ? Array.from(groupsSrc.get(cat).keys()).filter(key => nowAt === 'setup' || avail.groups.includes(key)) : [];
+		const tarGroups = cat ? Array.from(USER_GROUPS.get(cat).keys()).filter(key => nowAt === 'setup' || avail.groups.includes(key)) : [];
 		if (inp === 'noneAll') {
 			if (!cat) newGroups = curGroups.length > 0 ? [] : avail.groups;
 			else
@@ -66,8 +68,8 @@ function Groups({ data = {}, superMan, nowAt, avail = {}, sherMode }) {
 				<categories-view>
 					{/* CATEGORIES BUTTONS -------------------------------------- */}
 					<groups-cats class='flexCen w100 marAuto imw4 wrap'>
-						{Array.from(groupsSrc.keys()).map(cat => {
-							const keys = Array.from(groupsSrc.get(cat).keys()).filter(key => nowAt === 'setup' || avail.groups?.includes(key));
+						{Array.from(USER_GROUPS.keys()).map(cat => {
+							const keys = Array.from(USER_GROUPS.get(cat).keys()).filter(key => nowAt === 'setup' || avail.groups?.includes(key));
 							const isCategoryEmpty = nowAt !== 'setup' && !keys.some(group => avail.groups.includes(group));
 							const selectedCount = keys.filter(group => data.groups?.includes(group))?.length;
 							return (
@@ -95,7 +97,7 @@ function Groups({ data = {}, superMan, nowAt, avail = {}, sherMode }) {
 					<groups-bs class='flexCen  bInsetBlueTopXs posRel growAll marAuto wrap'>
 						<blue-divider class={`hr1 borTop zinMin block bInsetBlueTopXl bgTrans posRel w90 mw80 marAuto`} />
 						<bs-wrapper class='marTopXxs flexCen wrap w100 marTopS marAuto'>
-							{Array.from(groupsSrc.get(activeCat).entries()).map(([key, type]) => (
+							{Array.from(USER_GROUPS.get(activeCat).entries()).map(([key, type]) => (
 								<button
 									className={`${invertButton === key ? 'boldM' : ''} ${nowAt !== 'setup' && !avail.groups.includes(key) ? 'tDis' : ''} ${
 										data.groups?.includes(key) ? 'bInsetBlueTopS borTop xBold fs7 posRel' : 'shaBlue fs7 borBotLight'
@@ -112,8 +114,8 @@ function Groups({ data = {}, superMan, nowAt, avail = {}, sherMode }) {
 			{/* CLOUD VIEW ---------------------------------------------------------*/}
 			{design === 2 && (
 				<collapsed-view class='flexCen marTopS gapXxxs marAuto wrap'>
-					{Array.from(groupsSrc.keys()).flatMap((cat, idx) => {
-						const keys = Array.from(groupsSrc.get(cat).keys()).filter(key => nowAt === 'setup' || avail.groups.includes(key));
+					{Array.from(USER_GROUPS.keys()).flatMap((cat, idx) => {
+						const keys = Array.from(USER_GROUPS.get(cat).keys()).filter(key => nowAt === 'setup' || avail.groups.includes(key));
 						const someGroupSelected = data.groups?.some(group => keys.includes(group));
 						if (keys.length > 0)
 							return [
@@ -128,7 +130,7 @@ function Groups({ data = {}, superMan, nowAt, avail = {}, sherMode }) {
 									</button>
 								),
 								// GROUPS BUTTONS -------------------------------------
-								Array.from(groupsSrc.get(cat).entries()).map(
+								Array.from(USER_GROUPS.get(cat).entries()).map(
 									([key, type]) =>
 										(nowAt === 'setup' || avail.groups.includes(key)) && (
 											<button
@@ -150,14 +152,14 @@ function Groups({ data = {}, superMan, nowAt, avail = {}, sherMode }) {
 			{/* SELECT / DESELECT CAT BUTTON -------------------------------------------*/}
 			{((nowAt !== 'setup' &&
 				(sherMode !== 'strict' || data.groups?.length > 0) &&
-				(design === 1 ? Array.from(groupsSrc.get(activeCat).keys()).some(key => data.groups?.includes(key)) : data.groups?.length === 0)) ||
+				(design === 1 ? Array.from(USER_GROUPS.get(activeCat).keys()).some(key => data.groups?.includes(key)) : data.groups?.length === 0)) ||
 				data.groups?.length > 0) && (
 				<button
 					className={`${data.groups?.length > 0 ? 'tRed' : 'tBlue'} padAllXxs posAbs botCen moveDown miw16 fs11 xBold marAuto inlineBlock marTopXs borderLight boRadXs`}
 					onClick={() => man('noneAll', design === 1 ? activeCat : null)}>
 					{sherMode === 'strict' ||
 					(design === 1
-						? Array.from(groupsSrc.get(activeCat).keys()).some(key => data.groups?.includes(key))
+						? Array.from(USER_GROUPS.get(activeCat).keys()).some(key => data.groups?.includes(key))
 						: nowAt === 'setup' || avail.groups?.some(group => data.groups?.includes(group)))
 						? 'nic'
 						: 'vše'}

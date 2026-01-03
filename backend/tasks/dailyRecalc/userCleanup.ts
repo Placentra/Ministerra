@@ -62,7 +62,7 @@ export async function updateRedisUserSets({ con, redis, allDelUserIDs, delUse, r
 	// REDIS CLEANUP PIPELINE -----------------------------------------------------
 	// Steps: delete direct keys, remove from reverse sets, and remove event-score zset members via Lua scan+zrem (member strings can be `uid` or `uid_priv`).
 	const pipe = redis.pipeline(),
-		keys = [REDIS_KEYS.USER_BASI, REDIS_KEYS.userSummary, REDIS_KEYS.userActiveChats, REDIS_KEYS.tempProfile, REDIS_KEYS.links, REDIS_KEYS.blocks, REDIS_KEYS.invites, REDIS_KEYS.trusted],
+		keys = [REDIS_KEYS.userBasics, REDIS_KEYS.userSummary, REDIS_KEYS.userActiveChats, REDIS_KEYS.tempProfile, REDIS_KEYS.links, REDIS_KEYS.blocks, REDIS_KEYS.invites, REDIS_KEYS.trusts],
 		hKeys = [REDIS_KEYS.userMetas, REDIS_KEYS.userNameImage, REDIS_KEYS.userChatRoles];
 	for (const uid of targetIds) {
 		keys.forEach(k => pipe.del(`${k}:${uid}`));

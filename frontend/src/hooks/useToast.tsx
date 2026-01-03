@@ -12,7 +12,7 @@ export function ToastStrip() {
  * Manages a queue of toast notifications, displaying them one by one.
  * Renders an absolute overlay for the active toast.
  * -------------------------------------------------------------------------- */
-function useToast() {
+function useToast(_opts?: any) {
 	const [toast, setToast] = useState(null);
 	const [isToastActive, setIsToastActive] = useState(false);
 	const toastQueue = useRef([]);
@@ -52,7 +52,7 @@ function useToast() {
 						...(placement === 'bottom' && { bottom: '20px', left: '50%', transform: 'translateX(-50%)' }),
 						...(placement === 'center' && { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }),
 					}}>
-					<AlertStrip alert={alert} brain={brain} onClick={() => onToastClick(alert)} isToast={true} />
+					<AlertStrip alert={alert} brain={brain} onClick={() => (onToastClick as any)(alert)} isToast={true} />
 				</toast-wrapper>
 			);
 

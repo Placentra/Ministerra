@@ -1,25 +1,23 @@
 {
 	"type": "module",
 	"dependencies": {
+		"cbor-x": "^1.6.0",
+		"ioredis": "^5.8.2",
 		"jodit-react": "^5.2.19",
 		"lru-cache": "^11.0.2"
 	},
 	"devDependencies": {
+		"@types/node": "^25.0.3",
 		"concurrently": "^9.0.1"
 	},
 	"scripts": {
-		"lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
-		"lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix",
-		"predev": "npm install --silent && cd backend && npm install --silent || true",
-		"docker:up": "docker compose -p ministerra -f backend/docker-compose.yml --profile dev up -d redis-primary redis-replica1 redis-sentinel1 redis-sentinel2 redis-sentinel3 mysql mysql-replica mysql-replica-init prometheus grafana loki promtail-dev tempo otel-collector node-exporter cadvisor redis-exporter mysqld-exporter blackbox-exporter traefik || docker-compose -p ministerra -f backend/docker-compose.yml --profile dev up -d redis-primary redis-replica1 redis-sentinel1 redis-sentinel2 redis-sentinel3 mysql mysql-replica mysql-replica-init prometheus grafana loki promtail-dev tempo otel-collector node-exporter cadvisor redis-exporter mysqld-exporter blackbox-exporter traefik",
-		"docker:down": "npx --prefix backend tsx backend/scripts/docker-clean.ts backend/docker-compose.yml ministerra",
-		"docker:down:dev": "npm run docker:down",
-		"docker:down:min": "npm run docker:down",
-		"docker:down:all": "npx --prefix backend tsx backend/scripts/docker-clean.ts backend/docker-compose.yml ministerra --prune-volumes",
-		"dev:backend": "npm --prefix backend start",
-		"dev:frontend": "npm --prefix frontend run dev",
-		"dev": "npm run docker:down:dev && npm run docker:up && concurrently -n backend,frontend -c green,blue \"npm --prefix backend start\" \"npm --prefix frontend run dev\"",
+		"lint": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix",
+		"down": "npx --yes --prefix backend tsx@4.7.0 backend/scripts/docker-clean.ts backend/docker-compose.yml ministerra",
+		"nuke": "npx --yes --prefix backend tsx@4.7.0 backend/scripts/docker-clean.ts backend/docker-compose.yml ministerra --prune-volumes",
+		"dev-": "npm run down && docker compose -p ministerra -f backend/docker-compose.yml --profile dev up -d && docker compose -p ministerra -f backend/docker-compose.yml logs -f backend-app frontend-dev",
+		"dev": "docker compose -p ministerra -f backend/docker-compose.yml restart backend-app frontend-dev && docker compose -p ministerra -f backend/docker-compose.yml logs -f backend-app frontend-dev",
+		"min-": "npm --prefix backend run min-",
 		"min": "npm --prefix backend run min",
-		"deploy:prod": "bash deploy.sh"
+		"build": "bash deploy.sh"
 	}
 }

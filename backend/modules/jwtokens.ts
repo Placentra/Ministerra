@@ -1,9 +1,9 @@
 import JWT from 'jsonwebtoken';
-import { Sql, Catcher } from '../systems/systems';
+import { Sql, Catcher } from '../systems/systems.ts';
 import crypto from 'crypto';
-import { getLogger } from '../systems/handlers/logging/index';
+import { getLogger } from '../systems/handlers/logging/index.ts';
 import { LRUCache } from 'lru-cache';
-import { EXPIRATIONS } from '../../shared/constants';
+import { EXPIRATIONS, REDIS_KEYS } from '../../shared/constants.ts';
 
 let redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------
@@ -15,7 +15,7 @@ const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 // JWT VERIFICATION CACHE ------------------------------------------------------
 // Avoids re-verifying same token repeatedly. Stores decoded payload keyed by token string.
 // Reduces CPU overhead for frequently accessed endpoints.
-const jwtCache = new LRUCache({
+const jwtCache = new LRUCache<string, any>({
 	max: 10000, // 10k active tokens per worker
 	ttl: 20 * 60 * 1000, // 20 minutes max (matches ACCESS token life)
 	updateAgeOnGet: true, // Keep hot tokens cached
@@ -71,7 +71,7 @@ function getRefreshCookieOptions() {
 	const secureEnv = (process.env.COOKIE_SECURE || '').toLowerCase();
 	const secure = secureEnv === 'true' || secureEnv === '1' ? true : secureEnv === 'false' || secureEnv === '0' ? false : env === 'production';
 	const sameSite = process.env.COOKIE_SAMESITE || (secure ? 'strict' : 'lax');
-	const cookieOptions = {
+	const cookieOptions: any = {
 		maxAge: ONE_WEEK_MS,
 		httpOnly: true, // Prevent JS access to refresh token
 		signed: true, // Detect tampering
@@ -94,7 +94,7 @@ function getRefreshCookieOptions() {
  * @param {Object} context - { res, con, create, userID, is, print, deviceInfo, expiredAt }
  * @param {string} create - 'both' (login/refresh) or 'access' (just aJWT renewal)
  * -------------------------------------------------------------------------- */
-async function jwtCreate({ res, con, create, userID, is, print, deviceInfo = {}, expiredAt = null }) {
+async function jwtCreate({ res, con, create, userID, is, print, deviceInfo = {}, expiredAt = null }: any) {
 	if (!redis) throw new Error('Redis client not initialized');
 	try {
 		// SESSION COORDINATES ---------------------------------------------------
@@ -123,14 +123,14 @@ async function jwtCreate({ res, con, create, userID, is, print, deviceInfo = {},
 		if (create === 'both' || create === 'refresh') {
 			const refreshPayload = { userID, iat };
 			const dynamicSecret = getDynamicSecret(userID, process.env.RJWT_SECRET, iat);
-			const rJWT = JWT.sign(refreshPayload, dynamicSecret, { expiresIn: `${TOKEN_EXPIRY.REFRESH}` });
+			const rJWT = (JWT.sign as any)(refreshPayload, dynamicSecret, { expiresIn: `${TOKEN_EXPIRY.REFRESH}` });
 
 			const isLocalCon = !con;
 			con = con || (await Sql.getConnection());
 			try {
 				// Clean up old device entry if ID changed (e.g. fingerprint evolved)
 				if (previousDevId && previousDevId !== devID)
-					await Promise.all([con.execute('DELETE FROM rjwt_tokens WHERE user = ? AND device = ?', [userID, previousDevId]), redis.hdel('refreshTokens', `${userID}_${previousDevId}`)]);
+					await Promise.all([con.execute('DELETE FROM rjwt_tokens WHERE user = ? AND device = ?', [userID, previousDevId]), redis.hdel(REDIS_KEYS.refreshTokens, `${userID}_${previousDevId}`)]);
 
 				// Persist new refresh token to SQL and Redis
 				await Promise.all([
@@ -139,7 +139,7 @@ async function jwtCreate({ res, con, create, userID, is, print, deviceInfo = {},
 						ON DUPLICATE KEY UPDATE token = VALUES(token), print = VALUES(print)`,
 						[userID, devID, rJWT, print]
 					),
-					redis.hset('refreshTokens', `${userID}_${devID}`, `${rJWT}:${print}`),
+					redis.hset(REDIS_KEYS.refreshTokens, `${userID}_${devID}`, `${rJWT}:${print}`),
 				]);
 
 				res.cookie('rJWT', rJWT, getRefreshCookieOptions());
@@ -150,19 +150,19 @@ async function jwtCreate({ res, con, create, userID, is, print, deviceInfo = {},
 
 		// ACCESS TOKEN (aJWT) GENERATION --------------------------------------
 		// Short-lived token for API authorization.
-		const expiryMatch = EXPIRATIONS.ACCESS_TOKEN.match(/^(\d+)([smhd])$/);
+		const expiryMatch = EXPIRATIONS.accessToken.match(/^(\d+)([smhd])$/);
 		const num = expiryMatch?.[1] ?? 20;
 		const unit = expiryMatch?.[2] ?? 'm';
 		const multiplier = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[unit] || 60000;
 		const expiry = Date.now() + Number(num) * multiplier;
 
-		const accessPayload = { userID, is, devID, iat };
+		const accessPayload: any = { userID, is, devID, iat };
 		// Embed login stats for client-side heuristics (e.g., showing onboarding tips)
 		if (logins < 4) {
 			accessPayload.logins = logins;
 			accessPayload.lastLogin = lastLogin;
 		}
-		const aJWT = JWT.sign(accessPayload, process.env.AJWT_SECRET, { expiresIn: `${EXPIRATIONS.ACCESS_TOKEN}` });
+		const aJWT = (JWT.sign as any)(accessPayload, process.env.AJWT_SECRET as string, { expiresIn: `${EXPIRATIONS.accessToken}` });
 		res.set('Authorization', `Bearer ${aJWT}:${expiry}`);
 	} catch (error) {
 		logger.error('jwtCreate', { error, userID, create });
@@ -191,13 +191,13 @@ async function refreshAccessToken(req, res, accessToken, expiredError) {
 
 	// DECODE ---------------------------------------------------------------
 	// Steps: decode both tokens to cross-check user/dev coordinates before spending CPU on signature verification.
-	const accessDecoded = JWT.decode(accessToken);
-	const refreshDecoded = JWT.decode(refreshToken);
+	const accessDecoded = JWT.decode(accessToken) as any;
+	const refreshDecoded = JWT.decode(refreshToken) as any;
 
 	// SESSION COORD CHECK ---------------------------------------------------
 	// Steps: require both decodes; if refresh decode has enough info, revoke cached redis refresh entry and force logout.
 	if (!refreshDecoded || !accessDecoded) {
-		if (refreshDecoded?.userID && refreshDecoded?.devID) await redis.hdel(`refreshTokens`, `${refreshDecoded.userID}_${refreshDecoded.devID}`);
+		if (refreshDecoded?.userID && refreshDecoded?.devID) await redis.hdel(REDIS_KEYS.refreshTokens, `${refreshDecoded.userID}_${refreshDecoded.devID}`);
 		throw new Error('logout');
 	}
 
@@ -213,7 +213,7 @@ async function refreshAccessToken(req, res, accessToken, expiredError) {
 	// REDIS LOOKUP --------------------------------------------------------
 	// Steps: require the session entry to exist; missing entry means logout/revocation already happened.
 	const redisKey = `${userID}_${devID}`;
-	const redisData = await redis.hget('refreshTokens', redisKey);
+	const redisData = await redis.hget(REDIS_KEYS.refreshTokens, redisKey);
 	if (!redisData) throw new Error('logout');
 
 	// FINGERPRINT VALIDATION ----------------------------------------------
@@ -237,7 +237,7 @@ async function refreshAccessToken(req, res, accessToken, expiredError) {
 		// VERIFY rJWT SIGNATURE ----------------------------------------------
 		// Steps: verify signature against dynamic secret for this hour slot; throws TokenExpiredError when rJWT is expired.
 		const dynamicSecret = getDynamicSecret(userID, process.env.RJWT_SECRET, refreshIat);
-		JWT.verify(refreshToken, dynamicSecret);
+		(JWT.verify as any)(refreshToken, dynamicSecret);
 
 		// MINT aJWT -----------------------------------------------------------
 		// Steps: mint a new access token; refresh token is not rotated in this path unless it is expired.
@@ -315,7 +315,7 @@ async function jwtVerify(req, res, next) {
 
 	try {
 		// SLOW PATH: CRYPTO VERIFY --------------------------------------------
-		const decoded = JWT.verify(accessToken, process.env.AJWT_SECRET);
+		const decoded = (JWT.verify as any)(accessToken, process.env.AJWT_SECRET as string) as any;
 
 		// UPDATE CACHE
 		const now = Math.floor(Date.now() / 1000);
@@ -358,10 +358,10 @@ function attachSession(req, { userID, is, devID, logins }) {
  * Used for email verification links, password resets, etc.
  * Steps: verify returns decoded payload, create signs payload with short expiry; throws normalized 'tokenExpired'/'unauthorized' codes.
  * -------------------------------------------------------------------------- */
-function jwtQuickies({ mode, payload, expiresIn }) {
+function jwtQuickies({ mode, payload, expiresIn = null }: any) {
 	try {
-		if (mode === 'verify') return JWT.verify(payload, process.env.AJWT_SECRET);
-		else if (mode === 'create') return JWT.sign(payload, process.env.AJWT_SECRET, { expiresIn: expiresIn || EXPIRATIONS.AUTH_TOKEN });
+		if (mode === 'verify') return (JWT.verify as any)(payload, process.env.AJWT_SECRET as string);
+		else if (mode === 'create') return (JWT.sign as any)(payload, process.env.AJWT_SECRET as string, { expiresIn: expiresIn || EXPIRATIONS.authToken });
 	} catch (error) {
 		throw new Error(`${error.name === 'TokenExpiredError' ? 'tokenExpired' : 'unauthorized'}`);
 	}

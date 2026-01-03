@@ -1,7 +1,7 @@
 import { humanizeDateTime } from '../../../helpers';
 import { useState, memo, useLayoutEffect } from 'react';
 
-import { friendlyMeetings } from '../../../../shared/constants';
+import { FRIENDLY_MEETINGS } from '../../../../shared/constants';
 import ContentIndis from '../ContentIndis';
 import EveMenuStrip from '../menuStrips/EveMenuStrip';
 import EventCard from '../EventCard';
@@ -31,16 +31,19 @@ function EventStrip(props) {
 		own: obj.own,
 		invited: obj.invited,
 		opened: brain.user.id && brain.user.openEve?.includes(obj.id),
-		isMeeting: friendlyMeetings.has(obj.type),
+		isMeeting: FRIENDLY_MEETINGS.has(obj.type),
 		copied: false,
 		isPastEvent,
 	});
 
 	// GLOBAL MENU TOGGLE --------------------------------------------------------
 	useLayoutEffect(() => {
-		if (stripMenu === obj.id) return;
-		else setModes(prev => ({ ...prev, menu: false, protocol: false, evePreview: false, feedback: false }));
-	}, [stripMenu]);
+		const shouldBeOpen = stripMenu === obj.id;
+		setModes(prev => {
+			if (prev.menu === shouldBeOpen) return prev;
+			return { ...prev, menu: shouldBeOpen, protocol: false, evePreview: false, feedback: false };
+		});
+	}, [stripMenu, obj.id]);
 
 	// SYNC CANCELED/DELETED STATE FROM OBJ ------------------------------------
 	useLayoutEffect(() => {
@@ -49,9 +52,14 @@ function EventStrip(props) {
 
 	return (
 		<event-strip
-			onClick={() =>
-				!isInvitations ? (setModes(prev => ({ ...prev, menu: !prev.menu, evePreview: false, inter: false })), setStripMenu(modes.menu ? null : obj.id)) : superMan({ mode: 'selectEvent', obj })
-			}
+			onClick={() => {
+				if (isInvitations) return superMan({ mode: 'selectEvent', obj });
+				setModes(prev => {
+					const newMenuState = !prev.menu;
+					setStripMenu(newMenuState ? obj.id : null);
+					return { ...prev, menu: newMenuState, evePreview: false, inter: false };
+				});
+			}}
 			class={`${(() => {
 				const invitedFlag = (() => {
 					if (obj.invited) return obj.invited;
@@ -74,7 +82,14 @@ function EventStrip(props) {
 			<strip-body class={`${modes.menu ? 'marBotXxs' : ''} flexRow aliStart fPadHorXxxs  marAuto bgWhite  zinMaXl padBotXxs  w100`}>
 				{/* IMAGE ------------------------------------------------------ */}
 				<img
-					onClick={e => (e.stopPropagation(), setModes(prev => ({ ...prev, menu: !prev.menu, inter: false, protocol: false })), setStripMenu(modes.menu ? null : obj.id))}
+					onClick={e => {
+						e.stopPropagation();
+						setModes(prev => {
+							const newMenuState = !prev.menu;
+							setStripMenu(newMenuState ? obj.id : null);
+							return { ...prev, menu: newMenuState, inter: false, protocol: false };
+						});
+					}}
 					className={`${modes.menu ? 'bsContentGlow bDarkBlue  boRadM' : ''}  selfStart marTopXs  w18 mw12 posRel marRigS miw10   ${
 						obj.type.startsWith('a') ? 'aspect167 cover' : 'aspect1612'
 					} ${isPastEvent ? 'opacityM' : ''} borRed shaBot boRadXxs`}

@@ -79,7 +79,7 @@ export function getClientIp(req) {
 // Steps: pull canonical fields (name/message/stack/code/status), recurse into cause, then copy enumerable fields except sensitive keys.
 export function serializeError(err) {
 	if (!err || typeof err !== 'object') return { message: String(err) };
-	const serialized = {
+	const serialized: any = {
 		name: err.name || 'Error',
 		message: err.message,
 		stack: err.stack,
@@ -129,7 +129,7 @@ export function sanitize(value, depth = 0, seen = new WeakSet()) {
 // Steps: extract method/path/requestId/userId/ip, optionally include sanitized body, return null if req is missing.
 export function extractRequestDetails(req, { includeBody = false } = {}) {
 	if (!req) return null;
-	const details = {
+	const details: any = {
 		method: req.method,
 		path: req.originalUrl || req.url,
 		requestId: req.requestId,
@@ -143,7 +143,7 @@ export function extractRequestDetails(req, { includeBody = false } = {}) {
 // DEDUPLICATION CHECK ---
 // Prevents "log storms" when the same error repeats rapidly (e.g., downstream outage).
 // Emits first few occurrences, then suppresses and finally emits a summary line.
-const dedupCache = new LRUCache({ max: 1000, ttl: 10000 });
+const dedupCache = new LRUCache<string, any>({ max: 1000, ttl: 10000 });
 function checkDeduplication(level, message, meta, emitCallback) {
 	if (level !== 'error' && level !== 'alert') return true;
 
@@ -151,7 +151,7 @@ function checkDeduplication(level, message, meta, emitCallback) {
 	if (meta?.error?.stack) sig += `:${meta.error.stack.split('\n')[1] || ''}`;
 	else if (meta?.module) sig += `:${meta.module}`;
 
-	let entry = dedupCache.get(sig);
+	let entry: any = dedupCache.get(sig);
 	if (!entry) {
 		dedupCache.set(sig, { count: 1, timer: null, level, message, meta });
 		return true;
@@ -186,7 +186,7 @@ function captureCallSite() {
 
 		for (const frame of stack) {
 			const file = frame.getFileName();
-			if (!file || file.startsWith('node:') || file.includes('node_modules') || file.includes('handlers/loggers.js')) continue;
+			if (!file || file.startsWith('node:') || file.includes('node_modules') || file.includes('handlers/loggers') || file.includes('logging/index')) continue;
 
 			// Clean path logic
 			let clean = file.replace(/^file:\/\//, '').replace(/\\/g, '/');
@@ -267,8 +267,8 @@ const consoleFormat = winston.format.printf(info => {
 	const label = (info.level === 'debug' ? 'DEBUG' : info.level.toUpperCase()).padEnd(5);
 	const colorizedLevel = FEATURES.consoleColors ? winston.format.colorize().colorize(info.level, label) : label;
 
-	// Build the main log line: LEVEL [location] message
-	const location = info.location ? ` [${info.location.file}:${info.location.line}]` : info.module ? ` [${info.module}]` : '';
+	// Build the main log line: LEVEL [module] message (prefer module over file:line for cleaner output)
+	const location = (info as any).module ? ` [${(info as any).module}]` : '';
 	let line = `${colorizedLevel}${location} ${info.message}`;
 
 	// Append trace/context identifiers if present
@@ -285,7 +285,7 @@ const consoleFormat = winston.format.printf(info => {
 	line += formatConsoleExtraMeta(info);
 
 	// Multi-line error handling
-	const err = info.error || (info instanceof Error ? info : null);
+	const err: any = (info as any).error || (info instanceof Error ? info : null);
 	if (err) {
 		const stack = err.stack || (typeof err === 'object' ? JSON.stringify(err, null, 2) : String(err));
 		line += `\n${stack}`;
@@ -355,7 +355,7 @@ const errorLogger = createLogger({ category: 'error', dir: LOG_DIRS.error, fileP
 const slowLogger = createLogger({ category: 'slow', dir: LOG_DIRS.slow, filePrefix: 'slow', fileLevel: 'alert', consoleLevel: LOG_LEVEL, loggerLevel: LOG_LEVEL });
 
 // Store categories on loggers for logWith
-[debugLogger, infoLogger, alertLogger, errorLogger, slowLogger].forEach((l, i) => (l.cat = ['debug', 'info', 'alert', 'error', 'slow'][i]));
+[debugLogger, infoLogger, alertLogger, errorLogger, slowLogger].forEach((l, i) => ((l as any).cat = ['debug', 'info', 'alert', 'error', 'slow'][i]));
 
 // GLOBAL PROCESS HANDLERS ---
 // Persist uncaught exceptions and unhandled rejections to dedicated rotating files.
@@ -391,7 +391,7 @@ errorLogger.rejections.handle(...exceptionTransports);
 // Steps: normalize meta, apply dedup suppression, extract request details, attach callsite if missing, sanitize payload, then emit to the chosen logger.
 function logWith(target, level, message, meta) {
 	const payload = meta && typeof meta === 'object' ? { ...meta } : meta === undefined ? {} : { value: meta };
-	payload.category = target.cat;
+	payload.category = (target as any).cat;
 
 	// Deduplication
 	const shouldEmit = checkDeduplication(level, message, payload, (l, m, ex) => target.log({ level: l, message: m, ...sanitize(ex) }));
@@ -425,7 +425,7 @@ export function getLogger(moduleName, baseMeta = {}) {
 		debug: (msg, logMeta = {}) => logWith(debugLogger, 'debug', msg, { ...meta, ...logMeta }),
 		info: (msg, logMeta = {}) => logWith(infoLogger, 'info', msg, { ...meta, ...logMeta }),
 		alert: (msg, logMeta = {}) => logWith(alertLogger, 'alert', msg, { ...meta, ...logMeta }),
-		error: (msg, logMeta = {}) => logWith(errorLogger, 'error', msg instanceof Error ? msg.message : msg, { ...meta, ...logMeta, error: msg instanceof Error ? msg : logMeta?.error }),
+		error: (msg, logMeta = {}) => logWith(errorLogger, 'error', msg instanceof Error ? msg.message : msg, { ...meta, ...logMeta, error: msg instanceof Error ? msg : (logMeta as any)?.error }),
 		slow: (msg, logMeta = {}) => logWith(slowLogger, 'alert', msg, { ...meta, ...logMeta }),
 		child: (childMeta = {}) => getLogger(moduleName, { ...meta, ...childMeta }),
 	};

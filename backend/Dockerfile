@@ -20,6 +20,6 @@ RUN useradd -m -u 10001 appuser && chown -R appuser:appuser /usr/src/app /usr/sr
 USER appuser
 
 EXPOSE 2208
-CMD ["tsx", "app.ts"]
+CMD ["./node_modules/.bin/tsx", "app.ts"]
 
 

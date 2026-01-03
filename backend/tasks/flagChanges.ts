@@ -1,12 +1,11 @@
-import { Catcher, Querer } from '../systems/systems';
+import { Catcher, Querer } from '../systems/systems.ts';
 import { decode } from 'cbor-x';
-import { getIDsString } from '../../shared/utilities';
-import { eventsCols } from '../variables';
-import { getStateVariables, processUserMetas, processRemEveMetas, processNewEvents, processNewEveMetas, fillContentPipeline, fillBasiDetaPipe, clearState } from '../utilities/contentHelpers';
-import { getLogger } from '../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../shared/constants';
-import { invalidateEventCache } from '../modules/event';
-import { invalidateUserCache } from '../modules/user';
+import { getIDsString } from '../../shared/utilities.ts';
+import { getStateVariables, processUserMetas, processRemEveMetas, processNewEvents, processNewEveMetas, loadMetaPipes, loadBasicsDetailsPipe, clearState } from '../utilities/contentHelpers.ts';
+import { getLogger } from '../systems/handlers/logging/index.ts';
+import { REDIS_KEYS, EVENT_COLUMNS } from '../../shared/constants.ts';
+import { invalidateEventCache } from '../modules/event.ts';
+import { invalidateUserCache } from '../modules/user.ts';
 
 const logger = getLogger('Task:FlagChanges');
 
@@ -23,7 +22,7 @@ async function processFlagChanges(con, redis) {
 
 		// FETCH SQL FLAGS -------------------------------------------------------
 		// Steps: read the authoritative “what changed” signals from SQL first so redis work can be driven deterministically from the DB state.
-		const eventsQ = `SELECT ${eventsCols}, c.city FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.flag IN ('new', 'del')`;
+		const eventsQ = `SELECT ${EVENT_COLUMNS} FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.flag IN ('new', 'del')`;
 		const usersQ = `SELECT id, flag, priv FROM users u WHERE u.flag IN ('fro', 'del', 'pri') GROUP BY u.id`;
 
 		let events, users;
@@ -64,7 +63,6 @@ async function processFlagChanges(con, redis) {
 				await processRemEveMetas({
 					data,
 					state,
-					redis,
 					deletionsPipe,
 					userMetasProcessor,
 				});
@@ -105,7 +103,7 @@ async function processFlagChanges(con, redis) {
 			}
 		}
 
-		// PROCESS PRIVACY CHANGES ----------------------------------------------
+		// PROCESS PRIVACIES CHANGES ----------------------------------------------
 		// Steps: re-run metas processor with privUse map so per-user visibility/filters can be recomputed without full rebuild.
 		async function processPrivChangeUsers() {
 			const privUseArr = [...privUse.keys()];
@@ -154,7 +152,7 @@ async function processFlagChanges(con, redis) {
 		// APPLY META UPDATES ----------------------------------------------------
 		// Steps: run removals + priv changes in parallel, then fill pipelines from state to produce the redis writes.
 		await Promise.all([processRemEvents(), processRemUsers(), processPrivChangeUsers()]); // Parallel execution ---------------------------
-		fillContentPipeline(state, metasPipe, attenPipe), fillBasiDetaPipe(state, basiDetaPipe);
+		loadMetaPipes(state, metasPipe, attenPipe), loadBasicsDetailsPipe(state, basiDetaPipe);
 
 		// INVALIDATE LOCAL CACHES ----------------------------------------------
 		// Steps: invalidate per-process module caches after state/pipelines are ready, so the next request won’t serve stale entities.
@@ -170,6 +168,8 @@ async function processFlagChanges(con, redis) {
 		if (newEveIds.length) queries.push(`UPDATE events SET flag = 'ok' WHERE id IN (${getIDsString(newEveIds)})`);
 		if (remEve.size) {
 			const remEveIds = getIDsString(remEve);
+			// Column names must match rem_events schema exactly
+			// Using SELECT * assumes schemas match, but field list is safer if schemas drifted
 			queries.push(`INSERT INTO rem_events SELECT * FROM events WHERE id IN (${remEveIds})`);
 			queries.push(`DELETE FROM events WHERE id IN (${remEveIds})`);
 		}

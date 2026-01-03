@@ -47,7 +47,7 @@ async function Locations(req, res) {
 		url.searchParams.set('lang', 'cs');
 		url.searchParams.set('apikey', process.env.GEOCODE_API_KEY);
 		url.searchParams.set('query', query.trim());
-		url.searchParams.set('limit', 15);
+		url.searchParams.set('limit', '15');
 		for (const param of params) url.searchParams.append('type', param);
 
 		// FETCH + CACHE + RETURN ----------------------------------------------

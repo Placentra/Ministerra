@@ -11,7 +11,7 @@ import { useEffect, useRef, memo } from 'react';
 function Sherlock(props) {
 	// PROPS AND STATE INITIALIZATION ------------------------------------------
 	const { sherData, setSherData, map, sherAvail, brain, filter, show, inform, snap, nowAt, snapMan, isSherActive } = props;
-	const sherlockProps = { data: sherData, avail: sherAvail, superMan: snapMan, nowAt, brain, snap, sherMode: sherData.mode };
+	const sherlockProps = { data: sherData, avail: sherAvail, superMan: snapMan, nowAt, brain, snap, sherMode: sherData.mode, inform };
 	const scrollTarget = useRef(null);
 
 	// AUTO-FOCUS ON MOUNT ---------------------------

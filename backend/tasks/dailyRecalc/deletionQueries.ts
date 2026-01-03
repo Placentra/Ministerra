@@ -9,7 +9,7 @@ const logger = getLogger('Task:DailyRecalc:DeletionQueries');
 // BUILD RECALC QUERIES ---------------------------
 // Steps: translate sets of ids into minimal SQL batches; keep each sub-task isolated so failures are attributable and retries can be scoped.
 export function buildRecalcQueries({ pastEveIDs, remEventsIDs, froUse, delUse, unfUse, delEve }) {
-	const recalcQs = {},
+	const recalcQs: any = {},
 		ids = set => getIDsString(set);
 	if (pastEveIDs.length) recalcQs.pastEve = [`UPDATE events SET flag = 'pas' WHERE id IN (${pastEveIDs.map(id => `'${id}'`).join(',')})`];
 
@@ -70,7 +70,7 @@ export async function cleanupDeletedUsersRedis({ con, redis, delUse, now }) {
 		pipe.eval(
 			`local keys=redis.call('HKEYS',KEYS[1]) local d=0 for _,k in ipairs(keys) do if string.sub(k,1,#ARGV[1])==ARGV[1] then redis.call('HDEL',KEYS[1],k) d=d+1 end end return d`,
 			1,
-			REDIS_KEYS.REFRESH_TOKENS,
+			REDIS_KEYS.refreshTokens,
 			`${u}_`
 		);
 	}

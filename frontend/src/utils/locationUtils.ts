@@ -80,7 +80,7 @@ export function generateLocationHash({ city, part, lat = 0, lng = 0 }) {
 
 // GET LOCATION SUGGESTIONS -----------------------------------------------------
 // Steps: build provider type filters from locaMode + UI context, call backend proxy (`/locations`), then filter out already-picked cities (hashIDs) and optionally restrict results to a target city.
-export async function fetchLocationSuggestions(query, options = {}, isIntroduction = false) {
+export async function fetchLocationSuggestions(query, options: any = {}, isIntroduction = false) {
 	const { locaMode = null, inMenu, cities = [], nowAt, restrictCity = null } = options || {};
 	if (!query || query.length < 2 || (restrictCity && locaMode === 'city')) return [];
 

@@ -8,9 +8,7 @@ import { getLogger } from '../systems/handlers/logging/index';
 
 const logger = getLogger('Mailing'),
 	SESClient = new aws.SESv2Client({ region: 'eu-central-1', credentials: { accessKeyId: process.env.AWS_ACCESS, secretAccessKey: process.env.AWS_SECRET } }),
-	transporter = nodemailer.createTransport({
-		SES: { SESClient, aws },
-	});
+	transporter = (nodemailer.createTransport({ SES: { SESClient, aws } } as any) as any);
 
 // CONFIGURATION ---------------------------------------------------------------
 
@@ -38,7 +36,7 @@ const modes = {
 
 // SEND EMAIL ---
 // Steps: pick template by mode, then send via SES-backed nodemailer transport with bounded retries and exponential backoff for transient failures.
-export default async function sendEmail({ mode, email, token }) {
+export default async function sendEmail({ mode, email, token = '' }: any) {
 	const m = modes[mode];
 	// RETRY LOOP ------------------------------------------------------------
 	// Steps: attempt up to 3 times; retry only on transient network/throttling errors so we don’t spam SES on permanent failures.
@@ -52,7 +50,7 @@ export default async function sendEmail({ mode, email, token }) {
 				subject: m.s,
 				text: `${m.t} ${m.n ? '' : `${process.env[m.b ? 'BACK_END' : 'FRONT_END']}/entrance?${m.p ? `mode=${mode}&` : ''}auth=${token}`}`,
 				ses: { Tags: [{ Name: 'type', Value: mode }] },
-			});
+			} as any);
 			return;
 		} catch (e) {
 			// ERROR HANDLING -----------------------------------------------------

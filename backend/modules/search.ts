@@ -35,7 +35,7 @@ const buildBooleanFTS = raw => {
 };
 
 // QUERY BUILDER ---------------------------------------------------------------
-// Constructs specialized SQL for chats, events, users, links or trusted circles.
+// Constructs specialized SQL for chats, events, users, links or trusts circles.
 // Toggles between FTS (MATCH...AGAINST) and LIKE based on mode/query availability.
 // GET QUERY --------------------------------------------------------------------
 // Steps: select the minimal SQL template per mode, toggle between FTS vs LIKE, and always clamp offset so deep paging can’t be used for resource exhaustion.
@@ -62,7 +62,7 @@ const getQuery = (mode, useFullText, offset) => {
 		} FROM users u JOIN (SELECT user2 AS other FROM user_links WHERE user = ? AND link IN ('ok', 'tru') UNION ALL SELECT user AS other FROM user_links WHERE user2 = ? AND link IN ('ok', 'tru')) l ON u.id = l.other WHERE ${
 			useFullText ? `${matchUser} ${fullText}` : `(u.first ${likeConc} OR u.last ${likeConc})`
 		} ${useFullText ? 'HAVING relevance > 0' : ''} ORDER BY ${useFullText ? 'relevance DESC,' : ''} u.last ASC, u.id ASC ${limOff}`;
-	if (mode === 'trusted')
+	if (mode === 'trusts')
 		// INFO is not used anywhere
 		return `SELECT ${usersCols} ${
 			useFullText ? `, ${matchUser} ${fullText} AS relevance` : ''
@@ -111,7 +111,7 @@ async function Search(req, res) {
 				? useFullText
 					? [userID, userID, boolFTS, boolFTS]
 					: [userID, userID, safeQ, safeQ]
-				: mode === 'trusted'
+				: mode === 'trusts'
 				? useFullText
 					? [userID, userID, boolFTS, boolFTS]
 					: [userID, userID, safeQ, safeQ]

@@ -16,29 +16,29 @@ import { handleChatSetupLogic } from './chatSetupLogic';
 
 export function Chat(props) {
 	// PROPS AND STATE INITIALIZATION ---------------------------
-	const { brain, setMenuView, notifDots, setNotifDots, menuView, showToast } = props,
-		[chats, setChats] = useState([]),
-		[chatSetupData, setChatSetupData] = useState(),
-		wrapTriggerRef = useRef(null),
+	const { brain, setMenuView, notifDots, setNotifDots, menuView, showToast } = (props || {}) as any,
+		[chats, setChats] = useState<any[]>([]),
+		[chatSetupData, setChatSetupData] = useState<any>(null),
+		wrapTriggerRef = useRef<any>(null),
 		// UI MODES ---------------------------
-		[modes, setModes] = useState({ protocol: false, selected: false, invite: false, members: false, searchChats: false, chatsMenu: false, menu: false }),
+		[modes, setModes] = useState<any>({ protocol: false, selected: false, invite: false, members: false, searchChats: false, chatsMenu: false, menu: false }),
 		[openedChat, setOpenedChat] = useState(brain.openedChat),
-		chatObj = useRef(chats?.find(chat => chat.id === openedChat) || {}),
+		chatObj = useRef<any>(chats?.find(chat => chat.id === openedChat) || {}),
 		[curView, setCurView] = useState('chats'), // chats | archive | inactive | hidden | chatSetup ---------------------------
 		[foundSimilarChats, setFoundSimilarChats] = useState(null),
 		[selSimilarChatID, setSelOldChatID] = useState(false),
 		[inform, setInform] = useState([]),
-		[scrollDir, setScrollDir] = useScrollDir(),
-		hideChatsMenuTimeout = useRef(),
-		openedChatRef = useRef(null),
-		chatsListRef = useRef(null),
-		mainWrapperRef = useRef(null),
-		infinityTrigger = useRef(null),
-		bottomScroll = useRef(null),
-		informScroll = useRef(null),
+		[scrollDir, setScrollDir] = (useScrollDir as any)(),
+		hideChatsMenuTimeout = useRef<any>(null),
+		openedChatRef = useRef<any>(null),
+		chatsListRef = useRef<any>(null),
+		mainWrapperRef = useRef<any>(null),
+		infinityTrigger = useRef<any>(null),
+		bottomScroll = useRef<any>(null),
+		informScroll = useRef<any>(null),
 		didFetchChats = useRef({ chats: false, archive: false, inactive: false, hidden: false }),
 		lastFetchTime = useRef({ chats: 0, archive: 0, inactive: 0, hidden: 0 }),
-		manRef = useRef(null);
+		manRef = useRef<any>(null);
 
 	// CORE CHAT HOOK ---------------------------
 	// Abstracts complex state mutations and visual feedback logic.
@@ -77,7 +77,7 @@ export function Chat(props) {
 		setMenuView,
 		setNotifDots,
 		bottomScroll,
-		processChatMembers,
+		processChatMembers: processChatMembers as any,
 		run,
 		man,
 		showToast,
@@ -95,7 +95,7 @@ export function Chat(props) {
 		setInform([]);
 		const getMembersObj = () => members.find(member => String(member.id) === String(brain.user.id));
 		const { attach, content, chatType, targetUserID, until, messID, userObj } = inp;
-		let [{ chatID, mode, id, getNewest }, data, response] = [inp, { ...brain.chatSetupData }, {}];
+		let [{ chatID, mode, id, getNewest }, data, response] = [inp, { ...brain.chatSetupData }, {} as any];
 
 		// GETTING CHAT FLAG GROUPS --------------------------------------------
 		// Filters and sorts chats based on their current state (active, archived, hidden, etc.)
@@ -122,12 +122,12 @@ export function Chat(props) {
 		}
 
 		const { cursors, members, messages, opened, membSync, seenSync } = chatObj.current;
-		const { punish, who } = getPunishmentStatus((members || []).find(member => String(member.id) === String(brain.user.id)) || {});
+		const { punish, who } = (getPunishmentStatus((members || []).find(member => String(member.id) === String(brain.user.id)) || {}) as any) || {};
 
 		// RESTORE CHATS LIST --------------------------------------------------
 		// Rebuilds the chat list from local storage on app initialization.
 		if (mode === 'restoreChatsList') {
-			const restoredChatsMap = (await forage({ mode: 'get', what: 'chat', id: brain.user.chatsList.map(chat => chat.id) })).reduce((acc, chat) => (acc.set(chat.id, chat), acc), new Map());
+			const restoredChatsMap = ((await forage({ mode: 'get', what: 'chat', id: brain.user.chatsList.map(chat => chat.id) })) as any[]).reduce((acc, chat) => (acc.set(chat.id, chat), acc), new Map());
 			const restoredChats = brain.user.chatsList.map(chat => ({ ...chat, ...(restoredChatsMap.get(chat.id) || {}) }));
 			setChats(restoredChats);
 			if (notifDots.chats) setTimeout(() => man({ mode: 'getChats', getNewest: true, _chatsOverride: restoredChats }), 0);
@@ -559,7 +559,7 @@ export function Chat(props) {
 
 				// DEDUPLICATE AND NORMALIZE MESSAGES ---------------------------
 				for (const message of resMessages) {
-					const existingMsg = curMessagesMap.get(Number(message.id));
+					const existingMsg = curMessagesMap.get(Number(message.id)) as any;
 					if (existingMsg) delete existingMsg.refetch, Object.assign(existingMsg, { ...message, id: Number(message.id), user: message.user, created: new Date(message.created).getTime() });
 					else
 						newMessages.push(
@@ -610,9 +610,9 @@ export function Chat(props) {
 				(function applySeenUpdates(chatObj, seenUpdates = []) {
 					if (!Array.isArray(seenUpdates) || !seenUpdates.length) return;
 					const memberMap = new Map((chatObj?.members || []).map(member => [member.id, member]));
-					for (const update of seenUpdates.filter(Boolean)) {
-						const member = memberMap.get(update.id);
-						if (member) member.seenId = update.seenId != null ? Number(update.seenId) : null;
+					for (const update of (seenUpdates.filter(Boolean) as any[])) {
+						const member = memberMap.get((update as any).id) as any;
+						if (member) member.seenId = (update as any).seenId != null ? Number((update as any).seenId) : null;
 					}
 				})(thisChat, seenUpdates);
 

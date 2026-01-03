@@ -110,10 +110,10 @@ const ImageCropper = props => {
 		}
 
 		try {
-			const croppedImageBlob = await getCroppedImage();
+			const croppedImageBlob: any = await getCroppedImage();
 			if (!croppedImageBlob) throw new Error('Failed to create blob from cropped image');
 
-			const file = new File([croppedImageBlob], 'image.webp', { type: croppedImageBlob.type });
+			const file = new File([croppedImageBlob as any], 'image.webp', { type: croppedImageBlob?.type || 'image/webp' });
 
 			const options = {
 				maxSizeMB: nowAt === 'editor' ? 0.3 : 0.15,
@@ -251,7 +251,7 @@ const ImageCropper = props => {
 		ctx.beginPath(), ctx.rect((width - cropWidth) / 2, (height - cropHeight) / 2, cropWidth, cropHeight), ctx.rect(0, 0, width, height), ctx.fill('evenodd');
 		(ctx.strokeStyle = 'lightGreen'), (ctx.lineWidth = 3), ctx.strokeRect((width - cropWidth) / 2, (height - cropHeight) / 2, cropWidth, cropHeight);
 
-		checkAreaCoverage(image, cropWidth, cropHeight);
+		checkAreaCoverage();
 	}, [canvasDimensions, crop, zoom, rotation, aspect]);
 
 	// CHECK CROP AREA COVERAGE -------------------------------------------------------
@@ -462,8 +462,8 @@ const ImageCropper = props => {
 										type='range'
 										onMouseDown={() => setActiveSlider(mode)}
 										onMouseUp={() => setActiveSlider(null)}
-										onInput={e => handleSliderChange(e, mode)}
-										onChange={e => handleSliderChange(e, mode)}
+										onInput={handleSliderChange}
+										onChange={handleSliderChange}
 										onTouchStart={() => setActiveSlider(mode)}
 										onTouchEnd={() => setActiveSlider(null)}
 									/>

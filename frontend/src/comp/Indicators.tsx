@@ -1,12 +1,12 @@
 import { memo, useState, useRef } from 'react';
 import useCentralFlex from '../hooks/useCentralFlex';
-import { indis } from '../../../shared/constants';
+import { USER_INDICATORS } from '../../../shared/constants';
 import { MAX_COUNTS } from '../../../shared/constants';
 
 function Indicators(props) {
 	const { data, superMan, nowAt, avail = {}, sherMode } = props,
 		wraperRef = useRef(null),
-		indiWidth = useCentralFlex('indicators', [...(nowAt !== 'setup' ? [avail] : [])], nowAt, Math.min(10, avail.indis?.length || indis.size), wraperRef),
+		indiWidth = useCentralFlex('indicators', [...(nowAt !== 'setup' ? [avail] : [])], nowAt, Math.min(10, avail.indis?.length || USER_INDICATORS.size), wraperRef),
 		[invertButton, setInvertButton] = useState(null),
 		invertTimeout = useRef(null);
 
@@ -48,7 +48,7 @@ function Indicators(props) {
 
 			{/* INDICATOR BUTTONS ---------------------------------------- */}
 			<indicator-bs ref={wraperRef} class={`flexCen w100 marAuto  posRel aliStretch wrap `}>
-				{[...indis.entries()]
+				{[...USER_INDICATORS.entries()]
 					.filter(([id]) => nowAt === 'setup' || avail.indis?.includes(id))
 					.map(([id, value]) => (
 						<button
@@ -62,7 +62,7 @@ function Indicators(props) {
 							<span className={`${data.indis?.includes(id) ? ' boldM   borBotLight' : 'boldM'} lh1 marBotXxxs textSha fs9 marVerXxs`}>
 								{invertButton === id ? 'invert?' : value.label}
 							</span>
-							<span className='fs6 w90 lh1'> {nowAt !== 'home' ? value.long : value.shortDesc}</span>
+							<span className='fs6 w90 lh1'> {nowAt !== 'home' ? value.longDesc : value.shortDesc}</span>
 						</button>
 					))}
 			</indicator-bs>

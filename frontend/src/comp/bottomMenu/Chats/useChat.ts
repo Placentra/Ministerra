@@ -37,11 +37,11 @@ function useChat(props) {
 	// Clear all timeouts (inform, storage) when component unmounts or brain ref changes
 	useEffect(
 		() => () => {
-			informTimeouts.current.forEach(t => clearTimeout(t));
+			informTimeouts.current.forEach(t => clearTimeout(t as any));
 			informTimeouts.current.clear();
-			chatStoreTimeouts.current.forEach(t => clearTimeout(t));
+			chatStoreTimeouts.current.forEach(t => clearTimeout(t as any));
 			chatStoreTimeouts.current.clear();
-			if (brain?.chatStoreInProg) Object.values(brain.chatStoreInProg).forEach(t => clearTimeout(t)), (brain.chatStoreInProg = {});
+			if (brain?.chatStoreInProg) Object.values(brain.chatStoreInProg).forEach(t => clearTimeout(t as any)), (brain.chatStoreInProg = {});
 		},
 		[brain]
 	);
@@ -63,14 +63,12 @@ function useChat(props) {
 				? await man({ mode: 'restoreChatsList' })
 				: await man({ mode: 'getChats' });
 		if (curView === 'chats' || !curView) init();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [menuView, curView]);
 
 	// UI: NOTIFICATION DOTS ------------------------------------------------------------
 	// Clear 'chats' notification dot when entering the view
 	useEffect(() => {
 		if (menuView === 'chats' && notifDots?.chats) setNotifDots(prev => ({ ...prev, chats: 0 }));
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [menuView, notifDots?.chats]);
 
 	// Update 'chats' and 'archive' dots based on unread messages in user's chat list
@@ -79,7 +77,6 @@ function useChat(props) {
 		const isOk = chat => chat.members?.find(member => String(member.id) === String(brain.user.id))?.flag === 'ok';
 		const check = isArchived => chats.some(chat => chat.archived === isArchived) && chats.filter(chat => isOk(chat) && chat.archived === isArchived).every(chat => chat.seen);
 		setNotifDots(prev => ({ ...prev, chats: notifDots.chats && check(false) ? 0 : prev.chats, archive: notifDots.archive && check(true) ? 0 : prev.archive }));
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [menuView, openedChat, chats]);
 
 	// UI: BACK BUTTON HANDLING ---------------------------------------------------------
@@ -88,7 +85,6 @@ function useChat(props) {
 		const handleBack = event => (event.preventDefault(), viewSwitch('chatsList'));
 		window.addEventListener('popstate', handleBack);
 		return () => window.removeEventListener('popstate', handleBack);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	// UI: RESPONSIVE LAYOUT (WRAPPED) --------------------------------------------------
@@ -109,12 +105,11 @@ function useChat(props) {
 		frameId1 = requestAnimationFrame(() => (frameId2 = requestAnimationFrame(checkWrapped)));
 		if (mainWrapper) resizeObserver.observe(mainWrapper);
 		return () => (cancelAnimationFrame(frameId1), cancelAnimationFrame(frameId2), resizeObserver.disconnect());
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [openedChat, menuView]);
 
 	// NAVIGATION: VIEW SWITCHER --------------------------------------------------------
 	// Toggles between chat list and opened chat view, managing scroll and history state
-	function viewSwitch(target) {
+	function viewSwitch(target = 'openedChat') {
 		if (target === 'chatsList') {
 			if (mainWrapper?.scrollHeight > mainWrapper?.offsetHeight) (chatObj.current = {}), setOpenedChat(null), delete brain.openedChat;
 			mainWrapper?.scrollTo({ top: 0 }), setHasPushedState(false);
@@ -194,7 +189,7 @@ function useChat(props) {
 			if (incomingMember.role === 'priv') incomingMember.role = 'member';
 			// Check for expiration of punishments on EXISTING members
 			chat.members = chat.members.map(currentMember => {
-				const { expired } = getPunishmentStatus(currentMember);
+				const { expired } = getPunishmentStatus(currentMember) as any;
 				if (expired && currentMember.id != brain.user.id) ['punish', 'until', 'who', 'mess'].forEach(key => delete currentMember[key]), (currentMember.role = 'member');
 				return currentMember;
 			});

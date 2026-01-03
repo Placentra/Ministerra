@@ -33,7 +33,7 @@ const DateTimePicker = props => {
 			}),
 		}),
 		// DESTRUCTURED TIME UNITS ---
-		[year, month, day, hour, min] = dateSrc ? [dateSrc.getFullYear(), dateSrc.getMonth(), dateSrc.getDate(), dateSrc.getHours(), dateSrc.getMinutes()] : Object.values(timePortions),
+		[year, month, day, hour, min] = dateSrc ? [dateSrc.getFullYear(), dateSrc.getMonth(), dateSrc.getDate(), dateSrc.getHours(), dateSrc.getMinutes()] : (Object.values(timePortions) as any[]),
 		// DECADE AND CALENDAR STATE ---
 		[selDecade, setSelDecade] = useState(year ? Math.floor(year / 10) * 10 : null),
 		[showAllDecades, setShowAllDecades] = useState(Boolean(!year)),
@@ -69,11 +69,11 @@ const DateTimePicker = props => {
 		};
 
 		const dateMethods = { year: 'setFullYear', month: 'setMonth', day: 'setDate', hour: 'setHours', min: 'setMinutes' };
-		const newDate = dateSrc ? new Date(new Date(dateSrc[dateMethods[inp]](val))) : new Date(...Object.values(newPortions));
+		const newDate = dateSrc ? new Date(new Date(dateSrc[dateMethods[inp]](val))) : new (Date as any)(...Object.values(newPortions));
 
 		if (!dateSrc)
 			return Object.values(newPortions).includes(null) ? setTimePortions(newPortions) : (superMan(prop || dateMode, newDate), (mode !== 'week' || prop === 'meetWhen') && setDateMode(null));
-		if (dateMode === 'starts' && ends && newDate > ends) superMan('ends', null);
+		if (dateMode === 'starts' && ends && newDate.getTime() > (ends instanceof Date ? ends.getTime() : Number(ends))) superMan('ends', null);
 		superMan(dateMode, newDate);
 	}
 	// CHECK IF SAME DATE --------------------------------------------------------------
@@ -132,7 +132,7 @@ const DateTimePicker = props => {
 			if (year === curYear + 2 && month > curMonth) return false;
 			if (maxDateDate && newDate > new Date(maxDateDate.getFullYear(), maxDateDate.getMonth())) return false;
 			if (startsDate && !isStarts) return newDate >= new Date(startsDate.getFullYear(), startsDate.getMonth());
-			return newDate >= new Date().setMonth(new Date().getMonth() - 1);
+			return newDate.getTime() >= new Date().setMonth(new Date().getMonth() - 1);
 		},
 		hour => {
 			const adjustedHour = noAmPm ? hour : hoursMode === 'odpoledne' ? hour + 12 : hour;

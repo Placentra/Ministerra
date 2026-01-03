@@ -81,7 +81,7 @@ setInterval(() => {
 // - falls back to SQL on cache miss (rate-limited by authFails map)
 // Returns [roleOrNull, lastSeenMessageId] so callers can both authorize and clamp visibility.
 // Steps: attempt redis role lookup first; if missing and not rate-limited, fetch from SQL and backfill redis; return role only if allowed for the requested mode.
-async function authorizeRole({ chatID, mode = 'adminRoles', userID }) {
+async function authorizeRole({ chatID, mode = 'adminRoles', userID }: any) {
 	const k = `${userID}_${chatID}`;
 	let [r, last] = (await redis.hget(REDIS_KEYS.userChatRoles, k))?.split('_') || [null, null];
 
@@ -108,7 +108,7 @@ async function authorizeRole({ chatID, mode = 'adminRoles', userID }) {
 // - CHAT_MEMBERS set for member enumeration
 // - lastMembChangeAt for incremental member sync
 // Steps: stage role hash updates and membership set updates into one multi, optionally bump membSync timestamp, exec once, then invalidate local membersCache.
-async function setRolesAndLasts({ members, memberIDs, chatID, lastAllowedMess, role, addToMembers, skipRolesUpdate, delFromMembers, setMembChange }) {
+async function setRolesAndLasts({ members, memberIDs, chatID, lastAllowedMess, role, addToMembers, skipRolesUpdate, delFromMembers, setMembChange }: any) {
 	const t = redis.multi(),
 		key = `${REDIS_KEYS.chatMembers}:${chatID}`,
 		vals = [];
@@ -149,7 +149,7 @@ async function setRolesAndLasts({ members, memberIDs, chatID, lastAllowedMess, r
 // - redis provides fast ID lists for active membership
 // - SQL provides canonical member rows and supports incremental sync via membSync timestamp
 // Steps: prefer in-memory IDs cache, then redis smembers, then SQL fetch rows (optionally filtered by ids + membSync), then backfill redis roles/members on cold start.
-async function getMembers({ memberIDs = [], chatID, membSync: prev, mode = 'getMembers', IDsOnly, includeArchived, con }) {
+async function getMembers({ memberIDs = [], chatID, membSync: prev, mode = 'getMembers', IDsOnly, includeArchived, con }: any) {
 	if (!con) throw new Error('Database connection required');
 	const key = `${REDIS_KEYS.chatMembers}:${chatID}`;
 
@@ -188,7 +188,7 @@ async function getMembers({ memberIDs = [], chatID, membSync: prev, mode = 'getM
 // Fetches message history with cursor-based pagination.
 // Supports bounded range fetch and hides deleted content outside explicit range requests.
 // Steps: normalize numeric params, build the appropriate id clause (range/greater/less), then fetch newest-first with a small page size to cap payload.
-async function getMessages({ firstID, lastID = 0, cursor, chatID, last, con }) {
+async function getMessages({ firstID, lastID = 0, cursor, chatID, last, con }: any) {
 	[firstID, lastID, cursor, last] = [firstID, lastID, cursor, last].map(v => {
 		const numVal = Number(v);
 		return numVal && Number.isFinite(numVal) && numVal > 0 ? numVal : v === undefined ? undefined : 0;

@@ -34,7 +34,7 @@ export function useContentFetch({ brain, snap, avail, event, show, sherData, now
 
 	// CONTENT MANAGER ------------------------------------------------------------
 	// Steps: build (or extend) a queue of candidate IDs, compute the next fetch slice based on usability, fetch basics (and optional SQL overlays), merge into brain caches, delete dead items, then slice usable items into UI state.
-	async function contentMan(infinite) {
+	async function contentMan(infinite = false) {
 		try {
 			// USABILITY RULE --------------------------------------------------
 			// Steps: treat basi-ish items as usable; for users view, allow self even when partially hydrated so UI can still render “me” card.
@@ -75,9 +75,9 @@ export function useContentFetch({ brain, snap, avail, event, show, sherData, now
 			if ((numOfUsable < (nowAt === 'home' ? 20 : isPast ? 20 : 4) && IDsToFetch.length) || infinite) {
 				const getSQL = unstableObj ? IDsToFetch.filter(id => !gotSQLset.has(id)) : [];
 				const axiPayload = { IDs: IDsToFetch, getSQL, contView };
-				let basics;
+				let basics: any;
 				try {
-					basics = (await axios.post('content', delUndef(axiPayload))).data;
+					basics = (await axios.post('content', delUndef(axiPayload))).data as any;
 				} catch (error) {
 					notifyGlobalError(error, 'Nepodařilo se načíst obsah.');
 					return;
@@ -88,7 +88,7 @@ export function useContentFetch({ brain, snap, avail, event, show, sherData, now
 				if (unstableObj) extractInteractions(basics, contView, brain), (storeUser = true);
 				const itemsToStore = [];
 
-				for (const [id, basiObj] of Object.entries(basics)) {
+				for (const [id, basiObj] of Object.entries(basics as any) as any) {
 					if (id == brain.user.id || !basiObj) continue;
 					if (contView === 'users') splitStrgOrJoinArr(basiObj);
 					else if (basiObj.ends) basiObj.ends = Number(basiObj.ends);
@@ -106,7 +106,7 @@ export function useContentFetch({ brain, snap, avail, event, show, sherData, now
 					if (existing[contView === 'users' ? 'first' : 'title']) Object.assign(existing, { state: 'del' });
 					else IDsToRemove.add(id);
 				}
-				await Promise.all([forage({ mode: 'set', what: contView, val: itemsToStore }), forage({ mode: 'del', what: contView, id: IDsToRemove })]);
+				await Promise.all([forage({ mode: 'set', what: contView, val: itemsToStore }), forage({ mode: 'del', what: contView, id: [...IDsToRemove] as any })]);
 			}
 
 			// SLICE + APPLY TO UI --------------------------------------------

@@ -1,6 +1,6 @@
-import { Catcher, Sql } from '../systems/systems';
+import { Catcher, Sql } from '../systems/systems.ts';
 import { encode } from 'cbor-x';
-import { getLogger } from '../systems/handlers/logging/index';
+import { getLogger } from '../systems/handlers/logging/index.ts';
 
 const privs = new Set(['pub', 'lin', 'own', 'tru', null]);
 const inters = new Set(['sur', 'may', 'int', 'surMay', 'surInt', 'maySur', 'mayInt', 'minSur', 'minMay', 'minInt', 'intMay', 'intSur', 'intPriv', 'mayPriv', 'surPriv']);
@@ -18,10 +18,10 @@ const logger = getLogger('Interests');
 // Handles user attendance toggles (sure/maybe/interested) and privacy switches.
 // Persists eve_inters rows and pushes deltas into Redis streams for workers.
 // Steps: validate transition, compute deltas, write eve_inters (insert/update), then append a delta payload to `newEveInters` stream so workers can aggregate counters.
-const Interests = async (req, res) => {
-	const { eventID, userID, inter = null, priv = 'pub', con: incomingCon = null } = req.body;
+const Interests = async (reqOrParams, res = null) => {
+	const { eventID, userID, inter = null, priv = 'pub', con: incomingCon = null } = reqOrParams.body || reqOrParams;
 	if (!inters.has(inter) || !privs.has(priv)) {
-		return res.status(400).json({ error: 'badRequest' });
+		return res?.status(400).json({ error: 'badRequest' });
 	}
 	try {
 		const con = incomingCon ?? (await Sql.getConnection());
@@ -79,7 +79,7 @@ const Interests = async (req, res) => {
 			const [result] = await con.execute(sql, params);
 			const didInsert = result?.affectedRows === 1;
 			const didUpdate = result?.affectedRows === 2; // ON DUPLICATE KEY triggered
-			
+
 			// STREAM NOTIFICATION ------------------------------------------------
 			// Steps: only emit stream delta when a row was inserted/updated; no-op updates should not create downstream work.
 			if (didInsert || didUpdate) {

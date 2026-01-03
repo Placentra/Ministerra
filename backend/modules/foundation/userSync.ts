@@ -47,7 +47,8 @@ async function execQuery({ table, userID, sync, interactions, delInteractions, c
 
 		// PARTITION RESULTS -----------------------------------------------------
 		// Steps: convert SQL row shapes into compact client arrays; treat “del” markers / mark=0 as deletes so UI can remove without full refetch.
-		let [add, del] = [arrName === 'eveInters' ? { sur: [], may: [], int: [] } : [], []];
+		let add: any = arrName === 'eveInters' ? { sur: [], may: [], int: [] } : [];
+		let del: any[] = [];
 
 		if (arrName === 'eveInters') {
 			// Event Interactions: Split by interest level (Surely, Maybe, Interested)
@@ -56,7 +57,7 @@ async function execQuery({ table, userID, sync, interactions, delInteractions, c
 			// Ratings: standard item/mark pairs
 			for (const item of res) !item.mark ? del.push(item[targetCol]) : add.push([item[targetCol], item.mark, ...(item.awards ? [item.awards] : [])]);
 		} else {
-			// User Links: Handle bidirectional relationships and "Trusted" flags
+			// User Links: Handle bidirectional relationships and "Trusts" flags
 			for (const { user, user2, link, who } of res) {
 				const [userWho, otherUser] = userID == user ? [1, user2] : [2, user];
 				link === 'del' ? del.push(otherUser) : add.push([otherUser, ...(link === 'tru' && [userWho, 3].includes(who) ? ['tru'] : [])]);
@@ -74,7 +75,7 @@ async function execQuery({ table, userID, sync, interactions, delInteractions, c
 // SYNC USER DATA ---------------------------------------------------------------
 // Steps: update login stats (init), read redis summary watermarks, decide which tables need fetch (full vs delta), run minimal SQL reads, then persist missing summary timestamps.
 async function syncUserData(req, con, { userID, load, devID, devSync, linksSync, oldUserUnstableDev }) {
-	let [user, interactions, delInteractions] = [null, {}, {}];
+	let user: any = null, interactions: any = {}, delInteractions: any = {};
 	const [tablesToFetch, hasNoTimestamp, now] = [[], [], Date.now()];
 	const summaryKey = userSummaryKey(userID);
 
@@ -104,12 +105,9 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 		if (!linksSync) {
 			// LINKS REBUILD ------------------------------------------------------
 			// Steps: prefer redis sets, otherwise repopulate from SQL via getOrCacheFilteringSets so future requests are cheap.
-			const [linksSet, trustedSet] = await Promise.all([
-				getOrCacheFilteringSets(con, REDIS_KEYS.links, userID),
-				getOrCacheFilteringSets(con, REDIS_KEYS.trusted, userID),
-			]);
+			const [linksSet, trustsSet] = await Promise.all([getOrCacheFilteringSets(con, REDIS_KEYS.links as any, userID), getOrCacheFilteringSets(con, REDIS_KEYS.trusts as any, userID)]);
 
-			interactions.linkUsers = [...linksSet].map(id => [id, ...(trustedSet.has(id) ? ['tru'] : [])]);
+			interactions.linkUsers = [...linksSet].map(id => [id, ...(trustsSet.has(id) ? ['tru'] : [])]);
 			linksSync = now;
 			// FORCE OTHER TABLE RESYNC ------------------------------------------
 			// Steps: clear last_dev so next pass treats device as needing broader convergence.
@@ -152,7 +150,7 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 			if (!con) con = await Sql.getConnection();
 			// PROFILE FETCH ------------------------------------------------------
 			// Steps: fetch profile only when explicitly included; most deltas avoid the user profile read.
-			if (tablesToFetch.includes('users')) user = await getProfile({ con, userID });
+			if (tablesToFetch.includes('users')) user = await getProfile({ userID, id: userID, basiOnly: false, devIsStable: true }, con);
 
 			const syncStart = Date.now();
 			await Promise.all(
@@ -166,7 +164,6 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 			delInteractions = delFalsy(delInteractions);
 		} catch (error) {
 			logger.error('Foundation', { error, userID, step: 'fetchTables', tables: tablesToFetch });
-			(interactions ??= {}), (delInteractions ??= {});
 		}
 	}
 

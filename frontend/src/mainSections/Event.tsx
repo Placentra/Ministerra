@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useLoaderData, useOutletContext, useNavigate } from 'react-router-dom';
-import { friendlyMeetings } from '../../../shared/constants';
+import { FRIENDLY_MEETINGS } from '../../../shared/constants';
 import { humanizeDateTime } from '../../helpers';
 import Discussion from '../comp/Discussion';
 import EveMenuStrip from '../comp/menuStrips/EveMenuStrip';
@@ -22,8 +22,8 @@ const Map = lazy(() => import('../comp/Map'));
 
 function Event() {
 	const navigate = useNavigate();
-	const obj = useLoaderData(),
-		{ brain, nowAt, menuView, isMobile } = useOutletContext() || {},
+	const obj = useLoaderData() as any,
+		{ brain, nowAt, menuView, isMobile } = ((useOutletContext() as any) || {}) as any,
 		[modes, setModes] = useState({ inter: false, share: false, rate: false, menu: false, protocol: false, privs: false, invites: false, feedback: false }),
 		[maximizeImg, setMaximizeImg] = useState(false),
 		[fadedIn, setFadedIn] = useFadeIn({ mode: 'event' }),
@@ -40,7 +40,7 @@ function Event() {
 			comments: obj.comments,
 			inter: obj.inter,
 			own: obj.own,
-			isMeeting: friendlyMeetings.has(obj.type),
+			isMeeting: FRIENDLY_MEETINGS.has(obj.type),
 			...(brain.rateInProg?.props || {}),
 		});
 
@@ -187,7 +187,7 @@ function Event() {
 			{status.isMeeting && <Content key={menuView} {...{ nowAt: 'event', isMobile, snap: {}, setFadedIn, fadedIn, brain, eveInter: status.inter, event: obj }} />}
 
 			<bottom-section style={{ clear: 'both' }} class={`fadingIn ${fadedIn.includes('Texts') ? 'fadedIn' : ''} w100 marAuto   mw160  block textAli `}>
-				{obj.detail || obj.fee || obj.meetHow || obj.meetWhen || obj.take || obj.contacts || obj.links || obj.organizer ? (
+				{obj.detail || obj.fee || obj.meetHow || obj.meetWhen || obj.takeWith || obj.contacts || obj.links || obj.organizer ? (
 					<detail-section class={` flexCol mw180 marBotS marAuto`}>
 						{/* DETAILED DESCRPITION ---------------------------------------------*/}
 						{obj.detail && (
@@ -198,15 +198,17 @@ function Event() {
 						)}
 
 						{/* EXTRE FIELDS ------------------------------------------------ */}
-						{['fee', 'meetHow', 'meetWhen', 'take', 'contacts', 'links', 'organizer'].some(field => obj[field]) ? (
+						{['fee', 'meetHow', 'meetWhen', 'takeWith', 'contacts', 'links', 'organizer'].some(field => obj[field]) ? (
 							<extra-fields class={`block textAli mw180 w98 marAuto fPadHorXs marBotS `}>
 								{(obj.meetHow || obj.meetWhen) && (
 									<event-meet class='inline'>
 										<span className={spanClass}>Setkání</span>
-										<span className='fs11 lh1-3'>{`${obj.meetWhen ? humanizeDateTime({ dateInMs: obj.meetWhen }) + `${obj.meetHow ? ' - ' : ''}` : ''}` + (obj.meetHow || '')}</span>
+										<span className='fs11 lh1-3'>
+											{`${obj.meetWhen ? humanizeDateTime({ dateInMs: obj.meetWhen }) + `${obj.meetHow ? ' - ' : ''}` : ''}` + (obj.meetHow || '')}
+										</span>
 									</event-meet>
 								)}
-								{Object.entries({ fee: 'Vstupné', take: 'Sebou', contacts: 'Kontakt', links: 'Odkazy', organizer: 'Pořadatel' }).map(([key, val]) => {
+								{Object.entries({ fee: 'Vstupné', takeWith: 'Sebou', contacts: 'Kontakt', links: 'Odkazy', organizer: 'Pořadatel' }).map(([key, val]) => {
 									const ElemName = `${key}-field`;
 									return obj[key] ? (
 										<ElemName key={key} class='inline'>

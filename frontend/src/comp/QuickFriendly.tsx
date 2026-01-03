@@ -1,15 +1,15 @@
 import Editor from '../mainSections/Editor';
 import useCentralFlex from '../hooks/useCentralFlex';
 import { useState, useEffect, useMemo, memo } from 'react';
-import { friendlyMeetings } from '../../../shared/constants';
+import { FRIENDLY_MEETINGS } from '../../../shared/constants';
 
 function QuickFriendly(props) {
 	const { brain, show, fadedIn, quick, showMan, snapMan, provideSnap, initialize } = props;
 	const [showMore, setShowMore] = useState(false);
-	const meetWidth = useCentralFlex('quicks', [showMore, friendlyMeetings.size], 'home', showMore ? friendlyMeetings.size : 4);
+	const meetWidth = useCentralFlex('quicks', [showMore, FRIENDLY_MEETINGS.size], 'home', showMore ? FRIENDLY_MEETINGS.size : 4);
 	const meetStats = useMemo(
 		() =>
-			Array.from(friendlyMeetings.entries()).reduce((acc, [type]) => {
+			Array.from(FRIENDLY_MEETINGS.entries()).reduce((acc, [type]) => {
 				const { people, events } = brain.user.curCities.reduce(
 					(total, cityID) => {
 						const stats = brain.meetStats[cityID]?.[type] || { events: 0, people: 0 };
@@ -19,22 +19,23 @@ function QuickFriendly(props) {
 				) || { events: 0, people: 0 };
 				acc[type] = { people, events };
 				return acc;
-			}, []),
+			}, {} as any),
 		[brain.meetStats, brain.user.curCities]
 	);
 
 	useEffect(() => {
 		setShowMore(false);
 	}, [initialize]);
+
 	return (
 		<quick-friendly class={`${show.views ? 'padBotL ' : ''}  posRel   ${fadedIn.includes('Quicks') ? 'fadedIn ' : ''} fadingIn marBotXl block w100 marAuto`}>
 			<friendlyMeetings-wrapper class={'flexCen aliStretch wrap  w100 '}>
 				<div className={`bgWhite topCen opacityS shaCon mih2 posAbs w100 zinMaXl`} />
 				<div className={`bgWhite topCen opacityM shaCon mih0-3 posAbs w100 zinMaXl`} />
 				{quick === false &&
-					Object.entries(meetStats)
+					Object.entries(meetStats as any)
 						.filter(([type]) => showMore || Number(type.slice(1)) <= 4)
-						.map(([type, { people, events }], i) => {
+						.map(([type, { people, events }]: any, i) => {
 							return (
 								// SINGLE MEETING WRAPPER --------------------------------
 								<single-meeting
@@ -57,7 +58,7 @@ function QuickFriendly(props) {
 														/>
 
 														<span className={`${showMore ? 'fs12' : 'fs15'} upTiny xBold    bgTrans   textSha posRel tSha lh1 noWrap`}>
-															{friendlyMeetings.get(type).quick}
+															{FRIENDLY_MEETINGS.get(type).quick}
 														</span>
 													</create-button>
 												);

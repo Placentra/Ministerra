@@ -13,7 +13,7 @@ const getScaleFactor = () => {
  * Calculates the number of columns for masonry layouts based on container width
  * and dynamic scale factor. Responsive to resize events.
  * -------------------------------------------------------------------------- */
-const useMasonResize = ({ wrapper, brain, contType, contLength, isMobile, contSetter, fetching, disableResize, nowAt }) => {
+const useMasonResize = ({ wrapper, brain, contType, contLength, isMobile, contSetter, fetching, disableResize, nowAt }: any) => {
 	const [numOfCols, setNumOfCols] = useState(brain.user.cols[contType]);
 	const contViewCols = useRef({}), lastCols = useRef(null), scaleFactorRef = useRef(getScaleFactor()); // STORE SCALE FACTOR IN REF ---------------------------
 	const propsRef = useRef({ contType, contLength, isMobile, contSetter, fetching, disableResize, nowAt }); // REFS TO ALWAYS READ FRESH VALUES IN CALLBACK ---------------------------

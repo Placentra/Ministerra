@@ -1,13 +1,12 @@
 // AUTHENTICATION AND CREDENTIALS FORM ---
 // Handles login, registration, password resets, and email verification workflows.
-// AUTHENTICATION AND CREDENTIALS FORM ---
-// Handles login, registration, password resets, and email verification workflows.
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { forage, getDeviceFingerprint, delUndef, deriveKeyFromPassword, storePDK, clearPDK, clearPDKFromWorker } from '../../helpers';
 import { emailCheck } from '../variables';
 import { notifyGlobalError } from '../hooks/useErrorsMan';
+import { getPasswordStrengthScore } from '../../../shared/utilities';
 
 // SOCIAL ICON ASSETS ---
 const src = { Facebook: '/icons/facebook.png', Google: '/icons/google.png', Instagram: '/icons/instagram.png', Twitter: '/icons/twitter.png' };
@@ -83,39 +82,27 @@ const submitWarnTexts = {
 
 // PASSWORD STRENGTH EVALUATOR ---
 // Calculates score based on length and character diversity for visual feedback.
-export function passStrength(strenghtIndi, pass, current) {
-	if (strenghtIndi) return current < 3 ? 'bgRed' : current < 5 ? 'bgOrange' : current < 7 ? 'bgBlue' : 'bgGreen';
-	let score = 0;
-	score += pass.length >= 1 && 1;
-	score += pass.length >= 3 && 1;
-	score += pass.length >= 6 && 1;
-	score += pass.length >= 8 && 1;
-	score += /[A-Z]/.test(pass) && 1;
-	score += /\d/.test(pass) && 1;
-	score += /[^\w\s]/.test(pass) && 1;
-	return score;
-}
 
 // ENTRANCE FORM COMPONENT DEFINITION ---
 // Comprehensive authentication engine handling login, registration, and credential recovery
-function EntranceForm(props) {
+function EntranceForm(props: any) {
 	const environment = import.meta.env.VITE_NODE_ENV;
 
 	const navigate = useNavigate(),
-		{ brain, nowAt } = props,
+		{ brain, nowAt } = (props || {}) as any,
 		urlParams = new URLSearchParams(window.location.search),
 		returnTo = useRef(urlParams.get('returnTo') ? decodeURIComponent(urlParams.get('returnTo')) : null).current,
 		isContinueMode = useRef(Boolean(returnTo && urlParams.get('mess') === 'sessionExpired')).current,
 		[axiosInProg, setAxiosInProg] = useState(false),
 		[showSubmitBtn, setShowSubmitBtn] = useState(false),
 		[formMode, setFormMode] = useState(urlParams.get('mode') || 'login'),
-		emailRef = useRef(),
-		passRef = useRef(),
-		repassRef = useRef(),
-		passStrengthRef = useRef(),
-		bSubmitRef = useRef(),
-		infoMessagesRef = useRef(),
-		scrollTarget = useRef(),
+		emailRef = useRef<any>(null),
+		passRef = useRef<any>(null),
+		repassRef = useRef<any>(null),
+		passStrengthRef = useRef<any>(null),
+		bSubmitRef = useRef<any>(null),
+		infoMessagesRef = useRef<any>(null),
+		scrollTarget = useRef<any>(null),
 		refs = { emailRef, passRef, repassRef, passStrength: passStrengthRef, bSubmitRef, infoMessagesRef, scrollTarget },
 		[isLogin, isRegister, isChangePass, isChangeMail, isChangeBoth, isForgotPass, isResetPass, isRevertEmail] = [
 			'login',
@@ -136,7 +123,7 @@ function EntranceForm(props) {
 		}),
 		// FORM FEEDBACK STATE ---
 		// Tracks validation errors and success notifications for UI feedback
-		[inform, setInform] = useState({
+		[inform, setInform] = useState<any>({
 			unauthorized: false,
 			capsActive: false,
 			emailFormat: false,
@@ -188,7 +175,7 @@ function EntranceForm(props) {
 
 	// FORM MANAGER FUNCTION ---
 	// Central handler for all input changes, validation, and API submissions
-	async function man({ what, val, blur, submit }) {
+	async function man({ what, val, blur, submit }: any = {}) {
 		console.log('[LOGIN DEBUG] man called', { what, val, blur, submit });
 		try {
 			// INPUT CHANGE HANDLING ---
@@ -198,20 +185,15 @@ function EntranceForm(props) {
 					if (what === 'email') return val && !emailCheck.test(val) && (setInform(prev => ({ ...prev, emailFormat: true })), refs.emailRef.current?.focus({ preventScroll: true }));
 					else if (what === 'rePass') return pass !== val && (setInform(prev => ({ ...prev, passDismatch: true })), refs.repassRef.current?.focus({ preventScroll: true }));
 				} else {
-					if (what === 'email' && ['.', '@'].every(char => val.includes(char))) {
+					if (what === 'email') {
 						clearTimeout(emailFormatTimeout.current);
-						const fasterDebounce = emailCheck.test(val);
-						emailFormatTimeout.current = setTimeout(
-							() => {
-								const currentVal = (refs.emailRef.current?.value || '').toLowerCase();
-								const invalidNow = currentVal.length > 0 && !emailCheck.test(currentVal);
-								setInform(prev => ({ ...prev, emailFormat: invalidNow }));
-							},
-							fasterDebounce ? 500 : 1000
-						);
+						emailFormatTimeout.current = setTimeout(() => {
+							const invalidNow = val.length > 0 && !emailCheck.test(val.toLowerCase());
+							setInform(prev => ({ ...prev, emailFormat: invalidNow }));
+						}, 3000);
 					}
 					if (what === 'pass') {
-						refs.passStrength.current = passStrength(false, val);
+						refs.passStrength.current = (getPasswordStrengthScore as any)(false, val);
 					}
 					if (what === 'rePass')
 						clearTimeout(passDismatchTimeout.current), val && pass !== val && (passDismatchTimeout.current = setTimeout(() => setInform(prev => ({ ...prev, passDismatch: true })), 1000));
@@ -396,11 +378,12 @@ function EntranceForm(props) {
 		clearTimeout(showSubmitTimeout.current);
 		if (isResetPass) return setShowSubmitBtn(refs.passStrength.current === 7 && pass === rePass);
 		if (formMode === 'register') return setShowSubmitBtn(emailCheck.test(email) && refs.passStrength.current === 7 && pass === rePass && agreed);
-		if (pass.length && !refs.passStrength.current) refs.passStrength.current = passStrength(false, pass);
+		if (formMode === 'login') return setShowSubmitBtn(emailCheck.test(email) && refs.passStrength.current === 7);
+		if (pass.length && !refs.passStrength.current) refs.passStrength.current = getPasswordStrengthScore(false, pass);
 		if (!isChange || infoMessageShown) return setShowSubmitBtn(true);
 		const condition =
-			(isChangeMail && emailCheck.test(email) && (isChangeMail ? passStrength(false, curPass) : refs.passStrength.current) >= 7) ||
-			((isChangeBoth || isChangePass) && refs.passStrength.current >= 7 && pass === rePass && curPass && passStrength(false, curPass) >= 7);
+			(isChangeMail && emailCheck.test(email) && (isChangeMail ? getPasswordStrengthScore(false, curPass) : refs.passStrength.current) >= 7) ||
+			((isChangeBoth || isChangePass) && refs.passStrength.current >= 7 && pass === rePass && curPass && getPasswordStrengthScore(false, curPass) >= 7);
 		showSubmitTimeout.current = setTimeout(() => setShowSubmitBtn(condition), !condition ? 0 : 1000);
 	}, [email, pass, rePass, inform, curPass]);
 
@@ -536,7 +519,7 @@ function EntranceForm(props) {
 							{(isLogin || isRegister || isChangeBoth || isChangeMail || isForgotPass) && (
 								<e-mail class='flexCol marTopM '>
 									<span className='fs12 xBold tDarkBlue lh1 marBotXxxs'>{`${isChangeMail || isChangeBoth ? 'nová ' : ''}e-mailová adresa`}</span>
-									{inform.emailFormat && <span className='bRed tWhite xBold fs6 padVerXxs padHorM marTopXxs  aliCen'>neplatný formát e-mailové adresy</span>}
+									{inform.emailFormat && <span className='bRed tWhite xBold fs8 padVerXxxs padHorM marTopXxs  aliCen'>neplatný formát e-mailové adresy</span>}
 									<input
 										ref={refs.emailRef}
 										maxLength={100}
@@ -568,7 +551,7 @@ function EntranceForm(props) {
 												<pass-instructions class=' lh1-3 marAuto marBotS posRel    flexCol '>
 													<span className='fs11'>
 														<strong className=' marBotXxxs tRed fs9 boldM lh1-2 marRigS '>
-															DŮRAZNĚ ti doporučujeme zvolení jiného hesla než jaké používáš ke svému e-mailu!!!
+															DŮRAZNĚ ti doporučujeme odlišné heslo, než jaké máš ke svému e-mailu. Nastav si jiné heslo!
 														</strong>
 													</span>
 													<span className={'fs9 '}>
@@ -662,7 +645,7 @@ function EntranceForm(props) {
 
 									{/* PASSWORD CONFIRMATION --- */}
 									{(isRegister || isResetPass || isChangePass || isChangeBoth) && refs.passStrength.current === 7 && (
-										<repeat-password class='flexCol marTopM marBotS textAli '>
+										<repeat-password class='flexCol marTopM  textAli '>
 											<span className='fs11 lh1 tDarkBlue marBotXxs xBold'>{`zopakuj heslo`}</span>
 											<input
 												className='w100 hvh5    fs10'
@@ -811,7 +794,7 @@ function EntranceForm(props) {
 											: isResetPass || isRevertEmail || inform.mailTaken || inform.verifyMail || inform.wrongPass || inform.wrongLogin
 											? 'bRed'
 											: 'bBlue borBot2'
-									} tWhite marAuto posRel   ${showCloseWindowButton ? 'w50' : 'w60 mw40'} hvw8 mh4   tSha10  boRadXxs xBold fs12`}>
+									} tWhite marAuto posRel   ${showCloseWindowButton ? 'w50' : 'w60 mw60'} hvw8 mh4   tSha10  boRadXxs xBold fs12`}>
 									{inform.changeSuccess || inform.mailSent || inform.emailReverted
 										? 'Přihlásit se'
 										: inform.tokenExpired

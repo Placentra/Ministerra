@@ -8,7 +8,7 @@ const STREAM_MAXLEN = Number(process.env.STREAM_MAXLEN) || 50000;
 
 // POST MESSAGE HANDLER ---------------------------------------------------------
 // Steps: validate payload, allocate monotonic messID, persist via redis stream (durability boundary) with SQL fallback, optionally join room + fetch messages/members, then broadcast only after persistence so clients never see “ghost” messages.
-async function postMessage({ chatID, message: { content = '', attach = null } = {}, userID, socket, alreadyInRoom = true, skipBroadcast = false, getMessages, getMembers, con, redis }) {
+async function postMessage({ chatID, message: { content = '', attach = null } = {}, userID, socket = null, alreadyInRoom = true, skipBroadcast = false, getMessages = null, getMembers = null, con, redis }: any) {
 	// INPUT GUARD -------------------------------------------------------------
 	// Steps: cap content size and require at least content or attachment so empty spam can’t be persisted/broadcast.
 	if (content.length > 5000 || (!content && !attach)) throw new Error('badRequest');
@@ -18,7 +18,7 @@ async function postMessage({ chatID, message: { content = '', attach = null } = 
 		// Steps: reserve id first so downstream systems (streams/DB/broadcast) can refer to a stable message id.
 		const messID = await redis.incr('lastMessID');
 		const created = Date.now();
-		const dbTimestamp = toMySqlDateFormat(created);
+		const dbTimestamp = toMySqlDateFormat(new Date(created));
 
 		// PERSIST FIRST -------------------------------------------------------
 		// Steps: append to stream so worker can bulk-write later; if stream fails, fall back to direct SQL insert to preserve UX.
@@ -59,7 +59,7 @@ async function postMessage({ chatID, message: { content = '', attach = null } = 
 // Updates message content/attachment for the author only, and only for recent messages.
 // Broadcasts a minimal patch event so clients can update in-place.
 // Steps: validate partial update intent, build a minimal SET clause, update only if author + within edit window, then broadcast a patch so clients can update without refetch.
-async function editMessage({ chatID, message: { content = null, attach = null, id } = {}, userID, socket, con }) {
+async function editMessage({ chatID, message: { content = null, attach = null, id = null } = {}, userID, socket = null, con }: any) {
 	// Require at least one non-empty field to update (prevent blanking messages)
 	const hasContent = content !== null && content !== '';
 	const hasAttach = attach !== null;
@@ -94,7 +94,7 @@ async function editMessage({ chatID, message: { content = null, attach = null, i
 // - also allowed for moderation roles (admin/guard/VIP)
 // Broadcasts a delete event so clients can hide/mark the message.
 // Steps: load message owner, enforce author/moderator policy, set flag=del, then broadcast delete so clients converge without a full refetch.
-async function deleteMessage({ chatID, messID, userID, socket, role, con }) {
+async function deleteMessage({ chatID, messID, userID, socket = null, role, con }: any) {
 	// OWNER LOOKUP ------------------------------------------------------------
 	// Steps: confirm message exists and capture author id for permission and broadcast payload.
 	const [[msg]] = await con.execute(`SELECT user FROM messages WHERE id = ? AND chat = ?`, [messID, chatID]);

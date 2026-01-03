@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
  * Detects scroll direction (up/down) to toggle UI elements like sticky headers.
  * Uses a threshold to prevent jitter.
  * -------------------------------------------------------------------------- */
-const useScrollDir = bypass => {
+const useScrollDir = (bypass = false) => {
 	const [scrollDir, setScrollDir] = useState('up'),
 		threshold = 50,
 		accumulatedDeltaY = useRef(0),

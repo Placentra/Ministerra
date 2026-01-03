@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-function EventHeaderImage({ event, fadedIn = [], maximizeImg = false, onImageClick, isMobile = false, brain, nowAt }) {
+function EventHeaderImage({ event, fadedIn = [], maximizeImg = false, onImageClick, isMobile = false, brain, nowAt }: any) {
 	const isMeeting = event.type.startsWith('a');
 
 	const imgVers = event?.imgVers?.toString().split('_')[0] || 0;

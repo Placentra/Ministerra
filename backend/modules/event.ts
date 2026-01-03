@@ -1,21 +1,22 @@
-import { eventsCols, eveBasiCols, eveDetaCols } from '../variables';
-import { Sql, Catcher } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
-import { createEveMeta } from '../utilities/helpers/metasCreate';
-import { checkRedisAccess } from '../utilities/contentFilters';
+import { Sql, Catcher } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/logging/index.ts';
+import { createEveMeta } from '../utilities/helpers/metasCreate.ts';
+import { getGeohash } from '../utilities/helpers/location.ts';
+import { checkRedisAccess } from '../utilities/contentFilters.ts';
 import { encode, decode } from 'cbor-x';
-import { calculateAge, delFalsy } from '../../shared/utilities';
+import { calculateAge, delFalsy } from '../../shared/utilities.ts';
 import { LRUCache } from 'lru-cache';
 
 // META INDEXES ------------------------------------------
-import { EVENT_META_INDEXES, REDIS_KEYS } from '../../shared/constants';
-const { evePrivIdx, eveOwnerIdx, eveStartsIdx, eveTypeIdx, eveBasiVersIdx, eveDetaVersIdx } = EVENT_META_INDEXES;
+import { EVENT_META_INDEXES, REDIS_KEYS, EVENT_COLUMNS, EVENT_BASICS_KEYS, EVENT_DETAILS_KEYS } from '../../shared/constants.ts';
+const { evePrivIdx, eveOwnerIdx, eveStartsIdx, eveTypeIdx, eveBasiVersIdx, eveDetailsVersIdx } = EVENT_META_INDEXES;
 
 let redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Event handler uses redis for metas/basi/deta caches and past-event cache buckets.
 export const ioRedisSetter = redisClient => (redis = redisClient);
 const logger = getLogger('Event');
+let geohash;
 
 // LOCAL CACHE -----------------------------------------------------------------
 // Steps: cache the heaviest event components in-process so repeated reads avoid redis round-trips; invalidation is explicit so stale data can be dropped after writes.
@@ -26,13 +27,10 @@ const eventCache = new LRUCache({
 });
 
 // SQL QUERIES -----------------------------------------------------------------
-
 const QUERIES = {
 	rating: `SELECT ei.inter, ei.priv AS interPriv, er.mark, er.awards FROM eve_inters ei LEFT JOIN eve_rating er ON ei.event = er.event AND er.user = ? WHERE ei.event = ? AND ei.user = ?`,
 	pastUsers: `SELECT u.id, ei.priv, u.score, u.imgVers, u.first, u.last, u.birth FROM users u JOIN eve_inters ei ON u.id = ei.user WHERE ei.event = ? AND ei.inter IN ('sur', 'may') ORDER BY CASE ei.inter WHEN 'sur' THEN 1 WHEN 'may' THEN 2 END, u.score DESC`,
 };
-
-// HELPERS ---------------------------------------------------------------------
 
 // IS EVENT PAST ----------------------------------------------------------------
 // Steps: read starts from compact meta (base36) and compare with now; avoids parsing full objects for a cheap “past vs future” branch.
@@ -46,25 +44,42 @@ const getEventRating = async (connection, userID, eventID) => (userID ? (await c
 // CACHE PAST EVENT ------------------------------------------------------------
 // Steps: read event row from SQL, build meta + basi + deta payloads, write them into redis, and clear future caches so past representation becomes the source of truth.
 async function cachePastEvent(eventID, connection) {
-	const [[eventData]] = await connection.execute(`SELECT ${eventsCols} FROM events e WHERE id = ?`, [eventID]);
+	const [[eventData]] = await connection.execute(`SELECT ${EVENT_COLUMNS} FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.id = ?`, [eventID]);
 	if (!eventData) throw new Error('notFound');
 
-	const [meta, basicData, detailData, pipeline] = [createEveMeta(eventData), {}, {}, redis.pipeline()];
-	eveBasiCols.forEach(col => (basicData[col] = eventData[col]));
-	eveDetaCols.forEach(col => (detailData[col] = eventData[col]));
+	geohash ??= getGeohash();
+	const startsBase36 = new Date(eventData.starts).getTime().toString(36);
+	const geohashValue = eventData.lat && eventData.lng && geohash?.encode ? geohash.encode(eventData.lat, eventData.lng, 9) : null;
+	const metaInput = {
+		priv: eventData.priv,
+		owner: eventData.owner,
+		cityID: eventData.cityID,
+		type: eventData.type,
+		starts: startsBase36,
+		geohash: geohashValue,
+		surely: eventData.surely,
+		maybe: eventData.maybe,
+		comments: eventData.comments,
+		score: eventData.score,
+		basiVers: eventData.basiVers,
+		detaVers: eventData.detaVers,
+	};
+	const [meta, basicsData, detailsData, pipeline] = [createEveMeta(metaInput), {}, {}, redis.pipeline()];
+	EVENT_BASICS_KEYS.forEach(col => (basicsData[col] = eventData[col]));
+	EVENT_DETAILS_KEYS.forEach(col => (detailsData[col] = eventData[col]));
 
 	// CACHE UPDATE -----------------------------------------------------------
 	// Steps: store encoded meta/basi/deta in one hash, track cachedAt in zset, then delete future hashes so clients don’t mix “future” and “past” shapes.
 	pipeline
-		.hset(`pastEve:${eventID}`, 'meta', encode(meta), 'basi', encode(basicData), 'deta', encode(detailData))
+		.hset(`pastEve:${eventID}`, 'meta', encode(meta), 'basi', encode(basicsData), 'deta', encode(detailsData))
 		.zadd(`pastEveCachedAt`, Date.now() + 604800000, eventID)
-		.del(`${REDIS_KEYS.eveBasi}:${eventID}`, `${REDIS_KEYS.eveDeta}:${eventID}`);
+		.del(`${REDIS_KEYS.eveBasics}:${eventID}`, `${REDIS_KEYS.eveDetails}:${eventID}`);
 
 	// USER LIST CACHING ------------------------------------------------------
 	// Steps: for friend-type events, cache an attendee snapshot so past event pages can render without recomputing user lists each request.
 	if (eventData.type.startsWith('a')) {
 		const [users] = await connection.execute(QUERIES.pastUsers, [eventID]);
-		pipeline.hset(`pastEve:${eventID}`, 'users', encode(users.map(user => ({ ...user, age: calculateAge(new Date(user.birth)) }))));
+		pipeline.hset(`pastEve:${eventID}`, 'users', encode(users.map(user => ({ ...user, age: calculateAge(user.birth) }))));
 	}
 	await pipeline.exec();
 	return meta;
@@ -84,50 +99,51 @@ async function getPastEvent({ eventID, getBasi, getDeta, gotSQL, con, userID, is
 	const keysToFetch = [getBasi && 'basi', getDeta && 'deta', isFriendly && !gotUsers && 'users'].filter(Boolean);
 
 	// LOCAL/REDIS FETCH ------------------------------------------------------
-	// Steps: serve from local cache when present; otherwise hmget from redis; keep the key list explicit so we only fetch what caller needs.
+	// Steps: serve from local cache when it fully covers the requested keys; otherwise fetch only missing keys from redis; never let a partial local entry block redis.
 	let cachedData = [];
 	const localKey = `past:${eventID}`;
-	const localHit = eventCache.get(localKey);
+	const localHit = eventCache.get(localKey) || null;
 
-	if (localHit) {
-		// Reconstruct format expected by rest of function from local cache
-		cachedData = keysToFetch.map(k => localHit[k]);
-	} else if (keysToFetch.length) {
-		cachedData = await redis.hmgetBuffer(`pastEve:${eventID}`, ...keysToFetch);
+	// BUFFER MAP BUILD ------------------------------------------------------
+	// Steps: normalize local cache shape into a predictable per-key buffer map; this lets us fetch only the missing keys from redis without reordering hazards.
+	const bufferByKey = {};
+	if (localHit) keysToFetch.forEach(key => (bufferByKey[key] = localHit[key]));
+
+	// REDIS FILL ------------------------------------------------------------
+	// Steps: hmget only the keys that are missing in local cache; then rebuild the ordered `cachedData` array aligned with `keysToFetch`.
+	const redisKeysToFetch = keysToFetch.filter(key => !bufferByKey[key]);
+	if (redisKeysToFetch.length) {
+		const redisBuffers = await redis.hmgetBuffer(`pastEve:${eventID}`, ...redisKeysToFetch);
+		redisKeysToFetch.forEach((key, index) => (bufferByKey[key] = redisBuffers[index]));
 	}
+	cachedData = keysToFetch.map(key => bufferByKey[key]);
 
 	// CACHE MISS HANDLING ----------------------------------------------------
 	// Steps: if any requested field is missing, rebuild the past event entry from SQL so redis becomes complete again.
 	if (cachedData.some(value => !value)) {
 		await cachePastEvent(eventID, con);
-		cachedData = keysToFetch.length ? await redis.hmgetBuffer(`pastEve:${eventID}`, ...keysToFetch) : [];
-	}
 
-	// POPULATE LOCAL CACHE ---------------------------------------------------
-	// Steps: cache the fetched buffers under `past:${eventID}` so repeated reads can avoid redis (past events are effectively immutable).
-	if (!localHit && cachedData.length) {
-		// We only cache if we fetched something meaningful.
-		// Note: We can't easily cache partial fetches without complexity,
-		// so we only cache if we likely fetched everything or use what we have.
-		// For simplicity, we skip complex partial caching logic here to avoid staleness issues.
-		// Full caching would require fetching ALL fields every time which defeats the purpose.
-		// However, if we DID fetch multiple fields, we could store them.
-		// Let's rely on Redis for primary storage and only use local cache if we fetched full object previously?
-		// Better approach: Since 'past' events are static, let's just cache what we got if it covers standard cases.
+		// REDIS REFILL AFTER REBUILD ---------------------------------------
+		// Steps: refetch the missing keys from redis after rebuild (keeps this path minimal and avoids unnecessary hmget for already-present buffers).
+		const missingKeysAfterRebuild = keysToFetch.filter((key, index) => !cachedData[index]);
+		if (missingKeysAfterRebuild.length) {
+			const rebuiltBuffers = await redis.hmgetBuffer(`pastEve:${eventID}`, ...missingKeysAfterRebuild);
+			missingKeysAfterRebuild.forEach((key, index) => (bufferByKey[key] = rebuiltBuffers[index]));
+			cachedData = keysToFetch.map(key => bufferByKey[key]);
+		}
 	}
 
 	// DECODE ---------------------------------------------------------------
-	// Steps: decode only requested buffers; default missing users to [] and missing blobs to {} so merge logic stays stable.
-	const decodedData = keysToFetch.reduce((acc, key, index) => ({ ...acc, [key]: cachedData[index] ? decode(cachedData[index]) : key === 'users' ? [] : {} }), {});
+	// Steps: decode only requested buffers; always provide stable defaults so downstream spreads and merges remain safe even when caller didn't request parts.
+	const decodedData: any = { basi: {}, deta: {}, users: [] };
+	keysToFetch.forEach((key, index) => (decodedData[key] = cachedData[index] ? decode(cachedData[index]) : key === 'users' ? [] : {}));
 
 	// STORE BUFFERS ---------------------------------------------------------
-	// Steps: store buffers (not decoded objects) so local path stays consistent with redis path.
-	if (!localHit) {
-		const toCache = eventCache.get(localKey) || {};
-		keysToFetch.forEach(k => (toCache[k] = cachedData[keysToFetch.indexOf(k)])); // Store BUFFERS to avoid re-encoding for consistency? No, we decoded above.
-		// Actually we should store the BUFFERS to mimic Redis response if we want to share logic,
-		// OR store decoded and adjust logic. Storing buffers is safer for consistency with Redis path.
-		eventCache.set(localKey, toCache);
+	// Steps: store buffers (not decoded objects) so local path stays consistent with redis path; merge into existing local entry so partial reads accumulate safely.
+	if (keysToFetch.length) {
+		const mergedLocalPastEntry = localHit || {};
+		keysToFetch.forEach((key, index) => (mergedLocalPastEntry[key] = cachedData[index] || mergedLocalPastEntry[key]));
+		eventCache.set(localKey, mergedLocalPastEntry);
 	}
 
 	const [rating, users] = await Promise.all([
@@ -145,15 +161,15 @@ async function getFutureEvent({ eventID, getBasi, getDeta, devIsStable, userID, 
 	const basiKey = `basi:${eventID}`;
 	const detaKey = `deta:${eventID}`;
 
-	let basicData = getBasi ? eventCache.get(basiKey) : undefined;
-	let detailData = getDeta ? eventCache.get(detaKey) : undefined;
+	let basicsData = getBasi ? eventCache.get(basiKey) : undefined;
+	let detailsData = getDeta ? eventCache.get(detaKey) : undefined;
 
 	const promises = [];
-	if (getBasi && !basicData) promises.push(redis.hgetall(`${REDIS_KEYS.eveBasi}:${eventID}`).then(d => (eventCache.set(basiKey, d), d)));
-	else promises.push(basicData || {});
+	if (getBasi && !basicsData) promises.push(redis.hgetall(`${REDIS_KEYS.eveBasics}:${eventID}`).then(d => (eventCache.set(basiKey, d), d)));
+	else promises.push(basicsData || {});
 
-	if (getDeta && !detailData) promises.push(redis.hgetall(`${REDIS_KEYS.eveDeta}:${eventID}`).then(d => (eventCache.set(detaKey, d), d)));
-	else promises.push(detailData || {});
+	if (getDeta && !detailsData) promises.push(redis.hgetall(`${REDIS_KEYS.eveDetails}:${eventID}`).then(d => (eventCache.set(detaKey, d), d)));
+	else promises.push(detailsData || {});
 
 	if (!devIsStable && !gotSQL) promises.push(getEventRating(con, userID, eventID));
 	else promises.push({});
@@ -166,11 +182,10 @@ async function getFutureEvent({ eventID, getBasi, getDeta, devIsStable, userID, 
 // Steps: compare lastUsersSync with redis change watermark; if stale, read attendee ids, then filter by privacy (unless owner) and return ids + fresh sync time.
 async function getFutureAttendees({ eventID, userID, isOwn, lastUsersSync }) {
 	const lastChange = await redis.hget(REDIS_KEYS.eveLastAttendChangeAt, eventID);
-	// SYNC CHECK ---
+
 	// If client has up-to-date list, return sync timestamp only
 	if (lastUsersSync && lastChange && lastUsersSync >= Number(lastChange)) return { usersSync: Number(lastChange) };
 
-	// FETCH & FILTER ---
 	// Get all scored users, filter by privacy access
 	const rawItems = (await redis.zrange(`${REDIS_KEYS.friendlyEveScoredUserIDs}:${eventID}`, 0, -1)).map(item => {
 		const [id, priv] = item.split('_');
@@ -180,9 +195,7 @@ async function getFutureAttendees({ eventID, userID, isOwn, lastUsersSync }) {
 	return { userIDs: (visibleItems || []).map(item => item?.id).filter(Boolean), usersSync: Date.now() };
 }
 
-// ROUTER ----------------------------------------------------------------------
-
-// EVENT DISPATCHER ---
+// EVENT ROUTER ---
 // Steps: load meta (redis or past cache), decide past/future, enforce access, decide which parts are stale by version/state, fetch event data and (optional) users list, then respond with a minimal payload.
 export async function Event(req, res) {
 	let connection;
@@ -193,14 +206,14 @@ export async function Event(req, res) {
 		// Steps: try meta from redis first; if missing or event is past, open SQL and ensure past cache is hydrated.
 		let meta = await redis.hgetBuffer(REDIS_KEYS.eveMetas, eventID).then(buffer => (buffer ? decode(buffer) : null));
 		if ((!meta && userID) || (meta && isEventPast(meta))) {
-			connection = await Sql.getConnection();
+			connection = await (Sql as any).getConnection();
 			if (!meta) meta = (await redis.hgetBuffer(`pastEve:${eventID}`, 'meta').then(buffer => (buffer ? decode(buffer) : null))) || (await cachePastEvent(eventID, connection));
 		}
 		if (!meta) throw new Error('notFound');
 
 		// ACCESS CONTROL ------------------------------------------------------
 		// Steps: derive priv/owner/type from meta, compute isOwn/isFriendly, then enforce privacy gates using redis-backed access checks.
-		const [priv, owner, type, curBasiVers, curDetaVers] = [evePrivIdx, eveOwnerIdx, eveTypeIdx, eveBasiVersIdx, eveDetaVersIdx].map(idx => meta[idx]);
+		const [priv, owner, type, curBasiVers, curDetaVers] = [evePrivIdx, eveOwnerIdx, eveTypeIdx, eveBasiVersIdx, eveDetailsVersIdx].map(idx => meta[idx]);
 		const [isFriendly, isOwn] = [type.startsWith('a'), owner === userID];
 
 		if ((!isOwn && !(await checkRedisAccess({ items: [{ id: eventID, priv, owner }], userID })).length) || (!isOwn && !userID && (priv !== 'pub' || isFriendly))) throw new Error('unauthorized');
@@ -213,6 +226,7 @@ export async function Event(req, res) {
 			getDeta: (detaVers && curDetaVers !== detaVers) || (!getBasiOnly && state && !state.includes('Deta')),
 			devIsStable,
 			userID,
+			gotUsers,
 			lastUsersSync,
 			gotSQL,
 			isOwn,
@@ -220,7 +234,7 @@ export async function Event(req, res) {
 			isFriendly,
 		};
 
-		if (!gotSQL && !devIsStable && !connection) connection = await Sql.getConnection();
+		if (!gotSQL && !devIsStable && !connection) connection = await (Sql as any).getConnection();
 		fetchProps.con = connection; // Ensure connection is passed if created
 
 		// ROUTE EXECUTION -----------------------------------------------------
@@ -242,7 +256,7 @@ export async function Event(req, res) {
 		);
 	} catch (error) {
 		logger.error('Event', { error: error, ...req.body });
-		Catcher({ origin: 'Event', error: error, res });
+		(Catcher as any)({ origin: 'Event', error: error, res, req });
 	} finally {
 		// CLEANUP --------------------------------------------------------------
 		// Steps: release SQL connection when acquired so the pool stays healthy.

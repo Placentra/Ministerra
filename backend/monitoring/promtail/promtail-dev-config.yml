@@ -1,0 +1,83 @@
+server:
+    http_listen_port: 9080
+    grpc_listen_port: 0
+
+clients:
+    - url: http://loki:3100/loki/api/v1/push
+
+positions:
+    filename: /tmp/positions.yaml
+
+scrape_configs:
+    # DEVELOPMENT LOGS ---
+    # These paths match the dev promtail volume mounts (logging directory bind-mounted from host)
+    - job_name: app-alert-logs
+      static_configs:
+          - targets: [localhost]
+            labels:
+                job: app-alert
+                __path__: /var/log/app/alert/*.log
+      pipeline_stages:
+          - json:
+                expressions:
+                    level: level
+                    message: message
+                    module: module
+                    requestId: requestId
+                    userId: userId
+                    trace_id: trace_id
+                    span_id: span_id
+          - labels:
+                level:
+                module:
+                requestId:
+                userId:
+                trace_id:
+                span_id:
+    - job_name: app-error-logs
+      static_configs:
+          - targets: [localhost]
+            labels:
+                job: app-error
+                __path__: /var/log/app/error/*.log
+      pipeline_stages:
+          - json:
+                expressions:
+                    level: level
+                    message: message
+                    module: module
+                    requestId: requestId
+                    userId: userId
+                    trace_id: trace_id
+                    span_id: span_id
+          - labels:
+                level:
+                module:
+                requestId:
+                userId:
+                trace_id:
+                span_id:
+    - job_name: app-slow-logs
+      static_configs:
+          - targets: [localhost]
+            labels:
+                job: app-slow
+                __path__: /var/log/app/slow/*.log
+      pipeline_stages:
+          - json:
+                expressions:
+                    level: level
+                    message: message
+                    module: module
+                    requestId: requestId
+                    userId: userId
+                    trace_id: trace_id
+                    span_id: span_id
+          - labels:
+                level:
+                module:
+                requestId:
+                userId:
+                trace_id:
+                span_id:
+

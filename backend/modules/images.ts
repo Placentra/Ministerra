@@ -1,8 +1,8 @@
 import sharp from 'sharp';
-import { Catcher } from '../systems/systems';
+import { Catcher } from '../systems/systems.ts';
 import fs from 'fs/promises';
-import { Sql } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
+import { Sql } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/logging/index.ts';
 
 // IMAGES MODULE ----------------------------------------------------------------
 // Handles image upload preprocessing:

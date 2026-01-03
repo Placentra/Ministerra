@@ -21,7 +21,7 @@ import { defaultMiddleware } from '../utilities/sanitize';
 import masterRouter from '../router';
 import { unless } from 'express-unless';
 
-jwtVerify.unless = unless;
+(jwtVerify as any).unless = unless;
 
 const rateLimiterLogger = getLogger('RateLimiter');
 const staticAssetsLogger = getLogger('StaticAssets');
@@ -262,7 +262,7 @@ export function setupMiddleware(app, __dirname) {
 		}),
 		compression({ level: 6, threshold: 1024 }),
 		express.json({ limit: '1mb' }),
-		jwtVerify.unless({
+		(jwtVerify as any).unless({
 			path: ['/favicon.ico', { url: '/public', methods: ['GET'] }],
 			// Note: custom function runs AFTER express.json() has parsed the body, so req.body is available
 			custom: req => {

@@ -75,8 +75,8 @@ function History(props) {
 	const renderSnapshots = snapshots => (
 		<content-snaps className='flexCen halo wrap gapXxs posRel marHorXs'>
 			{snapshots.map((obj, idx) => {
-				const availTypes = setAvailOrGetAvaTypes(obj, true);
-				const isSel = areEqual(trim(obj, 'snap'), trim(provideSnap('exact') || {}, 'snap'));
+				const availTypes = setAvailOrGetAvaTypes(obj);
+				const isSel = areEqual(trim(obj), trim(provideSnap('exact') || {}));
 				const [t, s] = [obj.time, obj.sort];
 				return (
 					<snap-wrapper
@@ -148,7 +148,7 @@ function History(props) {
 			</city-groups>
 
 			{/* SNAPSHOT GALLERY ------------------------------------------------------- */}
-			<snaps-wrapper className='flexCen marTopS wrap w100'>{renderSnapshots([...eventsSnaps, ...usersSnaps], eventsSnaps.length)}</snaps-wrapper>
+			<snaps-wrapper className='flexCen marTopS wrap w100'>{renderSnapshots([...eventsSnaps, ...usersSnaps])}</snaps-wrapper>
 			
 			{/* ACTIVE SNAPSHOT DETAILS -------------------------------------------------- */}
 			<types-icons className='flexCen marTopXxs gapXxxs padAllXs boRadS wrap aliCen'>

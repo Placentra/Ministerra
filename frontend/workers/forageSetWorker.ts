@@ -17,7 +17,7 @@
 import localforage from 'localforage';
 
 const delEveProps = ['own', 'inter', 'mark', 'awards', 'commsData', 'commsSyncedAt', 'cursors', 'userIDs', 'invited', 'invites', 'distance'],
-	delUserProps = ['mark', 'awards', 'linked', 'trusted', 'note', 'message', 'unavail', 'distance'],
+	delUserProps = ['mark', 'awards', 'linked', 'trusts', 'note', 'message', 'unavail', 'distance'],
 	needEncryption = new Set(['user', 'chat', 'comms', 'alerts', 'past']), // PDK-encrypted (user-bound)
 	deviceBoundItems = new Set(['events', 'eve', 'users', 'use', 'miscel']), // DEK-encrypted (device-bound)
 	unencryptedItems = new Set(['token']), // Stored unencrypted (token is already a signed JWT)
@@ -305,13 +305,13 @@ self.addEventListener('message', async ({ data: { mode, what, id, val, reqId } }
 					if (newDek) (dek = newDek), await storeDEKEncrypted(newDek, print); // Login: store new DEK
 					else if (newDek === null) {
 						// DEVICE REVOKED or deviceID changed: prune all device-bound data ---------------------------
-						console.alert('DEK null from backend - device revoked or deviceID changed, pruning device-bound data');
+						console.warn('DEK null from backend - device revoked or deviceID changed, pruning device-bound data');
 						await pruneDeviceBoundData();
 						respond({ status: 'device_revoked' });
 					} else {
 						// Refresh: load DEK from encrypted storage ---------------------------
 						dek = await loadDEKEncrypted(print);
-						if (!dek) console.alert('DEK not found in storage - device-bound data will be unavailable');
+						if (!dek) console.warn('DEK not found in storage - device-bound data will be unavailable');
 					}
 
 					const combinedKey = getCombinedKey();
@@ -325,7 +325,7 @@ self.addEventListener('message', async ({ data: { mode, what, id, val, reqId } }
 							try {
 								await reEncryptStores(oldAuthHash, newAuthHash), respond({ status: 'reencrypted' });
 							} catch (e) {
-								console.alert('Re-encryption failed, clearing stale data:', e.message);
+								console.warn('Re-encryption failed, clearing stale data:', e.message);
 								for (const key of userKeys) await localforage.removeItem(key);
 								respond({ status: 'cleared_stale' });
 							}
@@ -346,7 +346,7 @@ self.addEventListener('message', async ({ data: { mode, what, id, val, reqId } }
 					await localforage.setItem('printHash', printHashHex);
 				} else {
 					// Legacy fallback - should not happen in normal flow ---------------------------
-					console.alert('Legacy auth format received - this should not happen');
+					console.warn('Legacy auth format received - this should not happen');
 					return respond({ error: 'invalidAuthFormat' });
 				}
 			} else {

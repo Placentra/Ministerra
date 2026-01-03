@@ -9,7 +9,7 @@ import { LRUCache } from 'lru-cache';
 
 let redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------
-// User module needs redis for blocks/links/trusted sets and profile cache buckets.
+// User module needs redis for blocks/links/trusts sets and profile cache buckets.
 export const ioRedisSetter = r => (redis = r);
 const logger = getLogger('User');
 
@@ -45,11 +45,11 @@ const updateRedis = async (m, u, i) => {
 		ts = Date.now();
 	if (['accept', 'unlink'].includes(m)) [u, i].map(x => t.hset(`userSummary:${x}`, 'user_links', ts));
 	if (['unlink', 'block'].includes(m)) {
-		t.srem(`links:${u}`, i).srem(`links:${i}`, u).srem(`trusted:${u}`, i).srem(`trusted:${i}`, u);
+		t.srem(`links:${u}`, i).srem(`links:${i}`, u).srem(`trusts:${u}`, i).srem(`trusts:${i}`, u);
 		t.hset(`${REDIS_KEYS.userSetsLastChange}:${u}`, 'links', ts).hset(`${REDIS_KEYS.userSetsLastChange}:${i}`, 'links', ts);
 	} else {
 		['trust', 'untrust'].includes(m)
-			? t[m === 'trust' ? 'sadd' : 'srem'](`trusted:${u}`, i)
+			? t[m === 'trust' ? 'sadd' : 'srem'](`trusts:${u}`, i)
 			: t.sadd(`links:${u}`, i).sadd(`links:${i}`, u).hset(`${REDIS_KEYS.userSetsLastChange}:${u}`, 'links', ts).hset(`${REDIS_KEYS.userSetsLastChange}:${i}`, 'links', ts);
 	}
 	await t.exec();
@@ -64,7 +64,7 @@ export async function getProfile({ userID, id, basiOnly, devIsStable }, con) {
 	if (!id) {
 		const [[user]] = await con.execute(`SELECT ${USER_PROFILE_KEYS.map(col => `u.${col}`).join(', ')} FROM users u WHERE id = ?`, [userID]);
 		if (!user) throw new Error('notFound');
-		user.age = calculateAge(new Date(user.birth));
+		user.age = calculateAge(user.birth);
 		return delFalsy(user);
 	}
 	if (await redis.sismember(`blocks:${userID}`, id)) throw new Error('blocked');
@@ -76,7 +76,7 @@ export async function getProfile({ userID, id, basiOnly, devIsStable }, con) {
 
 	const [p, [[{ mark, awards } = {}]]] = await Promise.all([
 		basiOnly
-			? cachedBasi || redis.hgetall(`userBasi:${id}`).then(res => (userCache.set(id, res), res))
+			? cachedBasi || redis.hgetall(`userBasics:${id}`).then(res => (userCache.set(id, res), res))
 			: redis.getBuffer(`tempProfile:${id}`).then(async b => {
 					if (b) return decode(b);
 					let c;
@@ -84,7 +84,7 @@ export async function getProfile({ userID, id, basiOnly, devIsStable }, con) {
 						c = await Sql.getConnection();
 						const [[u]] = await c.execute(`SELECT ${USER_GENERIC_KEYS.map(col => `u.${col}`).join(', ')} FROM users u WHERE id=?`, [id]);
 						if (!u) throw new Error((await redis.hexists(`remUse`, id)) ? 'deleted' : 'notFound');
-						return (u.age = calculateAge(new Date(u.birth))), delete u.birth, delFalsy(u), redis.setex(`tempProfile:${id}`, 604800, encode(u)), u;
+						return (u.age = calculateAge(u.birth)), delete u.birth, delFalsy(u), redis.setex(`tempProfile:${id}`, 604800, encode(u)), u;
 					} finally {
 						c?.release();
 					}
@@ -147,9 +147,9 @@ const linksHandler = async ({ mode, userID, id, note, message }, con) => {
 	}
 };
 
-// TRUSTED HANDLER --------------------------------------------------------------
+// TRUSTS HANDLER --------------------------------------------------------------
 // Steps: update link state to/from tru in SQL under a transaction, emit to socket immediately, then update redis sets/watermarks so other devices converge.
-const trustedHandler = async ({ mode, userID, id }, con) => {
+const trustsHandler = async ({ mode, userID, id }, con) => {
 	const ord = [userID, id].sort(),
 		who = ord[0] === userID ? 1 : 2,
 		opp = who === 1 ? 2 : 1;
@@ -160,14 +160,14 @@ const trustedHandler = async ({ mode, userID, id }, con) => {
 				? `UPDATE user_links SET link='tru', who=CASE WHEN who=? THEN 3 ELSE ? END WHERE user=? AND user2=? AND link IN ('ok','tru')`
 				: `UPDATE user_links SET link=CASE WHEN who=? THEN 'ok' ELSE link END, who=CASE WHEN who=3 THEN ? ELSE NULL END WHERE user=? AND user2=? AND link IN ('tru','ok')`;
 		if (!(await con.execute(q, mode === 'trust' ? [opp, who, ...ord] : [who, opp, ...ord]))[0].affectedRows) throw new Error('noUpdate');
-		(await Socket()).to(userID).emit(mode, { target: id });
+		(await (Socket as any)()).to(userID).emit(mode, { target: id });
 		await con.commit();
 		await updateRedis(mode, userID, id);
-		await redis.multi().hset(`${REDIS_KEYS.userSetsLastChange}:${userID}`, 'trusted', Date.now()).hset(`${REDIS_KEYS.userSetsLastChange}:${id}`, 'trusted', Date.now()).exec();
+		await redis.multi().hset(`${REDIS_KEYS.userSetsLastChange}:${userID}`, 'trusts', Date.now()).hset(`${REDIS_KEYS.userSetsLastChange}:${id}`, 'trusts', Date.now()).exec();
 	} catch (e) {
 		await con.rollback();
-		logger.error('trustedHandler', { error: e, userID, id, mode });
-		throw new Error('userTrustedUpdateFailed');
+		logger.error('trustsHandler', { error: e, userID, id, mode });
+		throw new Error('userTrustsUpdateFailed');
 	}
 };
 
@@ -182,9 +182,7 @@ const blocksHandler = async ({ mode, userID, id }, con) => {
 		if (mode !== 'unblock' || b.affectedRows)
 			await Promise.all([
 				redis
-					.multi()
-					[mode === 'block' ? 'sadd' : 'srem'](`blocks:${userID}`, id)
-					[mode === 'block' ? 'sadd' : 'srem'](`blocks:${id}`, userID)
+					.multi()[mode === 'block' ? 'sadd' : 'srem'](`blocks:${userID}`, id)[mode === 'block' ? 'sadd' : 'srem'](`blocks:${id}`, userID)
 					.hset(`${REDIS_KEYS.userSetsLastChange}:${userID}`, 'blocks', Date.now())
 					.hset(`${REDIS_KEYS.userSetsLastChange}:${id}`, 'blocks', Date.now())
 					.exec(),
@@ -206,8 +204,8 @@ const handlers = {
 	block: blocksHandler,
 	unblock: blocksHandler,
 	profile: getProfile,
-	trust: trustedHandler,
-	untrust: trustedHandler,
+	trust: trustsHandler,
+	untrust: trustsHandler,
 };
 
 // MAIN ROUTER HANDLER ---------------------------------------------------------

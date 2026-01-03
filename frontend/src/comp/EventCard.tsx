@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { typesMap } from '../../sources';
-import { friendlyMeetings } from '../../../shared/constants';
+import { FRIENDLY_MEETINGS } from '../../../shared/constants';
 import EveMenuStrip from './menuStrips/EveMenuStrip';
 import ContentIndis from './ContentIndis';
 import { humanizeDateTime } from '../../helpers';
@@ -18,16 +18,16 @@ import UserCard from './UserCard';
 
 // EVENT CARD COMPONENT DEFINITION ---
 // Main display unit for events with multiple layout modes and deep interaction state
-function EventCard(props) {
+function EventCard(props: any) {
 	// PROPS AND STATE INITIALIZATION ---
 	const { obj, cols, brain: propsBrain, nowAt: propsNowAt, isPreview, cardsView = 1, isMapPopUp, setModes: userCardSetModes, isSearch, isFirstInCol } = props;
-	const { nowAt = propsNowAt, brain = propsBrain } = useOutletContext() || {};
+	const { nowAt = propsNowAt, brain = propsBrain } = ((useOutletContext() as any) || {}) as any;
 	const navigate = useNavigate();
-	const protocolRef = useRef(null),
-		cardRef = useRef(null),
+	const protocolRef = useRef<any>(null),
+		cardRef = useRef<any>(null),
 		// UI MODES STATE ---
 		// Controls visibility of interactive overlays like share, actions, and menus
-		[modes, setModes] = useState({ share: false, actions: false, menu: false, protocol: false, privs: false, map: false }),
+		[modes, setModes] = useState<any>({ share: false, actions: false, menu: false, protocol: false, privs: false, map: false, profile: false, invites: false }),
 		// STABLE RANDOM FOR PLACEHOLDER ASSETS ---
 		stableRandom = useRef((parseInt(String(obj.id).slice(-4), 36) % 30) + 1),
 		// EVENT INTERACTION STATUS ---
@@ -48,7 +48,7 @@ function EventCard(props) {
 			opened: brain.user.id && brain.user?.openEve?.includes(obj.id),
 			surely: obj.surely,
 			maybe: obj.maybe,
-			isMeeting: friendlyMeetings.has(obj.type),
+			isMeeting: FRIENDLY_MEETINGS.has(obj.type),
 			invite: false,
 		}),
 		[showSpans] = useState(true),
@@ -94,7 +94,7 @@ function EventCard(props) {
 		if (!status.isMeeting) return [];
 		return [
 			...(['sur', 'may'].includes(obj.inter) ? [brain.user] : []),
-			...Object.values(brain.users || {}).filter(user => user && user.eveInters?.some(([eveID, inter]) => eveID === obj.id && inter === 'sur' && user.state !== 'stale')),
+			...Object.values(brain.users || {}).filter((user: any) => user && user.eveInters?.some(([eveID, inter]: any[]) => eveID === obj.id && inter === 'sur' && user.state !== 'stale')),
 		]
 			.sort((a, b) => b.score - a.score)
 			.slice(0, 8);
@@ -202,7 +202,7 @@ function EventCard(props) {
 	// EVENT METADATA SUBTITLE COMPONENT ---
 	const subTitleElement = (centered = false) => (
 		<date-indis-adress class={`flexRow  aliCen ${centered ? 'justCen' : ''} ${cardsView === 2 ? 'marBotXxs' : 'marBotXxs'} wrap ${subTitleClass} posRel`}>
-			{/* ATTENDANCE AND PRIVACY INDICATORS --- */}
+			{/* ATTENDANCE AND PRIVACIES INDICATORS --- */}
 			{status.inter && (
 				<inter-indi class='boRadXxs hvw8 mh1-5 flexInline posRel marRigXs posRel thickBors'>
 					<span className={`xBold padHorS ${subTitleClass} h100 textSha tWhite flexRow ${status.inter === 'may' ? 'bBlue' : status.inter === 'sur' ? 'bGreen' : 'bOrange'} textSha`}>
@@ -394,7 +394,7 @@ function EventCard(props) {
 
 						{portraitImagesV3}
 						{profileWrapper}
-						{!modes.menu && !modes.profile && <EveActionsBs {...{ fadedIn: ['BsEvent'], brain, nowAt, obj, status, setModes, setStatus, modes, isInactive }} />}
+						{!modes.menu && !modes.profile && <EveActionsBs {...{ fadedIn: ['BsEvent'], thisIs: 'event', isPast, brain, nowAt, obj, status, setModes, setStatus, modes, isInactive }} />}
 					</view-three>
 				)}
 				<protocol-top ref={protocolRef} />

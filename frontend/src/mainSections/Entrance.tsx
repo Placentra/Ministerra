@@ -14,7 +14,7 @@ function Entrance({ brain }) {
 				</div>
 			</top-logo>
 			{/* BACKGROUND IMAGE ------------------------------------------ */}
-			<img className='posAbs topCen hvw80 mh60 cover zin1 	maskLow w100' src={`${import.meta.env.VITE_FRONT_END}/public/headers/namestiSvobody.jpg`} />
+			<img className='posAbs topCen hvw80 mh60 cover zin1 	maskLow w100' src={`${import.meta.env.VITE_FRONT_END}/headers/namestiSvobody.jpg`} />
 			<EntranceForm {...{ brain }} />
 		</entrance-page>
 	);

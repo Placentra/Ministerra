@@ -4,7 +4,7 @@ import ErrorPage from './ErrorPage';
 
 // ERROR BOUNDARY COMPONENT ---
 // Robust wrapper to catch JavaScript errors in children components and provide fallback UI
-class ErrorBoundary extends React.Component {
+class ErrorBoundary extends React.Component<any, any> {
 	// COMPONENT INITIALIZATION ---
 	constructor(props) {
 		super(props);

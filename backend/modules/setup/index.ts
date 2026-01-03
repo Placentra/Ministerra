@@ -1,7 +1,7 @@
 import { getOrSaveCityData } from '../../utilities/helpers/location';
 import { getAuth } from '../../utilities/helpers/auth';
 import { createUserMeta } from '../../utilities/helpers/metasCreate';
-import { delFalsy } from '../../../shared/utilities';
+import { delFalsy, calculateAge } from '../../../shared/utilities';
 import { Sql, Catcher } from '../../systems/systems';
 import { jwtCreate } from '../jwtokens';
 import { getLogger } from '../../systems/handlers/logging/index';
@@ -74,7 +74,7 @@ async function Setup(req, res) {
 	const userID = sanitizeSetupSessionUserID(rawUserID);
 	const is = sanitizeSetupSessionStatus(rawIs);
 	const print = sanitizeSetupDevicePrint(rawPrint);
-	let restData = normalizeSetupPayload(incoming, { isIntroduction: is === 'unintroduced' });
+	let restData = normalizeSetupPayload(incoming, { isIntroduction: is === 'unintroduced' }) as any;
 	if (!Object.keys(restData).length) return res.status(200).end();
 	if (print && is !== 'unintroduced') throw new Error('unauthorized');
 
@@ -82,7 +82,7 @@ async function Setup(req, res) {
 	pipeline = redis.multi();
 
 	try {
-		con = await Sql.getConnection();
+		con = await (Sql as any).getConnection();
 		await con.beginTransaction();
 
 		// CITIES RESOLUTION ---------------------------------------------------
@@ -150,7 +150,9 @@ async function Setup(req, res) {
 			const metaBuffer = await redis.hgetBuffer(REDIS_KEYS.userMetas, userID);
 			if (metaBuffer) {
 				const meta = decode(metaBuffer);
-				createUserMeta({ ...restData, today: Date.now() }).forEach((v, i) => i !== userPrivIdx && v && (meta[i] = v));
+				const metaUpdate = { ...restData } as any;
+				if (restData.birth) metaUpdate.age = calculateAge(restData.birth, Date.now());
+				createUserMeta(metaUpdate).forEach((v, i) => i !== userPrivIdx && v && (meta[i] = v));
 				// Update eve_inters privacy when user changes their default privacy setting
 
 				// TODO: uncomment once though through - probably would be a good idea to give user choice, if existing inters should be updated to new privacy setting too or not.
@@ -163,7 +165,7 @@ async function Setup(req, res) {
 				// Steps: bump basiVers and rewrite basi hash fields so clients can validate via versioning; also invalidate local cache.
 				if (USER_BASI_KEYS.some(col => Object.keys(restData).includes(col))) {
 					meta[userBasiVersIdx]++,
-						pipeline.hset(`${REDIS_KEYS.USER_BASI}:${userID}`, ...USER_BASI_KEYS.flatMap(c => (restData[c] ? [c, restData[c]] : [])), 'basiVers', meta[userBasiVersIdx]);
+						pipeline.hset(`${REDIS_KEYS.userBasics}:${userID}`, ...USER_BASI_KEYS.flatMap(c => (restData[c] ? [c, restData[c]] : [])), 'basiVers', meta[userBasiVersIdx]);
 					// Invalidate local cache in User module to ensure freshness
 					invalidateUserCache(userID);
 				}
@@ -180,7 +182,7 @@ async function Setup(req, res) {
 
 					for (const cityID of Array.from(userEventCities.values()).filter(Boolean)) {
 						meta[userAttendIdx] = meta[userAttendIdx].filter(([eveID]) => userEventCities.get(eveID) === cityID);
-						pipeline.hset(`${REDIS_KEYS.CITY_METAS}:${cityID}`, userID, encode(meta));
+						pipeline.hset(`${REDIS_KEYS.cityMetas}:${cityID}`, userID, encode(meta));
 						pipeline.hset(`${REDIS_KEYS.cityFiltering}:${cityID}`, userID, userPriv);
 					}
 				}
@@ -199,13 +201,13 @@ async function Setup(req, res) {
 			logger.debug('EMITTING-----------------');
 			// SOCKET EMIT --------------------------------------------------------
 			// Steps: emit minimal delta to user room so active sessions can update UI without polling.
-			const socketIO = await Socket();
+			const socketIO = await (Socket as any)();
 			if (socketIO) socketIO.to(String(userID)).emit('user', { data: restData, citiesData: citiesData });
 		}
 
 		// REDIS COMMIT ---------------------------------------------------------
 		// Steps: exec pipeline and treat any per-command error as failure so SQL commit isn’t applied without redis cache coherence.
-		const results = await pipeline.exec();
+		const results = await (pipeline as any).exec();
 		if (results.some(([err]) => err)) {
 			throw new Error(
 				`Redis pipeline failed: ${results
@@ -218,7 +220,7 @@ async function Setup(req, res) {
 
 		// RESPONSE BUILD ------------------------------------------------------
 		// Steps: return citiesData/imgVers when present and include auth rotation fields only for new-user path.
-		const response = {
+		const response: any = {
 			...(citiesData && { citiesData }),
 			...(restData.imgVers && { imgVers: restData.imgVers }),
 		};
@@ -235,7 +237,7 @@ async function Setup(req, res) {
 	} catch (error) {
 		if (con) await con.rollback();
 		logger.error('Setup', { error, userID, is });
-		Catcher({ origin: 'Setup', error, res });
+		(Catcher as any)({ origin: 'Setup', error, res, req });
 	} finally {
 		if (con) con.release();
 	}

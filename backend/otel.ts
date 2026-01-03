@@ -45,12 +45,7 @@ const sdk = new NodeSDK({
 
 // STARTUP ----------------------------------------------------------------------
 // Steps: start SDK once at process boot; failures should log but should not crash the whole backend by themselves.
-try {
-	sdk.start();
-	logger.info('otel.tracing_initialized');
-} catch (err) {
-	logger.error('otel.start_failed', { error: err });
-}
+try { sdk.start(); } catch (err) { logger.error('otel.start_failed', { error: err }); }
 
 // Do NOT call process.exit() here.
 // The backend has its own unified shutdown path; OTEL should just flush/stop.

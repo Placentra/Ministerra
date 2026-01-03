@@ -1,8 +1,8 @@
-import { Socket, getOnlineStatus } from '../socket/socket';
-import { Writer } from '../systems';
+import { getSocketIOInstance, getOnlineStatus } from '../socket/socket.ts';
+import { Writer } from '../systems.ts';
 import { encode, decode } from 'cbor-x';
-import { getLogger } from './loggers';
-import { REDIS_KEYS, OFFLINE_ALERT_STATUS } from '../../../shared/constants';
+import { getLogger } from './loggers.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
 
 const logger = getLogger('Emitter');
 
@@ -147,12 +147,13 @@ async function Emitter(data, con, redis) {
 		// Offline processing: Mark "Notification Dots" in Redis
 		if (offline.size) {
 			const pipe = redis.pipeline();
-			offline.forEach(id => alertsByRecipient.get(id).some(a => a.store) && pipe.hset(`${REDIS_KEYS.userSummary}:${id}`, 'alerts', OFFLINE_ALERT_STATUS));
+			offline.forEach(id => alertsByRecipient.get(id).some(a => a.store) && pipe.hset(`${REDIS_KEYS.userSummary}:${id}`, 'alerts', 1));
 			await pipe.exec();
 		}
 
 		// Online processing: Emit via Socket.IO
-		const socketIO = await Socket();
+		// SOCKET INSTANCE --------------------------------------------------------
+		const socketIO = getSocketIOInstance();
 		if (socketIO) {
 			for (const [id, alerts] of alertsByRecipient) {
 				if (online.has(id)) alerts.forEach(alert => socketIO.to(String(id)).emit(alert.what, { target: alert.target, data: alert.data }));
