@@ -26,6 +26,11 @@ const imgMessagesMap = {
 		detail: 'Do tvé schránky přijde každou chvilku email s ověřovacím odkazem, který ti otevře cestu k dalšímu kroku. Klikni na něj :-)',
 		image: `/icons/email.png`,
 	},
+	mailSkipped: {
+		header: 'Účet vytvořen (DEV MODE)',
+		detail: 'Registrace proběhla úspěšně, ale email nebyl odeslán kvůli konfiguraci AWS SES. V produkci by přišel ověřovací email.',
+		image: `/icons/surely.png`,
+	},
 	newMailSameAsCurrent: { header: 'Emaily se shodují', detail: 'Nový email se shoduje s tím původním. Zkus to zno', image: `/icons/error.png` },
 	newMailVerified: { header: 'Email změněn', detail: 'Tvůj email byl verifikován a úspěšně nastaven.', image: `/icons/surely.png` },
 	userDeleted: { header: 'Profil smazán', detail: 'Tvůj profil byl úspěšně smazán.', image: `/icons/surely.png` },
@@ -115,8 +120,8 @@ function EntranceForm(props: any) {
 			'revertEmailChange',
 		].map(mode => formMode === mode),
 		[data, setData] = useState({
-			email: environment === 'development' ? import.meta.env.VITE_LOGIN_MAIL || '' : '',
-			pass: environment === 'development' ? import.meta.env.VITE_LOGIN_PASS || '' : '',
+			email: environment === 'dev' ? import.meta.env.VITE_LOGIN_MAIL || '' : '',
+			pass: environment === 'dev' ? import.meta.env.VITE_LOGIN_PASS || '' : '',
 			rePass: '',
 			agreed: false,
 			curPass: '',
@@ -133,6 +138,7 @@ function EntranceForm(props: any) {
 			missingRepass: false,
 			changeSuccess: false,
 			mailSent: false,
+			mailSkipped: false,
 			verifyMail: false,
 			passDismatch: false,
 			notAgreed: false,
@@ -148,6 +154,7 @@ function EntranceForm(props: any) {
 		infoMessageShown = [
 			'serverError',
 			'mailSent',
+			'mailSkipped',
 			'confChange',
 			'mailResent',
 			'changeSuccess',
@@ -166,7 +173,9 @@ function EntranceForm(props: any) {
 		isChange = ['changeMail', 'changePass', 'changeBoth'].includes(formMode),
 		{ email, pass, rePass, curPass, agreed } = data,
 		[capsActive, setCapsActive] = useState(false),
-		showCloseWindowButton = ['changeSuccess', 'emailReverted', 'newMailVerified', 'userFrozen', 'emailChangeActive', 'mailSent', 'mailResent'].some(what => inform[what]),
+		showCloseWindowButton = ['changeSuccess', 'emailReverted', 'newMailVerified', 'userFrozen', 'emailChangeActive', () => inform.mailSent && !isRegister, 'mailResent'].some(what =>
+			typeof what === 'function' ? what() : inform[what]
+		),
 		[mounted, setMounted] = useState(false),
 		[emailValidated, setEmailValidated] = useState(false),
 		emailValidationTimeout = useRef(null),
@@ -176,7 +185,8 @@ function EntranceForm(props: any) {
 	// FORM MANAGER FUNCTION ---
 	// Central handler for all input changes, validation, and API submissions
 	async function man({ what, val, blur, submit }: any = {}) {
-		console.log('[LOGIN DEBUG] man called', { what, val, blur, submit });
+		console.log('🚀 ~ man ~ what:', what, { submit, blur, val });
+
 		try {
 			// INPUT CHANGE HANDLING ---
 			if (!submit) {
@@ -262,10 +272,10 @@ function EntranceForm(props: any) {
 
 			const { conditions, informs } = submitCheck[what] || { conditions: [], informs: [] };
 			const dataValidity = conditions.map(cond => cond());
+			console.log('🟡 VALIDATION CHECK:', { what, dataValidity, informs, allPassed: dataValidity.every(Boolean) });
 
 			// FINAL SUBMISSION EXECUTION ---
 			if (dataValidity.every(Boolean)) {
-				console.log('[LOGIN DEBUG] Submission execution started', { what, email, formMode });
 				setAxiosInProg(true);
 				setInform({});
 
@@ -302,27 +312,22 @@ function EntranceForm(props: any) {
 					}
 				}
 
-			// CORE AUTHENTICATION FLOW ---
-			const print = getDeviceFingerprint();
-			console.log('[LOGIN DEBUG] Sending login request', { mode: what, emailLength: email?.length, passLength: pass?.length, printLength: print?.length });
-			const rawResponse = (await axios.post('/entrance', delUndef({ mode: what, email, pass, print })))?.data;
-			console.log('[LOGIN DEBUG] Login response received', { rawResponse, type: typeof rawResponse });
+				// CORE AUTHENTICATION FLOW ---
+				const print = getDeviceFingerprint();
+				console.log('🟢 SENDING AXIOS REQUEST:', { mode: what, email, print });
+				const rawResponse = (await axios.post('/entrance', delUndef({ mode: what, email, pass, print })))?.data;
+				console.log('🟢 AXIOS RESPONSE:', rawResponse);
+				const response = typeof rawResponse === 'string' ? rawResponse : rawResponse || {};
 
-			// RESPONSE NORMALIZATION ---
-			// Backend can return string payloads (mailSent, verifyMail) or object payloads (login success)
-			const response = typeof rawResponse === 'string' ? rawResponse : rawResponse || {};
-			const { status, authToken, cities, auth, authEpoch, authExpiry, previousAuth, previousEpoch, deviceID, deviceSalt, deviceKey } = typeof response === 'object' ? response : {};
+				const { status, authToken, cities, auth, authEpoch, authExpiry, previousAuth, previousEpoch, deviceID, deviceSalt, deviceKey } = typeof response === 'object' ? response : {};
 
 				// REDIRECT TO ONBOARDING IF NEW USER ---
 				if (status === 'unintroduced') return (brain.user.isUnintroduced = true), sessionStorage.setItem('authToken', authToken), navigate('/setup');
 				else if (cities && auth) {
-					console.log('[LOGIN DEBUG] Successful auth path entered');
 					const [userID, authHash] = auth?.split(':') || [];
 
 					// SECURITY AND DATA STORAGE ---
-					console.log('[LOGIN DEBUG] Deriving key...');
 					const pdk = await deriveKeyFromPassword(pass, userID + (deviceSalt || ''));
-					console.log('[LOGIN DEBUG] Key derived');
 					storePDK(pdk);
 					if (deviceID) localStorage.setItem('deviceID', deviceID);
 					if (previousAuth) setInform(prev => ({ ...prev, reencrypting: true }));
@@ -339,19 +344,21 @@ function EntranceForm(props: any) {
 					(miscel.initLoadData.cities = brain.user.cities), await forage({ mode: 'set', what: 'miscel', val: miscel });
 					const targetUrl = returnTo || '/';
 					return (brain.isAfterLoginInit = true), window.history.pushState({}, '', targetUrl), navigate(targetUrl);
-			} else if (typeof response === 'string' && response.length > 0) {
-				// STRING RESPONSE HANDLING ---
-				// Backend sends status codes like 'mailSent', 'verifyMail' as plain strings
-				if (response === 'verifyMail') setResendRetryCount(0);
-				setInform(prev => ({ ...prev, [response]: true }));
-			} else {
-				// UNEXPECTED RESPONSE FORMAT ---
-				console.warn('[LOGIN DEBUG] Unexpected response format:', response);
-			}
+
+					// STRING RESPONSE HANDLING ---
+					// Backend sends status codes like 'mailSent', 'verifyMail' as plain strings
+				} else if (typeof response === 'string' && response.length > 0) {
+					if (response === 'verifyMail') setResendRetryCount(0);
+					setInform(prev => ({ ...prev, [response]: true }));
+					// OBJECT RESPONSE HANDLING ---
+					// Backend may return { status: 'mailSkipped' } when email sending fails in dev mode
+				} else if (typeof response === 'object' && response?.status === 'mailSkipped') {
+					setInform(prev => ({ ...prev, mailSkipped: true }));
+				}
 			} else dataValidity.forEach((isValid, index) => !isValid && setInform(prev => ({ ...prev, [informs[index]]: true })));
 		} catch (err) {
-			console.error('[LOGIN DEBUG] Error caught in man', err);
 			if (err.message === 'Network Error') return setInform({ networkError: true });
+			if (err.message === 'Request throttled') return setTimeout(() => man({ what, submit: true }), 2100);
 			const errorData = err.response?.data;
 			const errorCode = typeof errorData === 'string' ? errorData : errorData?.code;
 			if (errorCode === 'tokenExpired') return sessionStorage.removeItem('authToken'), navigate('/entrance?mess=tokenExpired');
@@ -361,7 +368,6 @@ function EntranceForm(props: any) {
 			}
 			notifyGlobalError(err, typeof errorData === 'object' ? errorData?.message : 'Nepodařilo se zpracovat přihlášení.');
 		} finally {
-			console.log('[LOGIN DEBUG] Finally block reached, resetting axiosInProg');
 			setAxiosInProg(false);
 		}
 	}
@@ -429,12 +435,18 @@ function EntranceForm(props: any) {
 		if (emailCheck.test(email)) {
 			emailValidationTimeout.current = setTimeout(() => {
 				setEmailValidated(true);
-			}, 600);
+			}, 300);
 		} else {
 			setEmailValidated(false);
 		}
 		return () => clearTimeout(emailValidationTimeout.current);
 	}, [email, formMode]);
+
+	// PASSWORD FIELD AUTOFOCUS AFTER EMAIL VALIDATION ---
+	useEffect(() => {
+		if (!refs.emailRef.current?.length) refs.emailRef.current?.focus();
+		if (emailValidated && !pass && refs.passRef.current) refs.passRef.current.focus({ preventScroll: true });
+	}, [emailValidated, formMode]);
 
 	// WINDOW CLOSURE HANDLER ---
 	const handleCloseWindow = () => {
@@ -446,421 +458,421 @@ function EntranceForm(props: any) {
 		navigate('/entrance');
 	};
 
-	// COMPONENT RENDERING ---
-	if (!mounted) return;
-	else
-		return (
-			<entrance-comp ref={refs.scrollTarget} class={`textAli boRadM marAuto h100 flexCol sideBors   justCen aliCen zinMaXl posRel mw160  w100`}>
-				<inner-wrapper class={'w100 mw110 fPadHorS   block marAuto  selfCen'}>
-					{/* BRANDING HEADER --- */}
-					<entrance-header class='flexCol moveUpMore marBotM  aliCen textAli '>
-						<img
-							className='marAuto maskLow cover bor2White bgTrans  moveDown posRel mw24 padHorS w40 boRadS zinMaXl'
-							src='https://png.pngtree.com/png-clipart/20211009/original/pngtree-letter-m-logo-png-design-vector-png-image_6841484.png'
-						/>
-						<strong className='fs53 tShaWhiteXl xBold textAli miw60 inlineBlock '>Ministerra</strong>
-					</entrance-header>
+	if (!mounted) return null;
+	return (
+		<entrance-comp ref={refs.scrollTarget} class={`textAli boRadM marAuto h100 flexCol    justCen aliCen zinMaXl posRel mw160  w100`}>
+			<inner-wrapper class={'w100 mw160 fPadHorS padBotM   block marAuto  selfCen'}>
+				{/* BRANDING HEADER --- */}
+				<entrance-header class='flexCol moveUpMore marBotS  aliCen textAli '>
+					<img
+						alt='Ministerra logo'
+						className='marAuto maskLow cover bor2White bgTrans  downEvenMore posRel mw24 padHorS w40 boRadS '
+						src='https://png.pngtree.com/png-clipart/20211009/original/pngtree-letter-m-logo-png-design-vector-png-image_6841484.png'
+					/>
+					<strong className='fs42 tShaWhiteXl zinMaXl xBold textAli miw60 inlineBlock '>Ministerra</strong>
+				</entrance-header>
 
-					{/* SESSION RESUMPTION BANNER --- */}
-					{isContinueMode && !infoMessageShown && (
-						<continue-mode class='marBotM block'>
-							<div className='bInsetBlueDark posRel tWhite padAllM boRadS marBotS'>
-								<span className='fs12 xBold block tSha10 marBotXxs'>🔐 Relace vypršela</span>
-								<span className='fs11 boldXs textSha block lh1'>Zadej heslo pro pokračování na:</span>
-								<span className='fs8 xBold block marTopXxs tYellow'>{returnTo}</span>
-							</div>
-						</continue-mode>
-					)}
+				{/* SESSION RESUMPTION BANNER --- */}
+				{isContinueMode && !infoMessageShown && (
+					<continue-mode class='marBotM block'>
+						<div className='bInsetBlueDark posRel tWhite padAllM boRadS marBotS'>
+							<span className='fs12 xBold block tSha10 marBotXxs'>🔐 Relace vypršela</span>
+							<span className='fs11 boldXs textSha block lh1'>Zadej heslo pro pokračování na:</span>
+							<span className='fs8 xBold block marTopXxs tYellow'>{returnTo}</span>
+						</div>
+					</continue-mode>
+				)}
 
-					{/* SOCIAL LOGINS AND MODE SWITCHER --- */}
-					{!infoMessageShown && !isChange && !isResetPass && !isRevertEmail && !isContinueMode && (
-						<mode-socials style={{ filter: 'saturate(0.8)' }} class={'marBotXs thickBors boRadS w100   block'}>
-							{nowAt === 'event' && <span className='fsH shaComment borderBot  block textAli borderBot shaComment marBotS padBotS marAuto mw60 w100 boldM'>Registruj se ZDARMA!</span>}
-							<social-bs class='flexCen gapXxxs bw33     shaComment    borderBot bInsetBlueTopXs  posRel    imw6'>
-								{Object.keys(src).map(button => {
-									return (
-										<button key={button} className=' bHover hvw14 mh10 imw3 iw33 posRel bgTransXs    '>
-											<img className='' src={src[button]} alt='' />
-											<span className='fs8  tLightGrey lh1 '>{button}</span>
-										</button>
-									);
-								})}
-							</social-bs>
-							<blue-divider class='hvw3 mh2  zin1 block  bInsetBlueTopXl  posRel   w80 marAuto' />
+				{/* SOCIAL LOGINS AND MODE SWITCHER --- */}
+				{!infoMessageShown && !isChange && !isResetPass && !isRevertEmail && !isContinueMode && (
+					<mode-socials style={{ filter: 'saturate(0.8)' }} class={'marBotM bgTransXs padAllXxxs thickBors  boRadS w100 mw110 marAuto  block'}>
+						{nowAt === 'event' && <span className='fsH shaComment borderBot  block textAli borderBot shaComment marBotS padBotS marAuto mw60 w100 boldM'>Registruj se ZDARMA!</span>}
 
-							<login-register class='flexCen bw50 w100 aliStretch shaBlue   marAuto'>
-								{['login', 'register'].map(mode => {
-									return (
-										<button
-											key={mode}
-											className={`${formMode === mode ? 'bDarkBlue   borderBot arrowDown1 posRel tWhite fs14' : 'fs14'} bold hvw14 mh6    `}
-											onClick={() => (setFormMode(mode), setInform({}), window.history.pushState({}, '', `/${mode}`))}>
-											{mode === 'login' ? 'Přihlášení' : 'Registrace'}
-											{formMode === mode && <blue-divider class={` hr0-5  block bInsetBlueTopXl borTop bgTrans  posAbs botCen w100     marAuto   `} />}
-										</button>
-									);
-								})}
-							</login-register>
-						</mode-socials>
-					)}
-
-					{/* CREDENTIAL INPUT FIELDS --- */}
-					{!infoMessageShown && (
-						<inputs-div class={` marAuto   padHorXxl  flexCol ${isResetPass ? '' : 'gapM'} w95`}>
-							{/* WORKFLOW-SPECIFIC INSTRUCTIONS --- */}
-							{(isForgotPass || isRevertEmail) && (
-								<pass-reset class={`flexCol ${isResetPass ? 'marTopS' : 'marBotXs'}`}>
-									<span className={`marBotXxs lh1 boldM ${isForgotPass || isRevertEmail ? 'tRed fs20 marTopXs' : 'fs22 '}`}>
-										{isForgotPass ? 'Zapomenuté heslo' : isRevertEmail ? 'Vrácení emailu' : 'Nastavení nového hesla'}
-									</span>
-									{!isResetPass && (
-										<span className='fs8 lh1'>
-											{isForgotPass
-												? 'Zadej e-mailovou adresu k účtu k němuž jsi nejsi jiný heslem. Pro nastavení nového hesla stačí kliknout na odkaz, který ti následně dorazí.'
-												: 'Zadej heslo ke svému účtu pro potvrzení vrácení emailu na původní adresu. Pokud jsi email neměnil, ignoruj tuto stránku.'}
-										</span>
-									)}
-									{isRevertEmail && (
-										<span className='fs8 lh1 marTopS tRed xBold'>
-											⚠️ DŮLEŽITÉ: Pokud tvůj email změnil někdo jiný, OKAMŽITĚ si změň také heslo! Tvůj účet mohl být kompromitován.
-										</span>
-									)}
-								</pass-reset>
-							)}
-
-							{/* EMAIL ADDRESS INPUT --- */}
-							{(isLogin || isRegister || isChangeBoth || isChangeMail || isForgotPass) && (
-								<e-mail class='flexCol marTopM '>
-									<span className='fs12 xBold tDarkBlue lh1 marBotXxxs'>{`${isChangeMail || isChangeBoth ? 'nová ' : ''}e-mailová adresa`}</span>
-									{inform.emailFormat && <span className='bRed tWhite xBold fs8 padVerXxxs padHorM marTopXxs  aliCen'>neplatný formát e-mailové adresy</span>}
-									<input
-										ref={refs.emailRef}
-										maxLength={100}
-										className={`w100 hvh4 mih4 shaSubtleLong fs12 ${isContinueMode ? 'tGray' : ''}`}
-										onChange={e => !isContinueMode && man({ what: 'email', val: e.target.value.toLowerCase() })}
-										onBlur={e => !isContinueMode && man({ what: 'email', val: e.target.value.toLowerCase(), blur: true })}
-										value={email}
-										type='email'
-										readOnly={isContinueMode}
-									/>
-									<blue-divider style={{ filter: 'brightness(0.5)' }} class='hr0-1  zin1 block  bInsetBlueTopXl posRel w60 opacityM marAuto' />
-								</e-mail>
-							)}
-
-							{/* PASSWORD INPUT BLOCK --- */}
-							{((!isForgotPass && emailValidated) || isRevertEmail) && (
-								<pass-words class=' flexCol '>
-									{((!isChangeMail && (isRegister || isLogin || isResetPass || isChangePass || isChangeBoth)) || isRevertEmail) && (
-										<pass-word class={'flexCol '}>
-											{!isResetPass && (
-												<span className='fs13 xBold tDarkBlue lh1  inlineBlock marBotXxxs  xBold'>
-													{isRevertEmail ? 'zadej heslo k potvrzení vrácení' : `${isChangePass || isChangeBoth ? 'zadej nové ' : ''}heslo`}
-												</span>
-											)}
-
-											{inform.passStrength && <span className='tRed xBold marTopXxxs fs12  aliCen'>{pass.length > 0 ? 'Příliš slabé heslo!' : 'Prosím, vyplň heslo'} </span>}
-
-											{!isLogin && !isRevertEmail && refs.passStrength.current < 7 && (
-												<pass-instructions class=' lh1-3 marAuto marBotS posRel    flexCol '>
-													<span className='fs11'>
-														<strong className=' marBotXxxs tRed fs9 boldM lh1-2 marRigS '>
-															DŮRAZNĚ ti doporučujeme odlišné heslo, než jaké máš ke svému e-mailu. Nastav si jiné heslo!
-														</strong>
-													</span>
-													<span className={'fs9 '}>
-														Nové heslo musí mít <strong className='tOrange boldM'>alespoň 8 znaků, velké písmeno, symbol a číslo.</strong>
-													</span>
-												</pass-instructions>
-											)}
-											<input
-												className='w100 hvh4  shaSubtleLong fs12 phBold'
-												value={pass}
-												maxLength={30}
-												onChange={e => man({ what: 'pass', val: e.target.value })}
-												type='password'
-											/>
-											{!pass.length && <blue-divider style={{ filter: 'brightness(0.5)' }} class='hr0-1  zin1 block  bInsetBlueTopXl posRel  bgTrans w60 opacityL marAuto' />}
-										</pass-word>
-									)}
-
-									{isLogin && (
-										<button onClick={() => setFormMode('forgotPass')} className=' marBotS fs10 marAuto bold padAllXxs  bgTrans borBot  w40 tRed mw25 boRadXxs '>
-											zapomenuté heslo
-										</button>
-									)}
-
-									{/* PASSWORD STRENGTH VISUALIZER --- */}
-									{(isRegister || isChangePass || isChangeBoth || isRevertEmail || isResetPass) &&
-										pass.length > 0 &&
-										(() => {
-											const curScore = refs.passStrength.current,
-												progress = (curScore / 7) * 100;
-											const baseColor = curScore < 3 ? '#e53935' : curScore < 5 ? '#fb8c00' : curScore < 7 ? '#1e88e5' : '#43a047';
-											const indiText = curScore < 3 ? 'Slabé' : curScore < 5 ? 'Pořád slabé' : curScore < 7 ? 'Ještě přidej' : 'Perfektní!';
-											return (
-												<strength-indicators class='posRel w100 marBoS zinMaXl' style={{ height: '10px' }}>
-													<div
-														className='posAbs w100'
-														style={{
-															top: '50%',
-															transform: 'translateY(-50%)',
-															height: '2px',
-															background: `linear-gradient(90deg, transparent 0%, ${baseColor}33 ${50 - progress / 2}%, ${baseColor} 50%, ${baseColor}33 ${
-																50 + progress / 2
-															}%, transparent 100%)`,
-															transition: 'background 0.3s ease',
-														}}
-													/>
-													<div
-														className='posAbs w100'
-														style={{
-															top: '50%',
-															transform: 'translateY(-50%)',
-															height: '1px',
-															marginTop: '-3px',
-															background: `linear-gradient(90deg, transparent 10%, ${baseColor}22 ${50 - progress / 2.5}%, ${baseColor}66 50%, ${baseColor}22 ${
-																50 + progress / 2.5
-															}%, transparent 90%)`,
-															transition: 'background 0.3s ease',
-														}}
-													/>
-													<div
-														className='posAbs w100'
-														style={{
-															top: '50%',
-															transform: 'translateY(-50%)',
-															height: '1px',
-															marginTop: '3px',
-															background: `linear-gradient(90deg, transparent 10%, ${baseColor}22 ${50 - progress / 2.5}%, ${baseColor}66 50%, ${baseColor}22 ${
-																50 + progress / 2.5
-															}%, transparent 90%)`,
-															transition: 'background 0.3s ease',
-														}}
-													/>
-													<span
-														className='posAbs fs9 bold tWhite'
-														style={{
-															left: '50%',
-															top: '50%',
-															transform: 'translate(-50%, -50%)',
-															background: baseColor,
-															padding: '4px 100px',
-															borderRadius: '2px',
-															whiteSpace: 'nowrap',
-															boxShadow: `0 0 12px ${baseColor}88`,
-															transition: 'all 0.3s ease',
-														}}>
-														{indiText}
-													</span>
-												</strength-indicators>
-											);
-										})()}
-
-									{/* PASSWORD CONFIRMATION --- */}
-									{(isRegister || isResetPass || isChangePass || isChangeBoth) && refs.passStrength.current === 7 && (
-										<repeat-password class='flexCol marTopM  textAli '>
-											<span className='fs11 lh1 tDarkBlue marBotXxs xBold'>{`zopakuj heslo`}</span>
-											<input
-												className='w100 hvh5    fs10'
-												value={rePass}
-												maxLength={30}
-												onChange={e => man({ what: 'rePass', val: e.target.value })}
-												onBlur={e => e.target.value.length > 0 && man({ what: 'rePass', val: e.target.value, blur: true })}
-												type='password'
-											/>
-											<blue-divider
-												style={{ filter: inform.passDismatch ? 'brightness(1.5)' : 'brightness(1)' }}
-												class={`  zin1 block  bInsetBlueTopXl posRel  bgTrans   marAuto ${inform.passDismatch ? 'hr0-5 bRed w50' : 'hr0-2 w60'}`}
-											/>
-											{inform.passDismatch && (
-												<span className='bRed tWhite boldXs fs8  padBotXxs mw20 posRel upLittle zinMax marAuto padHorM   aliCen'>
-													{!rePass.length ? 'Zopakuj pro jistotu heslo' : 'hesla se neshodují'}
-												</span>
-											)}
-										</repeat-password>
-									)}
-
-									{/* CURRENT PASSWORD VERIFICATION --- */}
-									{isChange && (isChangeMail || (refs.passStrength.current >= 7 && pass === rePass)) && (
-										<current-password class='flexCol marBotS textAli '>
-											<span className='fs12 tDarkBlue lh1 marBotXxs  xBold'>aktuální heslo</span>
-											<input
-												className={`w100 hvh4 mih4  shaBlue borderBot fs12`}
-												value={curPass}
-												placeholder='min. 8 znaků, číslo, symbol a velké písmeno'
-												onChange={e => man({ what: 'curPass', val: e.target.value })}
-												type='password'
-											/>
-										</current-password>
-									)}
-								</pass-words>
-							)}
-
-							{/* TERMS AND CONDITIONS AGREEMENT --- */}
-							{isRegister && rePass && pass === rePass && (
-								<user-agree class='flexCen marBotS justCen gapXxs  '>
-									<span className='lh1 fs7'>Přečetl jsem si</span>
-									<button className='shaBlue borRed borBotLight padAllXxs'>
-										<span className='fs7 xBold'> podmínky</span>
-									</button>
-									<label className='custom-checkbox'>
-										<input type='checkbox' checked={agreed} onChange={() => man({ what: 'agreed', val: !agreed })} className='hidden-checkbox' />
-										<span className='custom-checkbox-box'></span>
-									</label>
-									<button onClick={() => man({ what: 'agreed', val: !agreed })}>
-										<span className='xBold fs7'>a souhlasím</span>
-									</button>{' '}
-									<span className='lh1 fs7'>s jejich zněním.</span>
-								</user-agree>
-							)}
-						</inputs-div>
-					)}
-
-					{/* FEEDBACK AND ACTION MESSAGES --- */}
-					{infoMessageShown &&
-						(() => {
-							const activeWarn = Object.keys(imgMessagesMap).find(key => urlParams.has(key) || inform[key]);
-							const { header, detail, image } = imgMessagesMap[activeWarn] || {};
-							return (
-								<info-message ref={refs.infoMessagesRef} class=' padBotXl bInsetBlueTopXs posRel w100 shaBotLongDown  marAuto flexCol aliCen imw12 textAli'>
-									<img src={image} alt='' className='marAuto marTopM cover w100 zin1' />
-									<span className='textAli xBold marTopS marBotXxs mw80 fs17  aliCen'>{header}</span>
-									<span className='textAli mw80 fs9 lh1  aliCen'>{detail}</span>
-
-									{askIfResendMail && (
-										<>
-											{resendRetryCount >= 2 ? (
-												<span className='tRed xBold fsC posRel  marTopS lh1 inlineBlock aliCen'>
-													Maximum pokusů (3). Zkontroluj si také složku SPAM a kdyžtak nás kontaktuj.
-												</span>
-											) : (
-												<div className='flexCol aliCen marTopM gapS'>
-													<button
-														onClick={() => man({ what: 'resendMail', submit: true })}
-														disabled={axiosInProg}
-														className={`posRel padAllXs boRadXs miw35  xBold fs8  ${resendJustSuccess ? 'bDarkGreen tWhite' : axiosInProg ? 'blueGlass  ' : 'blueGlass'}`}
-														style={{
-															cursor: axiosInProg ? 'wait' : 'pointer',
-														}}
-														onMouseEnter={e => {
-															if (!axiosInProg && !resendJustSuccess) {
-																e.target.style.transform = 'scale(1.05)';
-																e.target.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-															}
-														}}
-														onMouseLeave={e => {
-															if (!axiosInProg && !resendJustSuccess) {
-																e.target.style.transform = 'scale(1)';
-																e.target.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
-															}
-														}}>
-														{resendJustSuccess ? (
-															<span className='xBold fs8 tGreen'>Znovu odesláno!</span>
-														) : (
-															<span className='xBold fs10 tRed'>{`${
-																resendRetryCount === 0 ? 'Nic mi nepřišlo' : resendRetryCount === 1 ? 'Zase nic nepřišlo.' : 'Ani do třetice ne.'
-															} ${resendRetryCount < 2 ? 'Poslat znovu' : 'Zkusit naposledy'}`}</span>
-														)}
-													</button>
-												</div>
-											)}
-										</>
-									)}
-									{formMode === 'changeBoth' && inform.mailSent && <span className='tGreen xBold fsF posRel moveDown marTopS lh1 inlineBlock aliCen'>Heslo úspěšně změněno</span>}
-								</info-message>
-							);
-						})()}
-
-					{/* WARNING AND ERROR NOTIFICATIONS --- */}
-					{(() => {
-						return Object.keys(submitWarnTexts).map(what => {
-							if (inform[what]) {
+						<social-bs class='flexCen gapXxxs bw33     shaComment    borderBot bInsetBlueTopXs  posRel    imw6'>
+							{Object.keys(src).map(button => {
 								return (
-									<span key={what} className='tRed xBold fsC   marVerXs lh1 inlineBlock aliCen'>
-										{submitWarnTexts[what] || 'Oooops, něco se pokazilo.'}
-									</span>
+									<button key={button} className=' bHover hvw14 mh9 iw33 posRel bgTransXs    '>
+										<img className='' src={src[button]} alt='' />
+										<span className='fs8  tLightGrey lh1 '>{button}</span>
+									</button>
 								);
-							}
-						});
+							})}
+						</social-bs>
+						<blue-divider class='hvw3 mh2  zin1 block  bInsetBlueTopXl  posRel   w80 marAuto' />
+
+						<login-register class='flexCen bw50 w100 aliStretch shaBlue   marAuto'>
+							{['login', 'register'].map(mode => {
+								return (
+									<button
+										key={mode}
+										className={`${formMode === mode ? 'bDarkBlue   borderBot arrowDown1 posRel tWhite fs14' : 'fs12'} bold hvw14 mh5    `}
+										onClick={() => (setFormMode(mode), setInform({}), window.history.pushState({}, '', `/${mode}`))}>
+										{mode === 'login' ? 'Přihlášení' : 'Registrace'}
+										{formMode === mode && <blue-divider class={` hr0-5  block bInsetBlueTopXl borTop bgTrans  posAbs botCen w100     marAuto   `} />}
+									</button>
+								);
+							})}
+						</login-register>
+					</mode-socials>
+				)}
+
+				{/* CREDENTIAL INPUT FIELDS --- */}
+				{!infoMessageShown && (
+					<inputs-div class={` marAuto   padHorXxl  flexCol ${isResetPass ? '' : 'gapM'} w100 mw110 `}>
+						{/* WORKFLOW-SPECIFIC INSTRUCTIONS --- */}
+						{(isForgotPass || isRevertEmail) && (
+							<pass-reset class={`flexCol ${isResetPass ? 'marTopS' : 'marBotXs'}`}>
+								<span className={`marBotXxs lh1 boldM ${isForgotPass || isRevertEmail ? 'tRed fs20 marTopXs' : 'fs22 '}`}>
+									{isForgotPass ? 'Zapomenuté heslo' : isRevertEmail ? 'Vrácení emailu' : 'Nastavení nového hesla'}
+								</span>
+								{!isResetPass && (
+									<span className='fs8 lh1'>
+										{isForgotPass
+											? 'Zadej e-mailovou adresu k účtu k němuž jsi nejsi jiný heslem. Pro nastavení nového hesla stačí kliknout na odkaz, který ti následně dorazí.'
+											: 'Zadej heslo ke svému účtu pro potvrzení vrácení emailu na původní adresu. Pokud jsi email neměnil, ignoruj tuto stránku.'}
+									</span>
+								)}
+								{isRevertEmail && (
+									<span className='fs8 lh1 marTopS tRed xBold'>⚠️ DŮLEŽITÉ: Pokud tvůj email změnil někdo jiný, OKAMŽITĚ si změň také heslo! Tvůj účet mohl být kompromitován.</span>
+								)}
+							</pass-reset>
+						)}
+
+						{/* EMAIL ADDRESS INPUT --- */}
+						{(isLogin || isRegister || isChangeBoth || isChangeMail || isForgotPass) && (
+							<e-mail class='flexCol marTopXs'>
+								<span className='fs14 xBold tDarkBlue lh1 marBotXxxs'>{`${isChangeMail || isChangeBoth ? 'nová ' : ''}e-mailová adresa`}</span>
+								{inform.emailFormat && <span className='bRed tWhite xBold fs8 padVerXxxs padHorM marTopXxs  aliCen'>neplatný formát e-mailové adresy</span>}
+								<input
+									title='E-mailová adresa'
+									ref={refs.emailRef}
+									maxLength={100}
+									autoFocus={true}
+									className={`w100 hvh4 mih4 shaSubtleLong fs12 ${isContinueMode ? 'tGray' : ''}`}
+									onChange={e => !isContinueMode && man({ what: 'email', val: e.target.value.toLowerCase() })}
+									onBlur={e => !isContinueMode && man({ what: 'email', val: e.target.value.toLowerCase(), blur: true })}
+									value={email}
+									type='email'
+									readOnly={isContinueMode}
+								/>
+								<blue-divider style={{ filter: 'brightness(0.5)' }} class='hr0-1  zin1 block  bInsetBlueTopXl posRel w60 opacityM marAuto' />
+							</e-mail>
+						)}
+
+						{/* PASSWORD INPUT BLOCK --- */}
+						{((!isForgotPass && emailValidated) || isRevertEmail) && (
+							<pass-words class=' flexCol '>
+								{((!isChangeMail && (isRegister || isLogin || isResetPass || isChangePass || isChangeBoth)) || isRevertEmail) && (
+									<pass-word class={'flexCol '}>
+										{!isResetPass && (
+											<span className='fs14 xBold tDarkBlue lh1  inlineBlock marBotXxxs  xBold'>
+												{isRevertEmail ? 'zadej heslo k potvrzení vrácení' : `${isChangePass || isChangeBoth ? 'zadej nové ' : ''}heslo`}
+											</span>
+										)}
+
+										{inform.passStrength && <span className='tRed xBold marTopXxxs fs12  aliCen'>{pass.length > 0 ? 'Příliš slabé heslo!' : 'Prosím, vyplň heslo'} </span>}
+
+										{!isLogin && !isRevertEmail && refs.passStrength.current < 7 && (
+											<pass-instructions class=' lh1-3 marAuto marBotS posRel    flexCol '>
+												<span className='fs9'>
+													<strong className=' marBotXxxs tRed fs9 boldM lh1-2 marRigS '>DŮRAZNĚ doporučujeme:</strong>
+													nastav si jiné heslo, než jaké máš ke svému e-mailu!
+												</span>
+												<span className={'fs9 '}>
+													Heslo musí mít <strong className='tRed boldM'>alespoň 8 znaků, velké písmeno, symbol a číslo.</strong>
+												</span>
+											</pass-instructions>
+										)}
+										<input
+											title='Heslo'
+											ref={refs.passRef}
+											className='w100 hvh4  shaSubtleLong fs12 phBold'
+											value={pass}
+											maxLength={30}
+											onChange={e => man({ what: 'pass', val: e.target.value })}
+											type='password'
+										/>
+										{!pass.length && <blue-divider style={{ filter: 'brightness(0.5)' }} class='hr0-1  zin1 block  bInsetBlueTopXl posRel  bgTrans w60 opacityL marAuto' />}
+									</pass-word>
+								)}
+
+								{isLogin && (
+									<button onClick={() => setFormMode('forgotPass')} className=' marBotS fs10 marAuto bold padAllXxs  bgTrans borBot  w40 tRed mw25 boRadXxs '>
+										zapomenuté heslo
+									</button>
+								)}
+
+								{/* PASSWORD STRENGTH VISUALIZER --- */}
+								{(isRegister || isChangePass || isChangeBoth || isRevertEmail || isResetPass) &&
+									pass.length > 0 &&
+									(() => {
+										const curScore = refs.passStrength.current,
+											progress = (curScore / 7) * 100;
+										const baseColor = curScore < 3 ? '#e53935' : curScore < 5 ? '#fb8c00' : curScore < 7 ? '#1e88e5' : '#43a047';
+										const indiText = curScore < 3 ? 'Slabé' : curScore < 5 ? 'Pořád slabé' : curScore < 7 ? 'Ještě přidej' : 'Perfektní!';
+										return (
+											<strength-indicators class='posRel w100 marBoS zinMaXl' style={{ height: '10px' }}>
+												<div
+													className='posAbs w100'
+													style={{
+														top: '50%',
+														transform: 'translateY(-50%)',
+														height: '4px',
+														background: `linear-gradient(90deg, transparent 0%, ${baseColor}33 ${50 - progress / 2}%, ${baseColor} 50%, ${baseColor}33 ${
+															50 + progress / 2
+														}%, transparent 100%)`,
+														transition: 'background 0.3s ease',
+													}}
+												/>
+												<div
+													className='posAbs w100'
+													style={{
+														top: '50%',
+														transform: 'translateY(-50%)',
+														height: '1px',
+														marginTop: '-3px',
+														background: `linear-gradient(90deg, transparent 10%, ${baseColor}22 ${50 - progress / 2.5}%, ${baseColor}66 50%, ${baseColor}22 ${
+															50 + progress / 2.5
+														}%, transparent 90%)`,
+														transition: 'background 0.3s ease',
+													}}
+												/>
+												<div
+													className='posAbs w100'
+													style={{
+														top: '50%',
+														transform: 'translateY(-50%)',
+														height: '1px',
+														marginTop: '3px',
+														background: `linear-gradient(90deg, transparent 10%, ${baseColor}22 ${50 - progress / 2.5}%, ${baseColor}66 50%, ${baseColor}22 ${
+															50 + progress / 2.5
+														}%, transparent 90%)`,
+														transition: 'background 0.3s ease',
+													}}
+												/>
+												<span
+													className='posAbs fs9 bold tWhite'
+													style={{
+														left: '50%',
+														top: '50%',
+														transform: 'translate(-50%, -50%)',
+														background: baseColor,
+														padding: '4px 100px',
+														borderRadius: '2px',
+														whiteSpace: 'nowrap',
+														boxShadow: `0 0 12px ${baseColor}88`,
+														transition: 'all 0.3s ease',
+													}}>
+													{indiText}
+												</span>
+											</strength-indicators>
+										);
+									})()}
+
+								{/* PASSWORD CONFIRMATION --- */}
+								{(isRegister || isResetPass || isChangePass || isChangeBoth) && refs.passStrength.current === 7 && (
+									<repeat-password class='flexCol marTopM  textAli '>
+										<span className='fs14 lh1 tDarkBlue marBotXxs xBold'>{`zopakuj heslo`}</span>
+										<input
+											title='Zopakuj heslo'
+											className='w100 hvh5    fs10'
+											value={rePass}
+											maxLength={30}
+											onChange={e => man({ what: 'rePass', val: e.target.value })}
+											onBlur={e => e.target.value.length > 0 && man({ what: 'rePass', val: e.target.value, blur: true })}
+											type='password'
+										/>
+										<blue-divider
+											style={{ filter: inform.passDismatch ? 'brightness(1.5)' : 'brightness(1)' }}
+											class={`  zin1 block  bInsetBlueTopXl posRel  bgTrans   marAuto ${inform.passDismatch ? 'hr0-5 bRed w50' : 'hr0-2 w60'}`}
+										/>
+										{inform.passDismatch && (
+											<span className='bRed tWhite boldXs fs8  padBotXxs mw20 posRel upLittle zinMax marAuto padHorM   aliCen'>
+												{!rePass.length ? 'Zopakuj pro jistotu heslo' : 'hesla se neshodují'}
+											</span>
+										)}
+									</repeat-password>
+								)}
+
+								{/* CURRENT PASSWORD VERIFICATION --- */}
+								{isChange && (isChangeMail || (refs.passStrength.current >= 7 && pass === rePass)) && (
+									<current-password class='flexCol marBotS textAli '>
+										<span className='fs12 tDarkBlue lh1 marBotXxs  xBold'>aktuální heslo</span>
+										<input
+											className={`w100 hvh4 mih4  shaBlue borderBot fs12`}
+											value={curPass}
+											placeholder='min. 8 znaků, číslo, symbol a velké písmeno'
+											onChange={e => man({ what: 'curPass', val: e.target.value })}
+											type='password'
+										/>
+									</current-password>
+								)}
+							</pass-words>
+						)}
+
+						{/* TERMS AND CONDITIONS AGREEMENT --- */}
+						{isRegister && emailValidated && rePass && pass === rePass && (
+							<user-agree class='flexCen marBotS justCen gapXxs  '>
+								<span className='lh1 fs7'>Přečetl jsem si</span>
+								<button className='shaBlue borRed borBotLight padAllXxs'>
+									<span className='fs7 xBold'> podmínky</span>
+								</button>
+								<label className='custom-checkbox'>
+									<input type='checkbox' title='Souhlas s podmínkami' checked={agreed} onChange={() => man({ what: 'agreed', val: !agreed })} className='hidden-checkbox' />
+									<span className='custom-checkbox-box'></span>
+								</label>
+								<button onClick={() => man({ what: 'agreed', val: !agreed })}>
+									<span className='xBold fs7'>a souhlasím</span>
+								</button>{' '}
+								<span className='lh1 fs7'>s jejich zněním.</span>
+							</user-agree>
+						)}
+					</inputs-div>
+				)}
+
+				{/* FEEDBACK AND ACTION MESSAGES --- */}
+				{infoMessageShown &&
+					(() => {
+						const activeWarn = Object.keys(imgMessagesMap).find(key => urlParams.has(key) || inform[key]);
+						const { header, detail, image } = imgMessagesMap[activeWarn] || {};
+						return (
+							<info-message ref={refs.infoMessagesRef} class=' padBotXxl  posRel w100 shaBotLongDown  marAuto flexCol aliCen imw12 textAli'>
+								<img src={image} alt='' className='marAuto marTopM cover w100 zin1' />
+								<span className='textAli xBold marTopS marBotXs mw80 fs20  aliCen'>{header}</span>
+								<span className='textAli mw80 fs9 lh1  aliCen'>{detail}</span>
+
+								{askIfResendMail && (
+									<>
+										{resendRetryCount >= 2 ? (
+											<span className='tRed xBold fsC posRel  marTopS lh1 inlineBlock aliCen'>Maximum pokusů (3). Zkontroluj si také složku SPAM a kdyžtak nás kontaktuj.</span>
+										) : (
+											<div className='flexCol aliCen marTopS gapS'>
+												<button
+													onClick={() => man({ what: 'resendMail', submit: true })}
+													disabled={axiosInProg}
+													className={`posRel padAllXs boRadXs miw35  xBold fs8  ${resendJustSuccess ? 'bDarkGreen tWhite' : axiosInProg ? 'blueGlass  ' : 'blueGlass'}`}
+													style={{
+														cursor: axiosInProg ? 'wait' : 'pointer',
+													}}
+													onMouseEnter={e => {
+														if (!axiosInProg && !resendJustSuccess) {
+															e.target.style.transform = 'scale(1.05)';
+															e.target.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+														}
+													}}
+													onMouseLeave={e => {
+														if (!axiosInProg && !resendJustSuccess) {
+															e.target.style.transform = 'scale(1)';
+															e.target.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+														}
+													}}>
+													{resendJustSuccess ? (
+														<span className='xBold fs8 tGreen'>Znovu odesláno!</span>
+													) : (
+														<span className='xBold fs10 tRed'>{`${
+															resendRetryCount === 0 ? 'Nic mi nepřišlo' : resendRetryCount === 1 ? 'Zase nic nepřišlo.' : 'Ani do třetice ne.'
+														} ${resendRetryCount < 2 ? 'Poslat znovu' : 'Zkusit naposledy'}`}</span>
+													)}
+												</button>
+											</div>
+										)}
+									</>
+								)}
+								{formMode === 'changeBoth' && inform.mailSent && <span className='tGreen xBold fsF posRel moveDown marTopS lh1 inlineBlock aliCen'>Heslo úspěšně změněno</span>}
+							</info-message>
+						);
 					})()}
 
-					{capsActive && <span className='tRed xBold fsC  marVerXs lh1 inlineBlock aliCen'>Caps Lock je zapnutý</span>}
+				{/* WARNING AND ERROR NOTIFICATIONS --- */}
+				{(() => {
+					return Object.keys(submitWarnTexts).map(what => {
+						if (inform[what]) {
+							return (
+								<span key={what} className='tRed xBold fsC   marVerXs lh1 inlineBlock aliCen'>
+									{submitWarnTexts[what] || 'Oooops, něco se pokazilo.'}
+								</span>
+							);
+						}
+					});
+				})()}
 
-					{/* PRIMARY FORM ACTION BUTTONS --- */}
-					{showSubmitBtn && (
-						<action-buttons class={`flexCen w100 gapXxs ${showCloseWindowButton ? 'mw80' : 'mw100'} ${infoMessageShown ? 'marTopS' : ''} marAuto`}>
-							{(formMode !== 'forgotPass' || !inform.mailSent) && (
-								<button
-									disabled={axiosInProg}
-									ref={refs.bSubmitRef}
-									onClick={() => {
-										setInform({});
-										if (askIfResendMail) man({ what: 'resendMail', submit: true });
-										else if (infoMessageShown) return setFormMode('login'), setInform({});
-										else man({ what: formMode, submit: true });
-									}}
-									className={` ${
-										isChange || inform.mailSent
-											? 'bInsetBlueBotXl   '
-											: inform.changeSuccess || inform.emailReverted
-											? 'bGreen'
-											: isResetPass || isRevertEmail || inform.mailTaken || inform.verifyMail || inform.wrongPass || inform.wrongLogin
-											? 'bRed'
-											: 'bBlue borBot2'
-									} tWhite marAuto posRel   ${showCloseWindowButton ? 'w50' : 'w60 mw60'} hvw8 mh4   tSha10  boRadXxs xBold fs12`}>
-									{inform.changeSuccess || inform.mailSent || inform.emailReverted
-										? 'Přihlásit se'
-										: inform.tokenExpired
-										? 'Přejít na přihlášení'
-										: inform.unfreezing
-										? 'O.K. rozumím'
-										: inform.wrongPass
-										? 'Nesprávné heslo'
-										: inform.wrongLogin
-										? 'Neplatné přihlášovací údaje'
-										: isForgotPass && !inform.mailSent && !inform.mailResent
-										? 'Poslat na zadaný e-mail'
-										: isResetPass
-										? 'Potvrdit nové heslo!'
+				{capsActive && <span className='tRed xBold fsC  marVerXs lh1 inlineBlock aliCen'>Caps Lock je zapnutý</span>}
+
+				{/* PRIMARY FORM ACTION BUTTONS --- */}
+				{showSubmitBtn && (
+					<action-buttons class={`flexCen w100 gapXxs ${showCloseWindowButton ? 'mw140' : 'mw80'} ${infoMessageShown ? 'marTopS' : ''} marAuto`}>
+						{(formMode !== 'forgotPass' || !inform.mailSent) && (
+							<button
+								disabled={axiosInProg}
+								ref={refs.bSubmitRef}
+								onClick={() => {
+									console.log('🔴 BUTTON CLICKED:', { formMode, axiosInProg, askIfResendMail, infoMessageShown });
+									setInform({});
+									if (infoMessageShown) return setFormMode('login'), setInform({});
+									else man({ what: formMode, submit: true });
+								}}
+								className={` ${
+									isChange || inform.mailSent
+										? 'bInsetBlueBotXl   '
+										: inform.changeSuccess || inform.emailReverted
+										? 'bGreen'
+										: isResetPass || isRevertEmail || inform.mailTaken || inform.verifyMail || inform.wrongPass || inform.wrongLogin
+										? 'bRed'
+										: 'bBlue borBot2'
+								} tWhite marAuto posRel  hvw8 mh4  w50 tSha10  boRadXxs xBold fs12`}>
+								{inform.changeSuccess || (inform.mailSent && !isRegister) || inform.emailReverted
+									? 'Přihlásit se'
+									: inform.tokenExpired
+									? 'Na domovskou stránku'
+									: inform.unfreezing
+									? 'O.K. rozumím'
+									: inform.wrongPass
+									? 'Nesprávné heslo'
+									: inform.wrongLogin
+									? 'Neplatné přihlášovací údaje'
+									: isForgotPass && !inform.mailSent && !inform.mailResent
+									? 'Poslat na zadaný e-mail'
+									: isResetPass
+									? 'Potvrdit nové heslo!'
+									: isRevertEmail
+									? 'Vrátit email na původní adresu'
+									: ['userDeleted', 'userFrozen', 'unauthorized', 'mailResent', 'serverError'].some(what => inform[what]) || (inform.mailSent && isRegister)
+									? 'Jít k přihlášení'
+									: axiosInProg
+									? isLogin
+										? 'Přihlašuji ...'
+										: isRegister
+										? 'Vytvářím profil'
 										: isRevertEmail
-										? 'Vrátit email na původní adresu'
-										: ['userDeleted', 'userFrozen', 'unauthorized', 'mailResent', 'serverError'].some(what => inform[what])
-										? 'Jít na domovskou stránku'
-										: axiosInProg
-										? isLogin
-											? 'Přihlašuji ...'
-											: isRegister
-											? 'Vytvářím profil'
-											: isRevertEmail
-											? 'Vracím email...'
-											: isChange
-											? 'Provádím změnu'
-											: ''
-										: isLogin && isContinueMode
-										? 'Pokračovat →'
-										: isLogin
-										? 'Přihlásit se'
-										: isChange && !email
-										? 'Aplikovat změnu'
-										: isChange && email
-										? 'Odeslat verifikační link'
-										: isRevertEmail
-										? 'Potvrdit vrácení emailu'
-										: inform.mailTaken
-										? 'Přepnout na přihlášení'
-										: 'Pokračovat k nastavení'}
-								</button>
-							)}
-							{showCloseWindowButton && (
-								<button onClick={handleCloseWindow} className='bRed tWhite posRel padAllS w50  hvw8 mh4 padAllXxs boRadXxs fs12 tsha10'>
-									Zavřít okno
-								</button>
-							)}
-						</action-buttons>
-					)}
-				</inner-wrapper>
-			</entrance-comp>
-		);
+										? 'Vracím email...'
+										: isChange
+										? 'Provádím změnu'
+										: ''
+									: isLogin && isContinueMode
+									? 'Pokračovat →'
+									: isLogin
+									? 'Přihlásit se'
+									: isChange && !email
+									? 'Aplikovat změnu'
+									: isChange && email
+									? 'Odeslat verifikační link'
+									: isRevertEmail
+									? 'Potvrdit vrácení emailu'
+									: inform.mailTaken
+									? 'Přepnout na přihlášení'
+									: 'Pokračovat k nastavení'}
+							</button>
+						)}
+						{showCloseWindowButton && (
+							<button onClick={handleCloseWindow} className='bRed tWhite posRel padAllS w50  hvw8 mh4 padAllXxs boRadXxs fs12 tsha10'>
+								Zavřít okno
+							</button>
+						)}
+					</action-buttons>
+				)}
+			</inner-wrapper>
+		</entrance-comp>
+	);
 }
 
 export default EntranceForm;

@@ -41,6 +41,10 @@ export default [
 			'react/jsx-uses-react': 'off',
 			'react/prop-types': 'off',
 
+			// INLINE STYLES ALLOWED ---
+			'react/forbid-component-props': 'off',
+			'react/forbid-dom-props': 'off',
+
 			// Turn correctness back on (non-style)
 			'react-hooks/exhaustive-deps': 'off',
 			'no-unused-vars': 'off',
@@ -84,6 +88,10 @@ export default [
 			'react/react-in-jsx-scope': 'off',
 			'react/jsx-uses-react': 'off',
 			'react/prop-types': 'off',
+
+			// INLINE STYLES ALLOWED ---
+			'react/forbid-component-props': 'off',
+			'react/forbid-dom-props': 'off',
 
 			// Turn correctness back on (non-style)
 			'react-hooks/exhaustive-deps': 'off',
