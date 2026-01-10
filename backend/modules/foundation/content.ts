@@ -7,13 +7,10 @@ import { USER_META_INDEXES, REDIS_KEYS, FOUNDATION_LOADS } from '../../../shared
 const { userAttendIdx } = USER_META_INDEXES;
 
 import { Sql } from '../../systems/systems.ts';
-import { getLogger } from '../../systems/handlers/logging/index.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 import { redis } from './utils.ts';
-// NOTE: type-only imports removed (minimal backend typing).
 
 const logger = getLogger('FoundationContent');
-
-// NOTE: local foundation/content type aliases removed (minimal backend typing).
 
 // CITY DATA CACHE -------------------------------------------------------------
 // Steps: on each request we first try this tiny in-process cache, then hit Redis only
@@ -222,9 +219,18 @@ async function processContentMetas({ con, load, getCities, cities, userID }) {
 				allInvKeys.size ? getUserSet(con, userID, REDIS_KEYS.invites) : null,
 			]);
 
-			if (linksResult) { links = linksResult; for (const key of allLinKeys) if (links.has(key)) linAccess.add(key); }
-			if (trustsResult) { trusts = trustsResult; for (const key of allTruKeys) if (trusts.has(key)) truAccess.add(key); }
-			if (invitesResult) { invites = invitesResult; for (const key of allInvKeys) if (invites.has(key)) invAccess.add(key); }
+			if (linksResult) {
+				links = linksResult;
+				for (const key of allLinKeys) if (links.has(key)) linAccess.add(key);
+			}
+			if (trustsResult) {
+				trusts = trustsResult;
+				for (const key of allTruKeys) if (trusts.has(key)) truAccess.add(key);
+			}
+			if (invitesResult) {
+				invites = invitesResult;
+				for (const key of allInvKeys) if (invites.has(key)) invAccess.add(key);
+			}
 
 			// PASS 3: FILTER CANDIDATES ---
 			// Steps: replay queued checks now that access sets are known; this turns “might pass” into “definitely passes”.

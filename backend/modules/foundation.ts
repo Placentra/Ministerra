@@ -6,16 +6,16 @@
 // - content metas for visible cities
 
 // IMPORTS ----------------------------------------------------------------------
-import { Sql, Catcher } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
-import { getAuth } from '../utilities/helpers/auth';
-import { getDeviceSalt } from '../utilities/helpers/device';
-import Alerts from './alerts';
+import { Sql, Catcher } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { getAuth } from '../utilities/helpers/auth.ts';
+import { getDeviceSalt } from '../utilities/helpers/device.ts';
+import Alerts from './alerts.ts';
 
 // SUBMODULES -------------------------------------------------------------------
-import { setRedis, resolveDeviceSync, persistDeviceSync } from './foundation/utils';
-import { syncUserData } from './foundation/userSync';
-import { processContentMetas } from './foundation/content';
+import { setRedis, resolveDeviceSync, persistDeviceSync } from './foundation/utils.ts';
+import { syncUserData } from './foundation/userSync.ts';
+import { processContentMetas } from './foundation/content.ts';
 
 const logger = getLogger('Foundation');
 // REDIS CLIENT SETTER ----------------------------------------------------------

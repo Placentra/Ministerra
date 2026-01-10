@@ -16,7 +16,10 @@ function FavouriteExpertTopics(p: any) {
 		textMeasureRef = useRef(null);
 	const [inputWarn, setInputWarn] = useState([]);
 	const informSrc = { top: ['tooShort', 'duplicate', 'tooLong', 'noTopic', 'invalidTopic'], bottom: ['notSpecific', 'shortWords'] };
-	const validTopicPattern = /^[\p{L}][\p{L}\s]*[\p{L}]$/u;
+	// FAVEX TOPIC PATTERN ---
+	// Must start/end with letter or number. Allows common punctuation in between.
+	// Pipe forbidden (delimiter). Matches shared/constants REGEXES.favouriteExpertTopic.
+	const validTopicPattern = /^[\p{L}\p{N}][\p{L}\p{N}\s.,;:!?'"\-\/&+()@#%*=_~]*[\p{L}\p{N}]$|^[\p{L}\p{N}]{1,2}$/u;
 
 	// MANAGER FUNCTION ------------------------------------------------------------
 	const man = (a, c, i = null) => {
@@ -95,7 +98,12 @@ function FavouriteExpertTopics(p: any) {
 							ref={editInputRef}
 							value={editingValue}
 							placeholder={topics[i]}
-							onChange={e => setEditingValue(e.target.value)}
+							onChange={e => {
+								// FILTER ALLOWED CHARS ---
+								// Allow letters, numbers, spaces, common punctuation. Strip pipes (delimiter) and leading spaces.
+								const filtered = e.target.value.replace(/\|/g, '').replace(/^\s+/, '');
+								setEditingValue(filtered);
+							}}
 							onKeyDown={e => handleKeyPress(e, cat, i)}
 							className='shaBlue bHover w100 wAuto padHorXs h100 fs7 boldXs'
 						/>
@@ -147,7 +155,10 @@ function FavouriteExpertTopics(p: any) {
 				}}
 				onKeyDown={e => e.key === 'Enter' && man('addTopic', 'favs')}
 				onChange={e => {
-					setInputValue(e.target.value.replace(/^\s+/, '').replace(/\|/g, ''));
+					// FILTER ALLOWED CHARS ---
+					// Allow letters, numbers, spaces, common punctuation. Strip pipes (delimiter) and leading spaces.
+					const filtered = e.target.value.replace(/\|/g, '').replace(/^\s+/, '');
+					setInputValue(filtered);
 					if (inputWarn.length > 0) setInputWarn([]);
 					if (inform.length > 0) setInform([]);
 				}}
@@ -160,7 +171,7 @@ function FavouriteExpertTopics(p: any) {
 					{inputWarn.map((m, i) => (
 						<span key={i} className='tRed fs8 bold'>
 							{m === 'noTopic' && 'Nejdříve zadej téma'}
-							{m === 'invalidTopic' && 'První slovo nesmí obsahovat symbol.'}
+							{m === 'invalidTopic' && 'Téma musí začínat a končit písmenem či číslem.'}
 							{m === 'tooShort' && 'Téma musí mít alespoň 3 znaky.'}
 							{m === 'duplicate' && 'Toto téma už máš zadané.'}
 							{m === 'tooLong' && 'Témata dohromady mohou mít max.200 znaků.'}

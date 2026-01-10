@@ -1,5 +1,5 @@
-import { Writer, drainStream } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
+import { Writer, drainStream } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
 
 const logger = getLogger('Task:LastSeenMess');
 
@@ -43,12 +43,13 @@ async function processLastSeenMess(con, redis, options = {}) {
 
 		// DEDUPE + MAX ---------------------------------------------------------
 		// Steps: multiple stream entries can exist for the same user/chat; keep only the largest messId so DB write is minimal and idempotent-ish.
-		// NOTE: CBOR decode returns native types; we coerce to Number for consistency and skip malformed entries.
 		const maxSeenByPair = new Map();
 		for (const raw of allItems) {
 			const arr = Array.isArray(raw) ? raw : [];
 			const [chatIdRaw, userIdRaw, messIdRaw] = arr;
-			const chatID = Number(chatIdRaw), userId = userIdRaw, messId = Number(messIdRaw);
+			const chatID = Number(chatIdRaw),
+				userId = userIdRaw,
+				messId = Number(messIdRaw);
 			if (!Number.isFinite(chatID) || userId == null || !Number.isFinite(messId)) continue;
 			const key = `${chatID}:${userId}`;
 			const prev = maxSeenByPair.get(key);

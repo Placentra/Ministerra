@@ -69,8 +69,8 @@ const BsDynamic = props => {
 				<big-button
 					onClick={() => !disabled && bigBsFunctions[nowAt]()}
 					className={`${className || 'bDarkGreen'} ${bigButton && !menuView ? 'fadedIn ' : 'noPoint'} ${disabled ? 'noPoint' : 'pointer'} w95 textAli flexCol justCen ${
-						!isIntroduction ? 'marBotM bsContentGlow mw110 mh6  fs24' : 'mh7 marBot fs25 mw90'
-					} hvw12 zinMaXl marAuto tSha10  tWhite  padHorXs bInsetGreen borBot8 zinMenu  xBold posRel shaTop borderLight boRadXs  fadingIn  tWhite `}>
+						!isIntroduction ? 'marBotM bsContentGlow mw110 mh6  fs24' : 'mh6  fs20 mw80 bInsetGreen'
+					}  zinMaXl marAuto tSha10  tWhite  padHorXs bInsetGreen borBot8 zinMenu  xBold posRel shaTop borderLight boRadXs  fadingIn  tWhite `}>
 					{text}
 				</big-button>
 			)}

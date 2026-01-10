@@ -1,7 +1,7 @@
 // PAST EVENTS PROCESSING =======================================================
 import { decode } from 'cbor-x';
-import { getLogger } from '../../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../../shared/constants';
+import { getLogger } from '../../systems/handlers/loggers.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
 
 const logger = getLogger('Task:DailyRecalc:PastEvents');
 

@@ -1,6 +1,7 @@
-import { Writer, drainStream } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../shared/constants';
+import { Writer, drainStream } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { REDIS_KEYS } from '../../shared/constants.ts';
+import { generateIDString } from '../utilities/idGenerator.ts';
 
 const logger = getLogger('Task:Invites');
 
@@ -208,7 +209,9 @@ async function processInvites(con, redis) {
 						}
 
 						try {
-							await con.execute('INSERT INTO user_alerts (user, what, target, data, flag) VALUES (?, ?, ?, ?, ?)', [
+							const alertID = generateIDString();
+							await con.execute('INSERT INTO user_alerts (id, user, what, target, data, flag) VALUES (?, ?, ?, ?, ?, ?)', [
+								alertID,
 								targetUser,
 								'invite',
 								targetEvent,

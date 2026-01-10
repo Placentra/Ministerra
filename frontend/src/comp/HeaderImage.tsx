@@ -1,20 +1,30 @@
-function HeaderImage({ fadedIn = [], isLastVisible = false, thisIs, currentSection }: any) {
-	const imgSrc = { introduction: `/covers/introduction.png`, home: '/covers/home.png' }[thisIs];
-
-	const sectionTexts = {
+function HeaderImage({ fadedIn, isLastVisible = false, thisIs, currentSection, isIntroduction }: any) {
+	const src = {
+		home: {
+			imgSrc: 'namestiSvobody.jpg',
+		},
+		Welcome: {
+			imgSrc: 'introduction/Personals.png',
+			title: 'Vítej v Ministerře',
+			subtitle: 'Jsme rádi, že jsi tady. Připrav se na krátký průvodce tvorbou profilu, který ti pomůže najít zajímavé lidi ve tvém okolí.',
+		},
 		Personals: {
-			title: 'Základní údaje na profil',
+			imgSrc: 'introduction/Personals.png',
+			title: 'Nezbytné formality',
 			subtitle: 'Začněme základními osobními informacemi. Potřebujeme ověřit tvůj věk kvůli zákonným požadavkům a vytvořit tvůj autentický profil.',
 		},
 		Cities: {
-			title: 'Vyhledej si svá města',
+			imgSrc: 'introduction/Cities.png',
+			title: 'Vyhledej si města',
 			subtitle: 'Přidej města, kde se pohybuješ nebo bys rád navázal nové kontakty. První město bude tvým domovským místem.',
 		},
 		Indis: {
-			title: 'Zvol profilové indikátory',
+			imgSrc: 'introduction/Indis.png',
+			title: 'Zvol si indikátory',
 			subtitle: 'Vyber charakteristiky, které tě nejlépe vystihují. Pomohou ostatním lépe tě poznat a najít společné zájmy.',
 		},
 		Basics: {
+			imgSrc: 'introduction/Basics.png',
 			title: 'Vyber progresivní témata',
 			subtitle: 'Vyber alespoň 3 témata, která tě zajímají a o kterých si rád povídáš. Budou základem pro tvoje budoucí konverzace.',
 		},
@@ -38,33 +48,39 @@ function HeaderImage({ fadedIn = [], isLastVisible = false, thisIs, currentSecti
 			'Ministerra je vyspělý networkingový systém pro česká města a obce s arzenálem unikátních mechanismů pro zdravější, dynamičtější a inteligentnější společnost a také tvůj bohatší společenský život a volný čas. Přejeme Ti příjemný zážitek při seznamování :-)',
 	};
 
-	const currentTexts = currentSection && sectionTexts[currentSection] ? sectionTexts[currentSection] : defaultTexts;
+	const currentTexts = currentSection && src[currentSection] ? src[currentSection] : defaultTexts;
 
 	return (
-		<header-image class={`posRel block ${!isLastVisible && thisIs !== 'home' ? 'marBotM' : thisIs === 'home' ? 'hvh65 mh75 ' : 'marBotS'} borderTop shaTop  textAli posRel pointer w100`}>
+		<header-image class={`posRel block ${!isLastVisible && thisIs !== 'home' ? 'marBotM' : thisIs === 'home' ? 'hvh65 mh75 ' : 'marBotS'} maskTopXxs   textAli posRel pointer w100`}>
 			{/* MAIN IMAGE ------------------------------------------ */}
 			<img
+				title='Background image'
 				className={`${!fadedIn || fadedIn.includes('Header') ? 'fadedIn' : ''} fadingIn ${
-					thisIs === 'home' ? 'hvw120 mh70' : isLastVisible ? 'hvh40 marBotXl selfStart' : 'hvh33 mih30'
-				} cover posAbs topCen maskLowXs  w100`}
-				src={`${import.meta.env.VITE_FRONT_END}/headers/namestiSvobody.jpg`}
+					thisIs === 'home' ? 'hvw120 mh70' : isLastVisible ? 'hvh50  selfStart' : 'hvh25 '
+				} cover  maskLowXs  w100`}
+				src={`${import.meta.env.VITE_FRONT_END}/public/headers/${src[thisIs || currentSection].imgSrc}`}
 			/>
 
 			{/* PAGE BUTTONS ---------------------------------------- */}
-			<page-bs class='flexRow posAbs center spaceBet w100 boRadS marAuto'>
-				<button className='bgTransXs miw4 fsG boldM mih6 shaTop'>{'<'}</button>
-				<button className='bgTransXs fsG boldM miw4 mih6 shaTop'>{'>'}</button>
-			</page-bs>
+			{!isIntroduction && (
+				<page-bs class='flexRow posAbs center spaceBet w100 boRadS marAuto'>
+					<button className='bgTransXs miw4 fsG boldM mih6 shaTop'>{'<'}</button>
+					<button className='bgTransXs fsG boldM miw4 mih6 shaTop'>{'>'}</button>
+				</page-bs>
+			)}
 
 			{/* HEADER TEXTS ---------------------------------------- */}
-			<content-wrapper class={`${!fadedIn || fadedIn.includes('HeaderTexts') ? 'fadedIn' : ''} fadingIn textAli fPadHorS  padBotS  boRadXs posAbs botCen flexCol marAuto  w100 `}>
+			<content-wrapper class={`${!fadedIn || fadedIn.includes('HeaderTexts') ? 'fadedIn' : ''} fadingIn textAli fPadHorS  padBotS  boRadXs  posAbs botCen flexCol marAuto  w100 `}>
 				{/* CENTER IMAGE (LOGO) --------------------------------- */}
-				<img
-					className={`marAuto maskLow bor2White  posRel cover bgTrans shaWhite w35 ${thisIs === 'introduction' ? 'mw30 marBotM' : 'mw25'}  boRadS`}
-					src='https://png.pngtree.com/png-clipart/20211009/original/pngtree-letter-m-logo-png-design-vector-png-image_6841484.png'
-				/>
+				{!isIntroduction && (
+					<img
+						title='Logo'
+						className={`marAuto maskLow bor2White  posRel cover bgTrans shaWhite w35 ${isIntroduction ? 'mw30 marBotM' : 'mw25'}  boRadS`}
+						src='https://png.pngtree.com/png-clipart/20211009/original/pngtree-letter-m-logo-png-design-vector-png-image_6841484.png'
+					/>
+				)}
 				{currentSection ? (
-					<strong className='tDarkBlue tShaWhite xBold '>{currentTexts.title}</strong>
+					<strong className={`tDarkBlue  lh1 tShaWhiteXl xBold ${isLastVisible ? 'fs45' : 'fs35'}`}>{currentTexts.title}</strong>
 				) : (
 					<texts-wrapper class='block textAli'>
 						<span className='fs38 lh1-2 bold      '>Vítá Tě </span>

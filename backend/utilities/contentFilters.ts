@@ -1,22 +1,24 @@
-import { REDIS_KEYS } from '../../shared/constants';
-// ANNOTATION STRATEGY: External types -----------------------------------------
-import { Redis } from 'ioredis';
+import { REDIS_KEYS } from '../../shared/constants.ts';
 
 const { blocks, links, trusts, invites } = REDIS_KEYS;
-const redisKeys = { blocks, lin: links, tru: trusts, inv: invites };
-import { Privs } from '../../shared/types';
+const redisKeys: Record<string, string> = { blocks, lin: links, tru: trusts, inv: invites };
 
-let redis;
+let redis: any;
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Steps: inject note-only redis dependency so filter helpers stay pure and testable.
-const ioRedisSetter = c => (redis = c);
+const ioRedisSetter = (c: any): any => (redis = c);
+
+interface FilterCommentsProps {
+	items: any[];
+	blocks: Set<string | number>;
+}
 
 // FILTER COMMENTS ----------------------------------------------------------------------
 // Steps: build a lookup map, then for each comment: drop if author is blocked, else walk the reply chain upwards; if any ancestor
 // is blocked (or chain is corrupt), emit `{}` so blocked users cannot leak visibility through nested replies.
-const filterComments = ({ items, blocks }) => {
-	const commentMap = new Map(items.map(c => [c.id, c])),
-		filteredComms = [];
+const filterComments = ({ items, blocks }: FilterCommentsProps): any[] => {
+	const commentMap: Map<string | number, any> = new Map(items.map(c => [c.id, c])),
+		filteredComms: any[] = [];
 
 	for (const c of items) {
 		// AUTHOR GATE ---
@@ -35,14 +37,14 @@ const filterComments = ({ items, blocks }) => {
 
 		// ANCESTOR WALK ---
 		// Steps: traverse target pointers until root, tracking visited IDs to detect cycles.
-		let targetCommID = c.target,
-			chainBlocked = false,
-			reachedRoot = false,
-			visited = new Set();
+		let targetCommID: string | number | undefined = c.target,
+			chainBlocked: boolean = false,
+			reachedRoot: boolean = false,
+			visited: Set<string | number> = new Set();
 
 		while (targetCommID && !visited.has(targetCommID)) {
 			visited.add(targetCommID);
-			const targetComm = commentMap.get(targetCommID);
+			const targetComm: any = commentMap.get(targetCommID);
 
 			// PARENT MISSING ---
 			// Steps: if parent not in result set, assume chain is unverifiable; allow comment through
@@ -70,7 +72,7 @@ const filterComments = ({ items, blocks }) => {
 
 		// CYCLE DETECTION ---
 		// Steps: if loop exited because targetCommID was already visited, we have a cycle; treat as corrupt.
-		const hasCycle = targetCommID && visited.has(targetCommID) && !reachedRoot && !chainBlocked;
+		const hasCycle: boolean = !!(targetCommID && visited.has(targetCommID) && !reachedRoot && !chainBlocked);
 
 		// EMIT RESULT ---
 		filteredComms.push(chainBlocked || hasCycle ? {} : c);
@@ -78,25 +80,30 @@ const filterComments = ({ items, blocks }) => {
 	return filteredComms;
 };
 
+interface CheckRedisAccessProps {
+	items: any[];
+	userID: string | number;
+}
+
 // CHECK REDIS ACCESS ------------------------------------------------------------
 // Steps: pre-scan items to build membership queries (blocks/lin/tru/inv), run them in one pipeline, then re-map each item to
 // either the original object (permitted) or `{}` (redacted) with blocks taking absolute precedence.
-async function checkRedisAccess({ items, userID }) {
+async function checkRedisAccess({ items, userID }: CheckRedisAccessProps): Promise<any[]> {
 	if (!Array.isArray(items) || !items.length) return items;
 
 	// We use 'Set<string | number>' to handle potentially mixed ID types
-	const divided = { blocks: new Set(), lin: new Set(), tru: new Set(), inv: new Set() };
+	const divided: Record<string, Set<string | number>> = { blocks: new Set(), lin: new Set(), tru: new Set(), inv: new Set() };
 
-	const owned = new Set(),
-		pub = new Set(),
-		privMap = new Map();
+	const owned: Set<string | number> = new Set(),
+		pub: Set<string | number> = new Set(),
+		privMap: Map<string | number, { priv: string; id: string | number }> = new Map();
 
 	// REQUEST BUILD ---
 	// Steps: compute the minimal set membership checks required to decide access for the whole batch.
 	for (const item of items) {
 		if (!item) continue;
 		const { id, priv, owner } = item,
-			ownerId = owner ?? id;
+			ownerId: string | number = owner ?? id;
 
 		// ANNOTATION STRATEGY: Strict Comparisons -----------------------------
 		// We cast to String for safety if we are unsure, but if types are aligned we can compare directly.
@@ -117,17 +124,17 @@ async function checkRedisAccess({ items, userID }) {
 
 	// PIPELINE MEMBERSHIP ---
 	// Steps: call smismember once per permission set, then map results back into per-priv lookup maps.
-	const pipe = redis.pipeline();
+	const pipe: any = redis.pipeline();
 
-	const checks = Object.entries(divided)
+	const checks: { priv: string; ids: (string | number)[] }[] = Object.entries(divided)
 		.filter(([, s]) => s.size)
 		.map(([priv, set]) => ({ priv, ids: [...set] }));
 
 	checks.forEach(({ priv, ids }) => pipe.smismember(`${redisKeys[priv]}:${userID}`, ...ids));
-	const perms = { blocks: new Map(), lin: new Map(), tru: new Map(), inv: new Map() };
+	const perms: Record<string, Map<string | number, boolean>> = { blocks: new Map(), lin: new Map(), tru: new Map(), inv: new Map() };
 
 	if (checks.length) {
-		const results = await pipe.exec();
+		const results: any[] | null = await pipe.exec();
 		if (results) {
 			results.forEach(([, vals], i) => {
 				if (Array.isArray(vals)) {
@@ -144,12 +151,12 @@ async function checkRedisAccess({ items, userID }) {
 	return items.map(item => {
 		if (!item) return {};
 		const { id, priv, owner } = item,
-			ownerId = owner ?? id;
+			ownerId: string | number = owner ?? id;
 		// Allow if owned OR (public AND not blocked)
 		if (owned.has(id) || ((!priv || priv === 'pub' || pub.has(id)) && !perms.blocks.get(ownerId))) return item;
 		if (perms.blocks.get(ownerId)) return {};
 
-		const info = privMap.get(id);
+		const info: { priv: string; id: string | number } | undefined = privMap.get(id);
 		return info && perms[info.priv].get(info.id) ? item : {};
 	});
 }

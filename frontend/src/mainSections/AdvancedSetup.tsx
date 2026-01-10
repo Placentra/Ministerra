@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { getPasswordStrengthScore } from '../../../shared/utilities';
+import { getPasswordStrengthScore } from '../../../shared/utilities.ts';
 import Personals from '../comp/Personals';
 import { emailCheck } from '../variables';
 import { REVERT_EMAIL_DAYS } from '../../../shared/constants';

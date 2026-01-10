@@ -44,7 +44,8 @@ const LOG_DIRS = {
 const FEATURES = {
 	consoleColors: process.env.LOG_CONSOLE_COLORS !== '0',
 	httpToConsole: process.env.LOG_HTTP_STDOUT === '1',
-	captureCallsite: process.env.LOG_INCLUDE_CALLSITE !== '0',
+	// Disable expensive callsite capture by default (enable via '1' if needed for debugging)
+	captureCallsite: process.env.LOG_INCLUDE_CALLSITE === '1',
 };
 
 const SENSITIVE_KEYS = new Set(['email', 'newEmail', 'pass', 'print', 'newPass', 'authorization', 'cookie', 'cookies', 'authtoken']);
@@ -62,11 +63,11 @@ winston.addColors(LEVEL_COLORS);
 // Derives a stable client IP from express request headers/socket.
 // Used for auditability and correlating abusive traffic; best-effort only (can be spoofed via x-forwarded-for).
 // Steps: prefer x-forwarded-for first hop, otherwise fall back to req.ip or remoteAddress, and strip ::ffff: prefix for IPv4-mapped addresses.
-export function getClientIp(req) {
+export function getClientIp(req: any): string | undefined {
 	if (!req) return undefined;
-	const forwarded = req.headers?.['x-forwarded-for'];
+	const forwarded: string | string[] | undefined = req.headers?.['x-forwarded-for'];
 	if (forwarded)
-		return forwarded
+		return (Array.isArray(forwarded) ? forwarded[0] : forwarded)
 			.split(',')[0]
 			.trim()
 			.replace(/^::ffff:/, '');
@@ -77,7 +78,7 @@ export function getClientIp(req) {
 // Converts Error instances (and nested causes) into plain JSON-safe objects.
 // Ensures we don't leak sensitive keys into logs while preserving debugging context.
 // Steps: pull canonical fields (name/message/stack/code/status), recurse into cause, then copy enumerable fields except sensitive keys.
-export function serializeError(err) {
+export function serializeError(err: any): any {
 	if (!err || typeof err !== 'object') return { message: String(err) };
 	const serialized: any = {
 		name: err.name || 'Error',
@@ -97,7 +98,7 @@ export function serializeError(err) {
 // Redacts sensitive keys, truncates large values, and prevents circular references.
 // This is the last line of defense before log emission to keep payloads safe + bounded.
 // Steps: cap depth, detect circulars, normalize special types (Date/Error/Buffer), then sanitize arrays/objects with size caps and key redaction.
-export function sanitize(value, depth = 0, seen = new WeakSet()) {
+export function sanitize(value: any, depth: number = 0, seen: WeakSet<any> = new WeakSet()): any {
 	if (depth > 4) return '[MaxDepth]';
 	if (value === null || value === undefined) return value;
 	if (typeof value === 'function') return `[Function: ${value.name || 'anonymous'}]`;
@@ -115,7 +116,7 @@ export function sanitize(value, depth = 0, seen = new WeakSet()) {
 		return value.slice(0, 25).map(i => sanitize(i, depth + 1, seen));
 	}
 
-	const output = {};
+	const output: Record<string, any> = {};
 	for (const key of Object.keys(value).slice(0, 50)) {
 		if (SENSITIVE_KEYS.has(key.toLowerCase())) output[key] = '[REDACTED]';
 		else output[key] = sanitize(value[key], depth + 1, seen);
@@ -127,7 +128,7 @@ export function sanitize(value, depth = 0, seen = new WeakSet()) {
 // Normalizes request fields into a compact object for structured logging.
 // `includeBody` is intentionally opt-in to reduce PII risk and payload size.
 // Steps: extract method/path/requestId/userId/ip, optionally include sanitized body, return null if req is missing.
-export function extractRequestDetails(req, { includeBody = false } = {}) {
+export function extractRequestDetails(req: any, { includeBody = false }: { includeBody?: boolean } = {}): any {
 	if (!req) return null;
 	const details: any = {
 		method: req.method,
@@ -143,11 +144,11 @@ export function extractRequestDetails(req, { includeBody = false } = {}) {
 // DEDUPLICATION CHECK ---
 // Prevents "log storms" when the same error repeats rapidly (e.g., downstream outage).
 // Emits first few occurrences, then suppresses and finally emits a summary line.
-const dedupCache = new LRUCache<string, any>({ max: 1000, ttl: 10000 });
-function checkDeduplication(level, message, meta, emitCallback) {
+const dedupCache: LRUCache<string, any> = new LRUCache<string, any>({ max: 1000, ttl: 10000 });
+function checkDeduplication(level: string, message: string, meta: any, emitCallback: (l: string, m: string, ex: any) => void): boolean {
 	if (level !== 'error' && level !== 'alert') return true;
 
-	let sig = `${level}:${message}`;
+	let sig: string = `${level}:${message}`;
 	if (meta?.error?.stack) sig += `:${meta.error.stack.split('\n')[1] || ''}`;
 	else if (meta?.module) sig += `:${meta.module}`;
 
@@ -162,7 +163,7 @@ function checkDeduplication(level, message, meta, emitCallback) {
 
 	if (!entry.timer) {
 		entry.timer = setTimeout(() => {
-			const e = dedupCache.get(sig);
+			const e: any = dedupCache.get(sig);
 			if (e && e.count > 5) {
 				emitCallback(e.level, `... ${e.count - 5} identical logs suppressed ...`, { ...e.meta, dedup_count: e.count - 5 });
 			}
@@ -176,22 +177,22 @@ function checkDeduplication(level, message, meta, emitCallback) {
 // Captures an approximate source location (file:line) for logs that didn't supply one.
 // Skips node internals + node_modules + this logger file to avoid noisy/pointless locations.
 // Steps: temporarily override stack trace formatter, scan frames until a non-internal location is found, then normalize to a workspace-relative file path.
-function captureCallSite() {
+function captureCallSite(): { file: string; line: number | null } | null {
 	if (!FEATURES.captureCallsite) return null;
-	const original = Error.prepareStackTrace;
+	const original: any = Error.prepareStackTrace;
 	try {
 		Error.prepareStackTrace = (_, stack) => stack;
-		const stack = new Error().stack;
+		const stack: any = new Error().stack;
 		if (!Array.isArray(stack)) return null;
 
 		for (const frame of stack) {
-			const file = frame.getFileName();
-			if (!file || file.startsWith('node:') || file.includes('node_modules') || file.includes('handlers/loggers') || file.includes('logging/index')) continue;
+			const file: string | null = frame.getFileName();
+			if (!file || file.startsWith('node:') || file.includes('node_modules') || file.includes('handlers/loggers.ts') || file.includes('logging/index')) continue;
 
 			// Clean path logic
-			let clean = file.replace(/^file:\/\//, '').replace(/\\/g, '/');
+			let clean: string = file.replace(/^file:\/\//, '').replace(/\\/g, '/');
 			try {
-				const relative = path.relative(process.cwd(), clean).replace(/\\/g, '/');
+				const relative: string = path.relative(process.cwd(), clean).replace(/\\/g, '/');
 				if (!relative.startsWith('..') && !path.isAbsolute(relative)) clean = relative;
 			} catch {}
 
@@ -236,21 +237,21 @@ const baseFormat = winston.format.combine(
 // CONSOLE EXTRA META ---
 // Creates a compact "key=value" string for a selected subset of frequently useful fields.
 // Keeps console logs readable without dumping the full structured payload.
-function formatConsoleExtraMeta(info) {
-	const extras = {};
+function formatConsoleExtraMeta(info: any): string {
+	const extras: Record<string, any> = {};
 	for (const key of ['task', 'mode', 'name', 'sql', 'paramsCount', 'paramsSnippet', 'durationMs', 'rowCount', 'affectedRows', 'insertId', 'changedRows', 'route', 'bodySnippet']) {
 		if (info?.[key] !== undefined) extras[key] = info[key];
 	}
-	const keys = Object.keys(extras);
+	const keys: string[] = Object.keys(extras);
 	if (!keys.length) return '';
 	try {
 		// Print as key=value pairs (no JSON braces that look like "extra brackets").
-		const parts = keys.map(key => {
-			const value = sanitize(extras[key]);
+		const parts: string[] = keys.map(key => {
+			const value: any = sanitize(extras[key]);
 			if (value == null) return `${key}=${String(value)}`;
 			if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return `${key}=${String(value)}`;
-			const raw = stringify(value);
-			const compact = raw.length > 220 ? `${raw.slice(0, 220)}…` : raw;
+			const raw: string = stringify(value) || '';
+			const compact: string = raw.length > 220 ? `${raw.slice(0, 220)}…` : raw;
 			return `${key}=${compact}`;
 		});
 		return ` ${parts.join(' ')}`;

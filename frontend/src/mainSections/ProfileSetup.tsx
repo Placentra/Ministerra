@@ -1,12 +1,13 @@
 import Basics from '../comp/Basics';
 import ImageCropper from '../comp/ImageCropper';
-import FavouriteExpertTopics from '../comp/FavexAreas';
+import FavouriteExpertTopics from '../comp/FavouriteExpertTopics';
 import Groups from '../comp/Groups';
 import Indicators from '../comp/Indicators';
 import Personals from '../comp/Personals';
 import LocationPicker from '../comp/LocationPicker';
 import HeaderImage from '../comp/HeaderImage';
-import { useEffect, useRef } from 'react';
+import Welcome from '../comp/Welcome';
+import { useLayoutEffect, useRef } from 'react';
 import BsDynamic from '../comp/BsDynamic';
 import { MAX_CHARS } from '../../../shared/constants';
 
@@ -23,8 +24,9 @@ const informTexts = {
 	addFavs: 'Zadej alespoň 2 oblíbená témata',
 };
 
-const components = { Personals: Personals, Cities: LocationPicker, Indis: Indicators, Basics: Basics, Favex: FavouriteExpertTopics, Groups: Groups, Picture: ImageCropper };
+const components = { Welcome: Welcome, Personals: Personals, Cities: LocationPicker, Indis: Indicators, Basics: Basics, Favex: FavouriteExpertTopics, Groups: Groups, Picture: ImageCropper };
 const bigButtonSrc = {
+	Welcome: 'Pokračovat k osobním údajům',
 	Personals: 'K nastavení měst',
 	Cities: 'K osobnostním indikátorům',
 	Indis: 'K progresivním tématům',
@@ -41,12 +43,18 @@ const ProfileSetup = props => {
 	const scrollTarget = useRef(null);
 
 	// AUTO SCROLL ON SECTION CHANGE ------------------------------------------
-	useEffect(() => {
-		isIntroduction && window.scrollTo({ top: scrollTarget.current.getBoundingClientRect().top + window.scrollY, behavior: 'smooth' });
-	}, [curSection]);
+	// Use requestAnimationFrame to ensure DOM has updated before scrolling
+	useLayoutEffect(() => {
+		if (!isIntroduction) return;
+		requestAnimationFrame(() => {
+			if (scrollTarget.current) {
+				scrollTarget.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			}
+		});
+	}, [curSection, isIntroduction]);
 
 	return (
-		<profile-setup class='w100   posRel block   boRadL noBackground'>
+		<profile-setup class='w100 posRel block   boRadL bgTrans'>
 			{!isIntroduction && <span className='xBold  inlineBlock marBotXl  borRed padVerXs tDarkBlue textSha fs30'>{'Základní nastavení'}</span>}
 			{visibleSections.map((name, index) => {
 				const SectionComponent = components[name];
@@ -56,24 +64,25 @@ const ProfileSetup = props => {
 					<section-wrapper
 						key={name}
 						ref={isLastVisible ? scrollTarget : null}
-						class={`${!isIntroduction || !isLastVisible ? 'marBotXxl' : 'hvh100 mihvh100'} 
+						class={`${!isIntroduction || !isLastVisible ? 'marBotXxl mhvh100' : 'hvh100  mhvh100 mihvh100'} 
 						${!isIntroduction && index === 0 ? 'padTopS ' : ''} 
-						flexCol bgTrans posRel  `}>
+						flexCol  posRel  shaTop`}>
 						{/* HEADER IMAGE ---------------------------------------- */}
-						{isIntroduction && <HeaderImage isLastVisible={isLastVisible} thisIs={isIntroduction ? 'introduction' : 'default'} currentSection={name} />}
+						<blue-divider class={` hr2 borTop block bInsetBlueTopXl borTop bgTrans  w100  mw120   marAuto   `} />
+						{isIntroduction && <HeaderImage isIntroduction={isIntroduction} isLastVisible={isLastVisible} currentSection={name} />}
 
-						<spacing-wrapper class='flexCol  spaceAro h100 fPadHorXs posRel'>
+						<spacing-wrapper class='flexCol fPadHorXxs padBotS  spaceAro h100   posRel'>
 							{/* SECTION COMPONENT ---------------------------------------- */}
 							<SectionComponent {...props} />
 							{isIntroduction && isLastVisible && (
-								<submit-and-errors class='marTopM'>
+								<submit-and-errors class=''>
 									{/* ERROR MESSAGES ---------------------------------------- */}
 									{inform.length > 0 && (
 										<inform-messages class=' block'>
 											{(() => {
 												const actualWarnings = Object.keys(informTexts).filter(warn => inform.includes(warn));
 												return actualWarnings.map((warning, index) => (
-													<span key={warning} className='tRed marRigXs xBold fs9 marBotXxs marTopS lh1 inlineBlock aliCen'>
+													<span key={warning} className='tRed marRigXs xBold fs16  marBotXxs marTopS lh1 inlineBlock aliCen'>
 														{`${index > 0 ? ' + ' : ''}${informTexts[warning]}`}
 													</span>
 												));
@@ -90,11 +99,11 @@ const ProfileSetup = props => {
 												: inform.includes('Request throttled')
 												? 'Chyba serveru, opakuj za 10 sekund'
 												: inform.length > 0
-												? 'Oprav nedostatky výše'
+												? 'Oprav nedostatky'
 												: `${bigButtonSrc[name]} ${index < Object.keys(bigButtonSrc).length - 1 ? `(${index + 2}/${Object.keys(bigButtonSrc).length})` : ''}`
 										}
 										onClick={() => superMan('bigButton')}
-										className={`${inform.length > 0 ? ` shaStrong ${inform.includes('finalizing') ? 'bDarkGreen' : 'bRed'}` : ' bDarkGreen shaStrong'} boRadM padVerM hover`}
+										className={`${inform.length > 0 ? ` shaStrong ${inform.includes('finalizing') ? 'bDarkGreen' : 'bRed'}` : ' bGreen shaStrong'} boRadXs padVerS bHover`}
 									/>
 								</submit-and-errors>
 							)}
@@ -111,6 +120,8 @@ const ProfileSetup = props => {
 						<span className='fs7 tGrey inlineBlock'>Dosažen limit: {MAX_CHARS.userShortDesc} znaků</span>
 					)}
 					<textarea
+						title='Krátké představení'
+						placeholder='Pověz ostatním proč by se s tebou měli chtít potkat...'
 						className='textArea border boRadM bgTransXs w100 shaBlue boRadM padAllM textAli fsB'
 						value={data.shortDesc || ''}
 						maxLength={MAX_CHARS.userShortDesc}

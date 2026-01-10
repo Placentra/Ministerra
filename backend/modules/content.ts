@@ -1,6 +1,6 @@
-import { Sql, Catcher } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../shared/constants';
+import { Sql, Catcher } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { REDIS_KEYS } from '../../shared/constants.ts';
 
 let redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------

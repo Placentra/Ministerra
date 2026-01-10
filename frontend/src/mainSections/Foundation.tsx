@@ -98,7 +98,7 @@ function Foundation() {
 
 	// JXX RENDER -----------------------------------------------
 	return (
-		<foundation-comp class={`fadingIn ${fadedIn.includes('Foundation') ? 'fadedIn' : ''} block w100  mihvh100 bInsetBlueDark`}>
+		<foundation-comp class={`fadingIn ${fadedIn.includes('Foundation') ? 'fadedIn' : ''} block w100  h100 ${brain.user.id ? 'bInsetBlueDark' : ''}`}>
 			<globalContext.Provider value={{ brain, isMobile, nowAt, setMenuView, setFadedIn, logOut, menuView }}>
 				<LogoAndMenu {...JSXProps} location={location} setFadedIn={setFadedIn} />
 				{brain.user.id && (

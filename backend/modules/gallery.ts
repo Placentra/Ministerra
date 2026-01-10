@@ -1,7 +1,16 @@
-import { Sql, Catcher } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
+import { Sql, Catcher } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
 import { checkRedisAccess } from '../utilities/contentFilters';
-import { USER_MINI_KEYS } from '../../shared/constants';
+import { USER_MINI_KEYS } from '../../shared/constants.ts';
+
+interface GalleryRequest {
+	userID: string | number;
+	devIsStable?: boolean;
+	mode: 'blocks' | 'invitesIn' | 'invitesOut' | 'links' | 'requests' | 'trusts' | 'pastEvents' | 'events' | 'deletePast' | string;
+	sort?: string;
+	offset?: number | string;
+	eventID?: number | string;
+}
 
 // GALLERY MODULE ---------------------------------------------------------------
 // Provides paginated "lists" for the frontend (events, links, blocks, invites, etc.).
@@ -12,7 +21,7 @@ const eveCols =
 	',ST_X(e.coords) lat,ST_Y(e.coords) lng';
 const PAGE = 20;
 
-const sortMaps = {
+const sortMaps: Record<string, Record<string, string>> = {
 	links: {
 		recent: 'created DESC',
 		oldest: 'created',
@@ -28,10 +37,10 @@ const sortMaps = {
 // SUBQUERIES ------------------------------------------------------------------
 
 const blocksQ = `SELECT ${USER_MINI_KEYS.map(c => `u.${c}`).join(', ')},tab.created FROM users u JOIN user_blocks tab ON((tab.user=? AND tab.user2=u.id) OR(tab.user2=? AND tab.user=u.id))`;
-const invitesAggQ = dir => {
+const invitesAggQ = (dir: 'in' | 'out') => {
 	const isIn = dir === 'in',
 		where = isIn ? 'ei.user2=? AND ei.flag NOT IN("del","ref")' : 'ei.user=?';
-	return `WITH RankedInvites AS(SELECT ei.event,ei.created,ei.flag,u.id,u.first,u.last,u.imgVers,ROW_NUMBER()OVER(PARTITION BY ei.event ORDER BY ei.created DESC) rn FROM eve_invites ei JOIN users u ON u.id=${
+	return `WITH RankedInvites AS(SELECT ei.event,ei.created,ei.flag,u.id,u.first,u.last,u.imgVers,ROW_NUMBER()OVER(PARTITION BY ei.event ORDER BY ei.created DESC) rn FROM users u JOIN eve_invites ei ON u.id=${
 		isIn ? 'ei.user' : 'ei.user2'
 	} WHERE ${where}) SELECT ${eveCols},c.city,MAX(ei.created) created,COUNT(*) ${
 		isIn ? 'invitesInTotal' : 'invitesOutTotal'
@@ -40,7 +49,7 @@ const invitesAggQ = dir => {
 
 // QUERY BUILDER ---------------------------------------------------------------
 // Steps: map mode into a query template + order clause; keep this centralized so handler stays a thin orchestration layer.
-const buildQuery = ({ mode, sort, devIsStable }) => {
+const buildQuery = ({ mode, sort, devIsStable }: { mode: string; sort: string; devIsStable?: boolean }): { sql: string; order: string; orderNeedsUser?: boolean } => {
 	if (mode === 'blocks') return { sql: blocksQ, order: `tab.${sortMaps.created[sort] || sortMaps.created.recent}` };
 	if (mode === 'invitesIn') return { sql: invitesAggQ('in'), order: sortMaps.created[sort] || sortMaps.created.recent };
 	if (mode === 'invitesOut') return { sql: invitesAggQ('out'), order: sortMaps.created[sort] || sortMaps.created.recent };
@@ -70,8 +79,8 @@ const buildQuery = ({ mode, sort, devIsStable }) => {
 
 // PARAM BUILDER ---------------------------------------------------------------
 // Steps: build positional params to match buildQuery() output; keep the mapping explicit so it’s hard to break binding order accidentally.
-const buildParams = ({ mode, userID, sort, devIsStable, eventID }) => {
-	const params = [];
+const buildParams = ({ mode, userID, sort, devIsStable, eventID }: GalleryRequest): { params: any[] } => {
+	const params: any[] = [];
 	if (mode === 'deletePast') return { params: [userID, eventID] };
 	if (['links', 'requests', 'trusts'].includes(mode)) {
 		if (mode === 'requests') params.push(userID, userID);
@@ -80,7 +89,7 @@ const buildParams = ({ mode, userID, sort, devIsStable, eventID }) => {
 		params.push(userID, userID);
 		if (mode === 'requests') params.push(userID, userID);
 		if (mode === 'trusts') params.push(userID, userID);
-		if (mode === 'links' && ['incoming', 'outgoing'].includes(sort)) params.push(userID);
+		if (mode === 'links' && sort && ['incoming', 'outgoing'].includes(sort)) params.push(userID);
 		return { params };
 	}
 	if (mode === 'blocks') return { params: [userID, userID] };
@@ -97,13 +106,13 @@ const MAX_OFFSET = 10000;
 
 // GALLERY HANDLER -------------------------------------------------------------
 // Steps: validate offset, branch special modes (deletePast), build query+params, execute, apply privacy filter only for event lists that require it, then return rows.
-const Gallery = async (req, res) => {
+const Gallery = async (req: { body: GalleryRequest }, res: any) => {
 	const { userID, devIsStable, mode, sort, offset, eventID } = req.body || {};
 	const parsedOffset = Number(offset);
 	const safeOffset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? Math.min(parsedOffset, MAX_OFFSET) : 0;
 
 	logger.info('gallery.request', { userID, mode, sort, offset: safeOffset, eventID, devIsStable, __skipRateLimit: true });
-	let con;
+	let con: any;
 	try {
 		con = await Sql.getConnection();
 
@@ -117,21 +126,22 @@ const Gallery = async (req, res) => {
 
 		// BUILD & EXECUTE -----------------------------------------------------
 		// Steps: build query and params, append limit/offset, then execute; all template logic lives in helpers so this stays readable.
-		const { sql, order, orderNeedsUser } = buildQuery({ mode, sort, devIsStable });
-		const { params } = buildParams({ mode, userID, sort, devIsStable, eventID });
+		const { sql, order, orderNeedsUser } = buildQuery({ mode, sort: sort || '', devIsStable });
+		const { params } = buildParams({ mode, userID, sort: sort || '', devIsStable, eventID });
 
 		if (orderNeedsUser) params.push(userID);
 		const finalSql = `${sql} ORDER BY ${order} LIMIT ? OFFSET ?`;
 		params.push(PAGE, safeOffset);
 
 		logger.info('gallery.query', { sql: finalSql, params, __skipRateLimit: true });
-		let data = (await con.query(finalSql, params))[0];
+		const [data]: [any[], any] = await con.query(finalSql, params);
+		let filteredData = data;
 
 		// PRIVACIES FILTER ------------------------------------------------------
 		// Steps: apply redis privacy filter for future event lists; link/block/invite lists are already per-user and don’t need event privacy filtering.
-		if (!mode.startsWith('past') && !['links', 'requests', 'blocks', 'trusts', 'invitesIn', 'invitesOut'].includes(mode)) data = await checkRedisAccess({ items: data, userID });
-		return res.status(200).json(data);
-	} catch (error) {
+		if (!mode.startsWith('past') && !['links', 'requests', 'blocks', 'trusts', 'invitesIn', 'invitesOut'].includes(mode)) filteredData = await checkRedisAccess({ items: filteredData, userID });
+		return res.status(200).json(filteredData);
+	} catch (error: any) {
 		if (error.code === 'ER_DUP_ENTRY') return res.status(200).end();
 		logger.error('Gallery', { error, mode, userID });
 		return Catcher({ origin: 'Gallery', error, res });

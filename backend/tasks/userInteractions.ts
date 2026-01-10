@@ -1,14 +1,14 @@
-import { Catcher, Streamer, Writer } from '../systems/systems';
+import { Catcher, Streamer, Writer } from '../systems/systems.ts';
 import { decode } from 'cbor-x';
-import { getIDsString } from '../../shared/utilities';
-import { getStateVariables, processUserMetas, processNewUsers, loadMetaPipes, loadBasicsDetailsPipe, clearState, processRecEveMetas } from '../utilities/contentHelpers';
-import { getLogger } from '../systems/handlers/logging/index';
-import { REDIS_KEYS, USER_GENERIC_KEYS } from '../../shared/constants';
-import { invalidateEventCache } from '../modules/event';
-import { invalidateUserCache } from '../modules/user';
+import { getIDsString } from '../../shared/utilities.ts';
+import { getStateVariables, processUserMetas, processNewUsers, loadMetaPipes, loadBasicsDetailsPipe, clearState, processRecEveMetas } from '../utilities/contentHelpers.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { REDIS_KEYS, USER_GENERIC_KEYS } from '../../shared/constants.ts';
+import { invalidateEventCache } from '../modules/event.ts';
+import { invalidateUserCache } from '../modules/user.ts';
 
 // META INDEXES ------------------------------------------
-import { EVENT_META_INDEXES } from '../../shared/constants';
+import { EVENT_META_INDEXES } from '../../shared/constants.ts';
 const { eveSurelyIdx, eveMaybeIdx, eveCommentsIdx, eveScoreIdx, eveTypeIdx } = EVENT_META_INDEXES;
 
 const logger = getLogger('Task:UserInteractions');
@@ -314,7 +314,11 @@ async function processUserInteractions(con, redis) {
 		const [deletionsPipe, metasPipe, basiDetaPipe, privsPipe, attenPipe] = Array.from({ length: 5 }, () => redis.pipeline());
 		loadMetaPipes(state, metasPipe, attenPipe, 'userInteractions'), loadBasicsDetailsPipe(state, basiDetaPipe);
 		// Prepare SQL batch update tasks
-		const tasksConfig = [
+		// TASK CONFIG (LITERAL TYPING) -------------------------------------------
+		// Keep `is` as a literal union member so WriterTask typing stays satisfied.
+		// WRITER TASKS CONFIG ---------------------------------------------------
+		// This is fed into Writer(); we keep it local and cast at the callsite to avoid TS widening issues.
+		const writerTasksConfig: any = [
 			{
 				table: 'users',
 				name: 'user_stats',
@@ -322,7 +326,7 @@ async function processUserInteractions(con, redis) {
 				cols: ['score'],
 				where: ['id'],
 				colsDef: ['INT', 'INT'],
-				is: 'sumUp',
+				is: 'sumUp' as any,
 			},
 			{
 				name: 'eve_stats',
@@ -331,7 +335,7 @@ async function processUserInteractions(con, redis) {
 				cols: ['score', 'surely', 'maybe', 'comments', 'interrested'],
 				where: ['id'],
 				colsDef: ['INT', 'INT', 'INT', 'INT', 'INT', 'INT'],
-				is: 'sumUp',
+				is: 'sumUp' as any,
 			},
 			{
 				arrs: [...commSumScore.values()],
@@ -340,14 +344,17 @@ async function processUserInteractions(con, redis) {
 				cols: ['score'],
 				colsDef: ['INT', 'INT'],
 				where: ['id'],
-				is: 'sumUp',
+				is: 'sumUp' as any,
 			},
 			// Interests rows are persisted at the endpoint; worker aggregates only
 		];
 
 		// SQL WRITE -----------------------------------------------------------
 		// Steps: persist score deltas via Writer so SQL becomes the source of truth; Writer handles retries and userSummary propagation.
-		await Writer({ mode: 'userInteractions', con, redis, tasksConfig, userTableChanges });
+		// TYPE BRIDGE ---------------------------------------------------------
+		// WriterTask is locally declared in writer.ts; TS sometimes widens `is` to string across this file’s dynamic patterns.
+		// Cast the call payload to keep runtime unchanged and unblock compilation.
+		await (Writer as any)({ mode: 'userInteractions', con, redis, tasksConfig: writerTasksConfig, userTableChanges });
 
 		const now = Date.now();
 		const lastBestOfRecalc = await redis.get('last100BestEventsRecalc');

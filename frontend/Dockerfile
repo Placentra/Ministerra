@@ -1,6 +1,6 @@
 # Multi-stage build for frontend
 
-FROM node:24.12.0-bullseye AS builder
+FROM node:25.2.1-bullseye AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --no-audit --no-fund

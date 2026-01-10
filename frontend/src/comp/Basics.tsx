@@ -44,14 +44,20 @@ function Basics(props) {
 		<basics-comp class={` posRel flexCen      marAuto  w100 block`}>
 			{/* SETUP TITLE SECTION --- */}
 			{/* Displays introductory text when in setup mode for existing users */}
-			{nowAt === 'setup' && data.id && (
+			{nowAt === 'setup' && (
 				<title-texts>
-					<span className='xBold marBotXxs inlineBlock fs15'>Progresivní témata</span>
-					<p className='fs8 marBotS mw160 lh1 marAuto'>
-						Nejdůležitější témata, o kterých bychom se měli všichni bavit. Vyber si alespoň 3, ke kterým máš nejblíže a ideálně o nich i něco víš.
-					</p>
+					{/* SECTION DESCRIPTION (EXISTING USERS ONLY) --- */}
+					{data.id && (
+						<>
+							<span className='xBold marBotXxs inlineBlock fs15'>Progresivní témata</span>
+							<p className='fs8 marBotS mw160 lh1 marAuto'>
+								Nejdůležitější témata, o kterých bychom se měli všichni bavit. Vyber si alespoň 3, ke kterým máš nejblíže a ideálně o nich i něco víš.
+							</p>
+						</>
+					)}
+					{/* LIMIT WARNING (ALL USERS) --- */}
 					{Array.isArray(data.basics) && data.basics.length >= MAX_COUNTS.basics && (
-						<span className='fs7 tGrey inlineBlock'>
+						<span className='fs16 tRed xBold textSha marBotXs block'>
 							Dosažen limit: {MAX_COUNTS.basics}/{MAX_COUNTS.basics}
 						</span>
 					)}

@@ -1,5 +1,6 @@
-import { Sql, Catcher, Redis } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
+import { Sql, Catcher, Redis } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { generateIDString } from '../utilities/idGenerator';
 
 // REPORT MODULE ----------------------------------------------------------------
 // Persists abuse reports and rate-limits submissions via redis counter buckets.
@@ -47,11 +48,12 @@ const Report = async (req, res) => {
 		}
 
 		// PERSISTENCE ---------------------------------------------------------
-		// Steps: insert into SQL after rate limit check; logs include skipRateLimit to avoid recursion.
+		// Steps: generate Snowflake ID, insert into SQL after rate limit check; logs include skipRateLimit to avoid recursion.
 		con = await Sql.getConnection();
 		logger.info('report.create', { mode, target, userID, reason, severity, hasMessage: Boolean(message), __skipRateLimit: true });
-		const query = `INSERT INTO reports (type, target, user, reason, severity, message) VALUES (?, ?, ?, ?, ?, ?)`;
-		await con.execute(query, [mode, target, userID, reason, severity || 'medium', message]);
+		const reportID = generateIDString();
+		const query = `INSERT INTO reports (id, type, target, user, reason, severity, message) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+		await con.execute(query, [reportID, mode, target, userID, reason, severity || 'medium', message]);
 		res.status(200).end();
 	} catch (error) {
 		logger.error('Report', { error, mode, target, userID, reason, severity });

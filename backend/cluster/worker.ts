@@ -14,8 +14,10 @@ import { encode } from 'cbor-x';
 import { CONFIG, ENABLE_CBOR, MIN_MODE, DEBUG_LOG_ENABLED } from '../startup/config.ts';
 import { setupMiddleware } from '../startup/middleware.ts';
 import { Sql, Catcher, Socket, Redis } from '../systems/systems.ts';
-import { getLogger } from '../systems/handlers/logging/index.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
 import { reportSubsystemReady } from './readiness.ts';
+import { taskExecutionDurationHistogram, taskExecutionsTotal } from '../startup/metrics.ts';
+import { logSection, logStep, logSubsystemReady } from './startupLogger.ts';
 
 const workerLogger = getLogger('Worker');
 const shutdownLogger = getLogger('Shutdown');
@@ -24,7 +26,6 @@ const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const FORCE_SHUTDOWN_MS = Number(process.env.FORCE_SHUTDOWN_MS || (MIN_MODE ? 5000 : 30000));
 
 // WORKER THREAD MAP TYPES ------------------------------------------------------
-// NOTE: Type-only worker thread typings removed (minimal backend typing).
 const WORKER_THREAD_TYPES = { helper: 'helper', task: 'task' };
 const TASK_THREAD_NAMES = ['chatTasks', 'contentTasks', 'hourlyRecalc', 'dailyRecalc'];
 const taskThreadsInitialized = new Set<string>();
@@ -94,7 +95,13 @@ function createWorkerThread(workerId, taskName, isHelper, workers = null, worker
 		execArgv = ['--import', loaderPath, '--experimental-specifier-resolution=node'];
 	}
 
-	const worker = new Worker(entrypointPath, { execArgv, workerData: { workerId, taskName, isHelper } });
+	const worker = new Worker(entrypointPath, { execArgv, workerData: { workerId, taskName, isHelper }, stdout: true, stderr: true });
+
+	// WORKER THREAD STDIO --------------------------------------------------------
+	// Pipe raw worker output through without reformatting; keep logs owned by the worker.
+	worker.stdout?.on('data', data => process.stdout.write(data));
+	worker.stderr?.on('data', data => process.stderr.write(data));
+
 	worker.postMessage({ type: 'initialize', workerId, taskName, isHelper });
 
 	worker.on('message', msg => {
@@ -115,8 +122,17 @@ function createWorkerThread(workerId, taskName, isHelper, workers = null, worker
 					taskThreadsInitialized.add(taskName);
 					if (taskThreadsInitialized.size === TASK_THREAD_NAMES.length) {
 						reportSubsystemReady('TASK_THREADS');
-						workerLogger.info(`✓ All ${TASK_THREAD_NAMES.length} task threads ready`);
+						logSubsystemReady('Task Threads', `${TASK_THREAD_NAMES.length} threads active`);
 					}
+				}
+				break;
+			case 'task_metric':
+				// TASK METRICS IPC -----------------------------------------------------
+				// Worker threads send execution metrics; we update prom-client here.
+				if (msg.taskName && typeof msg.durationSeconds === 'number') {
+					const status = msg.success ? 'success' : 'failure';
+					taskExecutionDurationHistogram.observe({ task_name: msg.taskName, status }, msg.durationSeconds);
+					taskExecutionsTotal.inc({ task_name: msg.taskName, status });
 				}
 				break;
 			case 'error':
@@ -190,7 +206,7 @@ async function handleScaling(msg, workers, state) {
 	} else if (msg.type === 'scale_down' && state.helperCount > 0) {
 		const helperEntry = Array.from(workers.entries()).find(([, workerInfo]) => workerInfo.type === WORKER_THREAD_TYPES.helper);
 		if (helperEntry) {
-			const [id, info] = helperEntry;
+			const [id, info] = helperEntry as [string, any];
 			try {
 				workers.set(id, { ...info, terminating: true });
 				await info.worker.terminate();
@@ -215,6 +231,9 @@ async function handleScaling(msg, workers, state) {
 // Steps: create http server + app, enable CBOR if configured, install overload gate, setup middleware, attach error handler, attach sockets, spawn tasks if task worker, then listen.
 export async function initializeWorker() {
 	const workerId = process.env.WORKER_ID;
+	const isTaskWorker = workerId === CONFIG.TASK_WORKER_ID;
+
+	logSection(isTaskWorker ? 'Initializing Task Worker' : 'Initializing HTTP Worker');
 
 	const app = express();
 	const server = http.createServer(app);
@@ -223,6 +242,7 @@ export async function initializeWorker() {
 
 	httpServerRef = server;
 	workerThreadsRef = workers;
+	logStep('Express app created');
 
 	// TRACK SOCKETS FOR FAST SHUTDOWN ---
 	// Force-close all open sockets during shutdown so the process can exit quickly.
@@ -239,7 +259,9 @@ export async function initializeWorker() {
 			return res.status(503).set('Retry-After', '10').json({ error: 'taskWorkerOverloaded', message: 'High load, retry later.' });
 		next();
 	});
+	logStep('Setting up middleware');
 	setupMiddleware(app, backendDir);
+	logStep('Middleware configured');
 
 	// ERROR HANDLING ---
 	// Last-resort Express error handler. Must never throw; always returns a response if possible.
@@ -256,11 +278,15 @@ export async function initializeWorker() {
 		// SOCKET.IO SETUP ---
 		// In cluster mode, Socket.IO attaches to the shared HTTP server.
 		// In MIN_MODE, a dedicated socket-only port can be used.
-		if (!MIN_MODE) await Socket(server);
-		else {
+		logStep('Configuring Socket.IO', MIN_MODE ? 'dedicated port' : 'shared server');
+		if (!MIN_MODE) {
+			await Socket(server);
+		} else {
 			const sockPort = Number(process.env.SOCKET_PORT || Number(process.env.BE_PORT || 2208) + 1);
 			if (sockPort) {
-				(socketOnlyServerRef = http.createServer()).listen(sockPort, '0.0.0.0', () => workerLogger.info(`Socket-only server on ${sockPort}`));
+				(socketOnlyServerRef = http.createServer()).listen(sockPort, '0.0.0.0', () => {
+					logSubsystemReady('Socket.IO', `port ${sockPort}`);
+				});
 				await Socket(socketOnlyServerRef);
 				socketOnlyServerRef.on('connection', socket => {
 					sockets.add(socket);
@@ -271,7 +297,8 @@ export async function initializeWorker() {
 
 		// BACKGROUND TASKS ---
 		// Only the designated "Task Worker" runs background jobs.
-		if (state.workerId === CONFIG.TASK_WORKER_ID) {
+		if (isTaskWorker) {
+			logStep('Spawning task threads', TASK_THREAD_NAMES.join(', '));
 			for (const { id, taskName } of [
 				{ id: 'chatTasks', taskName: 'chatTasks' },
 				{ id: 'contentTasks', taskName: 'contentTasks' },
@@ -280,7 +307,6 @@ export async function initializeWorker() {
 			]) {
 				try {
 					workers.set(id, buildWorkerThreadInfo({ workerThread: createWorkerThread(id, taskName, false, workers), type: WORKER_THREAD_TYPES.task, taskName, lastPing: Date.now() }));
-					// DEBUG_LOG_ENABLED && workerLogger.info(`[Worker:${process.pid}] Created task: ${id}`);
 				} catch (e) {
 					workerLogger.error(`Failed creating task ${id}`, { error: e });
 					throw e;
@@ -291,7 +317,11 @@ export async function initializeWorker() {
 		// START SERVER ---
 		// Start listening only after middleware + optional sockets + optional tasks are initialized.
 		const port = Number(process.env.BE_PORT || 2208);
-		server.listen(port, '0.0.0.0', () => process.send?.({ type: 'worker_ready', workerId: state.workerId }));
+		logStep('Starting HTTP server', `port ${port}`);
+		server.listen(port, '0.0.0.0', () => {
+			logSubsystemReady('HTTP Server', `port ${port}`);
+			process.send?.({ type: 'worker_ready', workerId: state.workerId });
+		});
 	} catch (e) {
 		workerLogger.error('Worker initialization failed', { error: e, pid: process.pid });
 		process.exit(1);
@@ -309,11 +339,11 @@ export function gracefulShutdown(signal) {
 
 	const close = server => new Promise<void>(resolve => server?.close?.(() => resolve()) || resolve());
 	const killThreads = async () =>
-		Promise.all(Array.from((workerThreadsRef || new Map()).values()).map(async info => info.worker?.terminate?.().catch(e => console.error(`Terminating thread error: ${e.message}`))));
+		Promise.all(Array.from((workerThreadsRef || new Map()).values()).map(async (info: any) => info.worker?.terminate?.().catch(e => console.error(`Terminating thread error: ${e.message}`))));
 
 	// Force close active connections to allow fast restart
 	for (const socket of sockets) {
-		socket.destroy();
+		(socket as any).destroy();
 		sockets.delete(socket);
 	}
 

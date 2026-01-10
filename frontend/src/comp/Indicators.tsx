@@ -13,8 +13,7 @@ function Indicators(props) {
 	function man(inp) {
 		// MANAGER -----------------------------------------------------------------------------
 		let newIndis = [...(data.indis || [])];
-		if (nowAt === 'setup')
-			newIndis = newIndis.includes(inp) ? newIndis.filter(item => item !== inp) : newIndis.length >= MAX_COUNTS.indis ? newIndis : [...newIndis, inp];
+		if (nowAt === 'setup') newIndis = newIndis.includes(inp) ? newIndis.filter(item => item !== inp) : newIndis.length >= MAX_COUNTS.indis ? newIndis : [...newIndis, inp];
 		else if (inp === 'noneAll') newIndis = data.indis.length > 0 ? [] : avail.indis;
 		else {
 			if (invertButton === inp) {
@@ -32,14 +31,20 @@ function Indicators(props) {
 	}
 
 	return (
-		<persona-indicators class={`${nowAt === 'home' ? 'imw7 iw50 marAuto bPadVerS shaBot' : '  imw7 iw45 bPadVerS '} marAuto  posRel block w100   posRel`}>
+		<persona-indicators class={`${nowAt === 'home' ? 'imw7 iw60 marAuto bPadVerS shaBot' : '  imw8 iw50 bPadVerM '} marAuto  posRel block w100   posRel`}>
 			{/* TITLE TEXTS -------------------------------------------------------- */}
-			{nowAt === 'setup' && data.id && (
+			{nowAt === 'setup' && (
 				<title-texts>
-					<span className='xBold marBotXxs inlineBlock fs15'>{'Povahové indikátory'}</span>
-					<p className='fs8 marBotS mw160 lh1 marAuto'>{'Vyber si indikátory, které o tobě opravdu 100% platí a pomohou ti najít specifické uživatele s podobnými zájmy.'}</p>
+					{/* SECTION DESCRIPTION (EXISTING USERS ONLY) --- */}
+					{data.id && (
+						<>
+							<span className='xBold marBotXxs inlineBlock fs15'>{'Povahové indikátory'}</span>
+							<p className='fs8 marBotS mw160 lh1 marAuto'>{'Vyber si indikátory, které o tobě opravdu 100% platí a pomohou ti najít specifické uživatele s podobnými zájmy.'}</p>
+						</>
+					)}
+					{/* LIMIT WARNING (ALL USERS) --- */}
 					{Array.isArray(data.indis) && data.indis.length >= MAX_COUNTS.indis && (
-						<span className='fs7 tGrey inlineBlock'>
+						<span className='fs16 tRed xBold textSha marBotXs block'>
 							Dosažen limit: {MAX_COUNTS.indis}/{MAX_COUNTS.indis}
 						</span>
 					)}
@@ -59,10 +64,10 @@ function Indicators(props) {
 								data.indis?.includes(id) ? ' boRadXxs sideBors bInsetBlueTopXs2 borTop     zin1' : 'shaBlue zin2'
 							}  posRel grow bgTrans  bHover `}>
 							<img className='marBotXxxs posRel downTiny maskLowXs' src={`/icons/indicators/${id}.png`} alt='' />
-							<span className={`${data.indis?.includes(id) ? ' boldM   borBotLight' : 'boldM'} lh1 marBotXxxs textSha fs9 marVerXxs`}>
+							<span className={`${data.indis?.includes(id) ? ' boldM   borBotLight' : 'boldM'} lh1 marBotXxxs textSha fs13 marVerXxs`}>
 								{invertButton === id ? 'invert?' : value.label}
 							</span>
-							<span className='fs6 w90 lh1'> {nowAt !== 'home' ? value.longDesc : value.shortDesc}</span>
+							<span className='fs7 w90 lh1'> {nowAt !== 'home' ? value.longDesc : value.shortDesc}</span>
 						</button>
 					))}
 			</indicator-bs>

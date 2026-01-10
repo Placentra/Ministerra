@@ -1,4 +1,4 @@
-import { Catcher } from '../systems/systems';
+import { Catcher } from '../systems/systems.ts';
 
 // HOURLY RECALC ---------------------------------------------------------------
 // Steps: advance archive pointer, mark miss_arc for users whose archived chats received new messages, and set summary dot in redis.

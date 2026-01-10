@@ -1,5 +1,5 @@
-import { RETRIABLE_SQL_ERRORS } from '../../../shared/constants';
-import { getLogger } from './loggers';
+import { RETRIABLE_SQL_ERRORS } from '../../../shared/constants.ts';
+import { getLogger } from './loggers.ts';
 
 const logger = getLogger('Querer');
 
@@ -9,32 +9,40 @@ const logger = getLogger('Querer');
 // Single shared formatter used for:
 // - startup "plan" log
 // - failure log context
+interface QuerySummary {
+	name?: string;
+	sqlSnippet: string;
+	paramsSnippet: string;
+	rawSql: string;
+	rawParams: any;
+}
+
 // SUMMARIZE QUERY FOR LOGS -----------------------------------------------------
 // Returns a safe, bounded representation of a query object:
 // - trims SQL to a readable snippet
 // - redacts JWT/bearer-like params
 // - keeps rawSql/rawParams for actual execution
 // Steps: build log-only snippets while preserving raw values for execution; never log token-like secrets verbatim.
-function summarizeQueryForLogs(queryObj) {
-	const sql = typeof queryObj === 'string' ? queryObj : queryObj?.query;
-	const params = typeof queryObj === 'string' ? null : queryObj?.data;
-	const name = typeof queryObj === 'string' ? undefined : queryObj?.name;
+function summarizeQueryForLogs(queryObj: any): QuerySummary {
+	const sql: string = typeof queryObj === 'string' ? queryObj : queryObj?.query;
+	const params: any = typeof queryObj === 'string' ? null : queryObj?.data;
+	const name: string | undefined = typeof queryObj === 'string' ? undefined : queryObj?.name;
 
 	// SQL SNIPPET ---
-	const sqlSnippet = String(sql || '')
+	const sqlSnippet: string = String(sql || '')
 		.replace(/\s+/g, ' ')
 		.trim()
 		.slice(0, 600);
 
 	// PARAMS SNIPPET ---
-	const safeParam = value => {
+	const safeParam = (value: any): any => {
 		if (typeof value !== 'string') return value;
-		const trimmed = value.trim();
-		const looksLikeJwt = trimmed.split('.').length === 3 && trimmed.length > 40;
+		const trimmed: string = value.trim();
+		const looksLikeJwt: boolean = trimmed.split('.').length === 3 && trimmed.length > 40;
 		if (looksLikeJwt || trimmed.toLowerCase().startsWith('bearer ')) return '[REDACTED]';
 		return trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
 	};
-	const paramsSnippet =
+	const paramsSnippet: string =
 		params == null
 			? ''
 			: Array.isArray(params)
@@ -51,37 +59,47 @@ function summarizeQueryForLogs(queryObj) {
 
 // QUERY LIST FORMAT ------------------------------------------------------------
 // Print a compact "plan" for the whole batch so logs read like a book.
+interface QuererPlanProps {
+	task: string;
+	mode: string;
+	queries: any[];
+}
+
 // CREATE PLAN LOG --------------------------------------------------------------
 // Produces a multi-line overview of the batch (task/mode + numbered query snippets).
 // This is intentionally deterministic so repeated runs are easy to diff in logs.
 // Steps: summarize each query into a stable single-line entry so logs read like an execution plan.
-function createQuererPlanLog({ task, mode, queries }) {
-	const list = Array.isArray(queries) ? queries : [];
-	const header = `Querer running ${list.length} queries for task "${task}" in "${mode}" mode`;
-	const lines = list.map((queryObj, index) => {
-		const { name, sqlSnippet, paramsSnippet } = summarizeQueryForLogs(queryObj);
-		const namePrefix = name ? `${name}: ` : '';
+function createQuererPlanLog({ task, mode, queries }: QuererPlanProps): string {
+	const list: any[] = Array.isArray(queries) ? queries : [];
+	const header: string = `Querer running ${list.length} queries for task "${task}" in "${mode}" mode`;
+	const lines: string[] = list.map((queryObj, index) => {
+		const { name, sqlSnippet, paramsSnippet }: QuerySummary = summarizeQueryForLogs(queryObj);
+		const namePrefix: string = name ? `${name}: ` : '';
 		return `${index + 1}. ${namePrefix}${sqlSnippet}${paramsSnippet ? ` — [${paramsSnippet}]` : ''}`;
 	});
 	return [header, ...lines].join('\n');
 }
 
-// EXECUTE QUERIES ---
-// Modes:
-// - 'atomic_seq': run queries sequentially within a single transaction
-// - 'non_atomic': run queries individually with autocommit; collect per-query failures
+interface QuererProps {
+	queries: any[];
+	con: any;
+	task: string;
+	maxRetries?: number;
+	mode?: 'atomic_seq' | 'non_atomic';
+}
+
 // QUERER (BATCH EXECUTOR) ------------------------------------------------------
 // Executes a list of SQL statements with optional transaction boundaries and retry logic.
 // Retries are only attempted for known retriable error codes (see variables.js).
 // Steps: log plan, run either (1) transactional sequential execution or (2) per-query non-atomic execution, then retry only on known retriable errors.
-export async function Querer({ queries, con, task, maxRetries = 3, mode = 'atomic_seq' }) {
+export async function Querer({ queries, con, task, maxRetries = 3, mode = 'atomic_seq' }: QuererProps): Promise<Record<string, boolean>> {
 	logger.info(createQuererPlanLog({ task, mode, queries }));
 
 	if (!['atomic_seq', 'non_atomic'].includes(mode)) throw new Error(`Invalid mode: ${mode}`);
 
-	const isRetriableError = error => RETRIABLE_SQL_ERRORS.includes(error.code);
-	const executeQuery = async queryObj => {
-		const { name, sqlSnippet, paramsSnippet, rawSql, rawParams } = summarizeQueryForLogs(queryObj);
+	const isRetriableError = (error: any): boolean => RETRIABLE_SQL_ERRORS.includes(error.code);
+	const executeQuery = async (queryObj: any): Promise<any> => {
+		const { name, sqlSnippet, paramsSnippet, rawSql, rawParams }: QuerySummary = summarizeQueryForLogs(queryObj);
 
 		// QUERY EXECUTION ---------------------------------------------------------
 		// Steps: execute rawSql/rawParams, log bounded context on failure, then bubble to outer retry loop.
@@ -89,17 +107,17 @@ export async function Querer({ queries, con, task, maxRetries = 3, mode = 'atomi
 		try {
 			if (typeof queryObj === 'string') return await con.execute(rawSql);
 			return await con.execute(rawSql, rawParams || []);
-		} catch (error) {
+		} catch (error: any) {
 			logger.alert('querer.query_failed', { task, name, sql: sqlSnippet, paramsSnippet, error, __skipRateLimit: true });
 			throw error;
 		}
 	};
 
-	let inTransaction = false;
+	let inTransaction: boolean = false;
 
 	// RETRY LOOP ---------------------------------------------------------------
 	// Steps: retry only on known retriable errors; transactional mode retries the whole batch, non-atomic mode returns per-query failure flags.
-	for (let attempt = 0; attempt < maxRetries; attempt++) {
+	for (let attempt: number = 0; attempt < maxRetries; attempt++) {
 		try {
 			if (mode === 'atomic_seq') {
 				await con.beginTransaction();
@@ -109,17 +127,17 @@ export async function Querer({ queries, con, task, maxRetries = 3, mode = 'atomi
 				inTransaction = false;
 				return {};
 			} else if (mode === 'non_atomic') {
-				const failed = {};
+				const failed: Record<string, boolean> = {};
 				for (const queryObj of queries) {
 					try {
 						await executeQuery(queryObj);
-					} catch (error) {
+					} catch (error: any) {
 						failed[queryObj.name || 'unknown'] = isRetriableError(error);
 					}
 				}
 				return failed;
 			}
-		} catch (error) {
+		} catch (error: any) {
 			try {
 				if (inTransaction) {
 					await con.rollback();

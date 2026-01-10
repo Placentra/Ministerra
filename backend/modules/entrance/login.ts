@@ -1,9 +1,9 @@
 import bcrypt from 'bcrypt';
-import { jwtQuickies } from '../jwtokens';
-import { getAuth } from '../../utilities/helpers/auth';
-import { registerDevice } from '../../utilities/helpers/device';
-import { getLogger } from '../../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../../shared/constants';
+import { jwtQuickies } from '../jwtokens.ts';
+import { getAuth } from '../../utilities/helpers/auth.ts';
+import { registerDevice } from '../../utilities/helpers/device.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
 
 const logger = getLogger('Entrance:Login');
 let redis, socketIO;
@@ -71,7 +71,7 @@ export async function updateLoginsTable(req, userID, con) {
 }
 
 // LOGIN ------------------------------------------------------------------------
-// Steps: validate print + credentials, branch on status (notVerified/unintroduced/frozen), register device when needed, then return jwtData + auth payload for the dispatcher to mint cookies/tokens.
+// Steps: validate print + credentials, branch on status (verifyMail/unintroduced/frozen), register device when needed, then return jwtData + auth payload for the dispatcher to mint cookies/tokens.
 export async function login({ email, pass, print }, con) {
 	if (print?.length < 8 || print?.length > 128) throw new Error('invalidDevicePrint');
 
@@ -91,7 +91,7 @@ export async function login({ email, pass, print }, con) {
 
 	// STATUS BRANCHES ---------------------------------------------------------
 	// Steps: return sentinel payloads so the frontend can enter verify/intro flows without full auth issuance.
-	if (u.status === 'notVerified') return { payload: 'verifyMail' };
+	if (u.status === 'verifyMail') return { payload: 'verifyMail' };
 
 	if (frozen) {
 		await con.execute(`UPDATE fro_users SET flag = "unf" WHERE id = ?`, [u.id]);

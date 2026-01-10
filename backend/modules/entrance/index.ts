@@ -1,14 +1,12 @@
-import { Sql, Catcher } from '../../systems/systems';
-import { jwtCreate, jwtQuickies } from '../jwtokens';
+import { Sql, Catcher } from '../../systems/systems.ts';
+import { jwtCreate, jwtQuickies } from '../jwtokens.ts';
 
 // SUBMODULE IMPORTS -----------------------------------------------------------
-import { register, resendMail, setRedis as setRegisterRedis } from './register';
-import { login, logoutDevice, logoutEverywhere, updateLoginsTable, setRedis as setLoginRedis, setSocketIO as setLoginSocketIO } from './login';
-import { forgotPass, changeCredentials, revertEmailChange } from './credentials';
-import { verifyMail, verifyNewMail, setRedis as setVerificationRedis } from './verification';
-import { delFreezeUser, setRedis as setAccountRedis } from './accountActions';
-
-// MODULE STATE ----------------------------------------------------------------
+import { register, resendMail, setRedis as setRegisterRedis } from './register.ts';
+import { login, logoutDevice, logoutEverywhere, updateLoginsTable, setRedis as setLoginRedis, setSocketIO as setLoginSocketIO } from './login.ts';
+import { forgotPass, changeCredentials, revertEmailChange } from './credentials.ts';
+import { verifyMail, verifyNewMail, setRedis as setVerificationRedis } from './verification.ts';
+import { delFreezeUser, setRedis as setAccountRedis } from './accountActions.ts';
 
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Steps: inject shared redis into submodules so each stays testable and we avoid importing a singleton directly.
@@ -25,8 +23,7 @@ const socketSetter = io => {
 	setLoginSocketIO(io);
 };
 
-// PROCESSORS AND PROPS VALIDATIONS --------------------------------------------
-
+// PROCESSORS --------------------------------------------
 const processors = {
 	register,
 	resendMail,
@@ -45,6 +42,7 @@ const processors = {
 	revertEmailChange,
 };
 
+// PROPS VALIDATIONS ---------------------------------
 const propsAreInvalid = {
 	changeBoth: ({ pass, newPass, newEmail, is }) => (is !== 'changeBoth' ? !pass || !newEmail : !pass || !newPass),
 	changePass: ({ pass, newPass, is }) => (is !== 'changePass' ? !pass : !pass || !newPass),
@@ -64,10 +62,6 @@ const propsAreInvalid = {
 	default: () => true,
 };
 
-// ENTRANCE ROUTER -------------------------------------------------------------
-
-// ENTRANCE ---
-// Central dispatcher that validates mode payloads, runs processor + issues JWTs.
 // ENTRANCE DISPATCHER ----------------------------------------------------------
 // Steps: optionally verify email-link auth token, validate props for (mode||is), run processor under one SQL connection, then mint tokens / clear cookies / redirect as requested.
 async function Entrance(req, res) {

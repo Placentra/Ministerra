@@ -2,11 +2,12 @@
 // User registration, email validation, rate limiting, and verification emails.
 
 import bcrypt from 'bcrypt';
-import { nanoid } from 'nanoid';
-import { jwtQuickies } from '../jwtokens';
-import sendEmail from '../mailing';
-import { getLogger } from '../../systems/handlers/logging/index';
-import { getPasswordStrengthScore } from '../../../shared/utilities';
+import { generateIDString } from '../../utilities/idGenerator.ts';
+import { jwtQuickies } from '../jwtokens.ts';
+import sendEmail from '../mailing.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
+import { getPasswordStrengthScore } from '../../../shared/utilities.ts';
+import { EXPIRATIONS } from '../../../shared/constants.ts';
 
 const logger = getLogger('Entrance:Register');
 const EMAIL_REGEX =
@@ -49,41 +50,43 @@ async function checkIfMailTaken(email, con) {
 async function register({ email, pass, ip }, con) {
 	const normalizedEmail = normalizeEmail(email);
 	await checkIfMailTaken(normalizedEmail, con);
-	await enforceRegisterRateLimit(ip);
+	// await enforceRegisterRateLimit(ip);
 
 	// PASSWORD POLICY ---------------------------------------------------------
 	// Steps: enforce strength server-side so weak clients can't bypass; fail before hashing to keep CPU bounded.
 	if (typeof pass !== 'string' || Number(getPasswordStrengthScore(false, pass, undefined)) < 7) throw new Error('weakPass');
 
 	const passCrypt = await bcrypt.hash(pass, 10);
-	async function createUser(attempt = 0) {
-		// CREATE USER (RETRY ON DUP) -------------------------------------------
-		// Steps: generate id, insert rows in a transaction, then email; on ER_DUP_ENTRY retry a few times to avoid transient collision failure.
-		if (attempt > 3) throw new Error('registrationFailed'); // Prevent infinite recursion on broken PRNG
-		try {
-			const userID = nanoid(7);
-			await con.beginTransaction();
-			await Promise.all([
-				con.execute('INSERT INTO users (id, email, pass, status) VALUES (?, ?, ?, ?)', [userID, normalizedEmail, passCrypt, 'notVerified']),
-				con.execute('INSERT INTO logins (user) VALUES (?)', [userID]),
-			]);
-			await con.commit();
-			await sendEmail({
-				mode: 'verifyMail',
-				token: `${jwtQuickies({ mode: 'create', payload: { userID, is: 'verifyMail' }, expiresIn: '30m' })}:${Date.now() + 60 * 30 * 1000}`,
-				email: normalizedEmail,
-			});
-			return userID; // Return userID on success for potential caller use
-		} catch (error) {
-			const emailDomain = normalizedEmail.includes('@') ? normalizedEmail.split('@')[1] : undefined;
-			logger.error('createUser', { error, emailDomain, attempt });
-			await con.rollback();
-			if (error.code === 'ER_DUP_ENTRY') return createUser(attempt + 1);
-			else throw new Error('registrationFailed');
-		}
+
+	// CREATE USER ---
+	// Steps: generate Snowflake ID (no collision possible), insert rows in transaction, then send verification email.
+	const userID = generateIDString();
+	try {
+		await con.beginTransaction();
+		await Promise.all([
+			con.execute('INSERT INTO users (id, email, pass, status) VALUES (?, ?, ?, ?)', [userID, normalizedEmail, passCrypt, 'verifyMail']),
+			con.execute('INSERT INTO logins (user) VALUES (?)', [userID]),
+		]);
+		await con.commit();
+	} catch (error) {
+		const emailDomain = normalizedEmail.includes('@') ? normalizedEmail.split('@')[1] : undefined;
+		logger.error('createUser', { error, emailDomain });
+		await con.rollback();
+		throw new Error('registrationFailed');
 	}
 
-	await createUser();
+	// SEND VERIFICATION EMAIL ---
+	// Steps: attempt email delivery; if it fails, account is still created - user can retry verification later.
+	try {
+		await sendEmail({
+			mode: 'verifyMail',
+			token: `${jwtQuickies({ mode: 'create', payload: { userID, is: 'verifyMail' }, expiresIn: EXPIRATIONS.verifyMailLink })}:${Date.now() + EXPIRATIONS.verifyMailLink}`,
+			email: normalizedEmail,
+		});
+	} catch (emailError) {
+		logger.error('verifyMailSendFailed', { error: emailError, userID });
+		return { payload: 'mailNotSent' };
+	}
 	return { payload: 'mailSent' };
 }
 

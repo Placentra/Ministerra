@@ -1,6 +1,6 @@
-import { Sql } from '../../systems/systems';
-import { REDIS_KEYS } from '../../../shared/constants';
-import { getLogger } from '../../systems/handlers/logging/index';
+import { Sql } from '../../systems/systems.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 import { LRUCache } from 'lru-cache';
 
 const logger = getLogger('ChatHelpers');
@@ -42,13 +42,13 @@ const necessaryRoles = {
 	blockChat: new Set(['member', 'priv']),
 };
 
-const needsAuth = new Set(Object.keys(necessaryRoles));
-let redis;
+const needsAuth: Set<string> = new Set(Object.keys(necessaryRoles));
+let redis: any;
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Injects the shared redis client so chat helper functions can run without importing Redis singleton.
 // This keeps helpers usable from both HTTP modules and socket handlers.
 // Steps: accept the shared redis instance once at startup; callers must ensure the client is ready before chat traffic begins.
-export const setChatHelpersRedisClient = r => {
+export const setChatHelpersRedisClient = (r: any): void => {
 	redis = r;
 };
 
@@ -56,9 +56,9 @@ export const setChatHelpersRedisClient = r => {
 // TTLs keep redis keys fresh and prevent unbounded growth.
 // authFails is an in-memory rate limiter for repeated missing-role lookups (DDoS containment).
 // membersCache provides micro-caching for member IDs to reduce Redis roundtrips during high activity.
-const [MEMBERS_TTL, ROLES_TTL, AUTH_FAIL_TTL, AUTH_FAIL_MAX] = [604800, 86400, 60000, 10000];
-const authFails = new Map();
-const membersCache = new LRUCache({
+const [MEMBERS_TTL, ROLES_TTL, AUTH_FAIL_TTL, AUTH_FAIL_MAX]: [number, number, number, number] = [604800, 86400, 60000, 10000];
+const authFails: Map<string, number> = new Map<string, number>();
+const membersCache: LRUCache<string, string[]> = new LRUCache<string, string[]>({
 	max: 1000, // Track up to 1000 active chats
 	ttl: 5 * 60 * 1000, // 5 minute TTL matching task intervals
 	updateAgeOnGet: false,
@@ -66,32 +66,54 @@ const membersCache = new LRUCache({
 
 // AUTH FAIL GC ---------------------------------------------------------------
 // Steps: periodically drop stale auth-miss entries and cap map size so repeated abuse can’t grow memory unbounded.
-setInterval(() => {
-	const now = Date.now();
-	for (const [k, t] of authFails) if (now - t > AUTH_FAIL_TTL) authFails.delete(k);
-	if (authFails.size >= AUTH_FAIL_MAX)
-		Array.from(authFails.keys())
-			.slice(0, 100)
-			.forEach(k => authFails.delete(k));
-}, 300000);
+// TIMER SINGLETON --------------------------------------------------------------
+// Steps: prevent duplicate intervals in dev reloads by storing the timer on global, and unref so it never blocks shutdown.
+const AUTH_FAIL_GC_INTERVAL_MS = 300000;
+const AUTH_FAIL_GC_TIMER_KEY = '__chat_helpers_auth_fail_gc_timer__';
+const startAuthFailGarbageCollector = (): void => {
+	if ((global as any)[AUTH_FAIL_GC_TIMER_KEY]) return;
+	(global as any)[AUTH_FAIL_GC_TIMER_KEY] = setInterval(() => {
+		const now: number = Date.now();
+		for (const [k, t] of authFails) if (now - t > AUTH_FAIL_TTL) authFails.delete(k);
+		if (authFails.size >= AUTH_FAIL_MAX)
+			Array.from(authFails.keys())
+				.slice(0, 100)
+				.forEach(k => authFails.delete(k));
+	}, AUTH_FAIL_GC_INTERVAL_MS);
+	try {
+		((global as any)[AUTH_FAIL_GC_TIMER_KEY] as any).unref?.();
+	} catch {}
+};
+startAuthFailGarbageCollector();
+
+interface AuthorizeRoleProps {
+	chatID: string | number;
+	mode?: keyof typeof necessaryRoles;
+	userID: string | number;
+	con?: any;
+}
 
 // AUTH HANDLER -----------------------------------------------------------------
-// Verifies the caller’s role for a chat action:
+// Verifies the caller's role for a chat action:
 // - reads cached role+last pointer from redis hash
 // - falls back to SQL on cache miss (rate-limited by authFails map)
 // Returns [roleOrNull, lastSeenMessageId] so callers can both authorize and clamp visibility.
 // Steps: attempt redis role lookup first; if missing and not rate-limited, fetch from SQL and backfill redis; return role only if allowed for the requested mode.
-async function authorizeRole({ chatID, mode = 'adminRoles', userID }: any) {
-	const k = `${userID}_${chatID}`;
-	let [r, last] = (await redis.hget(REDIS_KEYS.userChatRoles, k))?.split('_') || [null, null];
+// CONNECTION REUSE ---------------------------------------------------------
+// Steps: accept optional connection parameter to avoid opening a second connection when one is already available; only open new connection if none provided (backward compatibility).
+async function authorizeRole({ chatID, mode = 'adminRoles', userID, con }: AuthorizeRoleProps): Promise<[string | null, string | number | null]> {
+	const k: string = `${userID}_${chatID}`;
+	let [r, last]: [string | null, string | number | null] = (await redis.hget(REDIS_KEYS.userChatRoles, k))?.split('_') || [null, null];
 
 	if (!r && Date.now() - (authFails.get(k) || 0) > AUTH_FAIL_TTL) {
-		const con = await Sql.getConnection();
+		let shouldRelease: boolean = false;
+		if (!con) (con = await Sql.getConnection()), (shouldRelease = true);
+
 		try {
-			const [rows] = await con.execute(`SELECT role, last FROM chat_members WHERE chat=? AND id=?`, [chatID, userID]);
+			const [rows]: [any[], any] = await con.execute(`SELECT role, last FROM chat_members WHERE chat=? AND id=?`, [chatID, userID]);
 			if (rows[0]) ({ role: r, last } = rows[0]);
 		} finally {
-			con.release();
+			if (shouldRelease) con.release();
 		}
 
 		if (r)
@@ -102,19 +124,41 @@ async function authorizeRole({ chatID, mode = 'adminRoles', userID }: any) {
 	return [r && necessaryRoles[mode]?.has(r) ? r : null, last];
 }
 
+interface SetRolesAndLastsProps {
+	members?: any[];
+	memberIDs?: (string | number)[];
+	chatID: string | number;
+	lastAllowedMess?: string | number;
+	role?: string;
+	addToMembers?: boolean;
+	skipRolesUpdate?: boolean;
+	delFromMembers?: boolean;
+	setMembChange?: boolean | number;
+}
+
 // STATE UPDATER ----------------------------------------------------------------
 // Syncs chat membership/roles to redis:
 // - USER_CHAT_ROLES hash for fast auth (role + optional last pointer)
 // - CHAT_MEMBERS set for member enumeration
 // - lastMembChangeAt for incremental member sync
 // Steps: stage role hash updates and membership set updates into one multi, optionally bump membSync timestamp, exec once, then invalidate local membersCache.
-async function setRolesAndLasts({ members, memberIDs, chatID, lastAllowedMess, role, addToMembers, skipRolesUpdate, delFromMembers, setMembChange }: any) {
-	const t = redis.multi(),
-		key = `${REDIS_KEYS.chatMembers}:${chatID}`,
-		vals = [];
-	let ops = false;
+async function setRolesAndLasts({
+	members,
+	memberIDs,
+	chatID,
+	lastAllowedMess,
+	role,
+	addToMembers,
+	skipRolesUpdate,
+	delFromMembers,
+	setMembChange,
+}: SetRolesAndLastsProps): Promise<(string | number)[]> {
+	const t: any = redis.multi(),
+		key: string = `${REDIS_KEYS.chatMembers}:${chatID}`,
+		vals: any[] = [];
+	let ops: boolean = false;
 
-	const items = members || (memberIDs || []).map(id => ({ id, role, lastMessID: lastAllowedMess }));
+	const items: any[] = members || (memberIDs || []).map(id => ({ id, role, lastMessID: lastAllowedMess }));
 	if (items.length && (!skipRolesUpdate || members)) {
 		items.forEach(m => vals.push(`${m.id}_${chatID}`, `${m.role}${m.lastMessID != null ? `_${m.lastMessID}` : ''}`));
 		t.hset(REDIS_KEYS.userChatRoles, ...vals);
@@ -128,40 +172,48 @@ async function setRolesAndLasts({ members, memberIDs, chatID, lastAllowedMess, r
 		ops = true;
 	}
 	if (ops) {
-		const res = await t.exec();
+		const res: any[] | null = await t.exec();
 		if (!res || res.some(([err]) => err)) {
-			const errors = res
+			const errors: string = res!
 				.filter(([err]) => err)
 				.map(([err]) => err.message)
 				.join(', ');
 			throw new Error(`Redis transaction failed: ${errors}`);
 		}
 		// INVALIDATE CACHE: Ensure subsequent reads fetch fresh data from Redis
-		if (addToMembers || delFromMembers) membersCache.delete(chatID);
+		if (addToMembers || delFromMembers) membersCache.delete(String(chatID));
 	}
 	return items.map(m => m.id);
 }
 
-// FETCH HANDLERS --------------------------------------------------------------
+interface GetMembersProps {
+	memberIDs?: (string | number)[];
+	chatID: string | number;
+	membSync?: number;
+	mode?: string;
+	IDsOnly?: boolean;
+	includeArchived?: boolean;
+	con: any;
+}
 
 // GET MEMBERS ------------------------------------------------------------------
 // Retrieves member lists from redis (preferred) or SQL:
 // - redis provides fast ID lists for active membership
 // - SQL provides canonical member rows and supports incremental sync via membSync timestamp
 // Steps: prefer in-memory IDs cache, then redis smembers, then SQL fetch rows (optionally filtered by ids + membSync), then backfill redis roles/members on cold start.
-async function getMembers({ memberIDs = [], chatID, membSync: prev, mode = 'getMembers', IDsOnly, includeArchived, con }: any) {
+async function getMembers({ memberIDs = [], chatID, membSync: prev, mode = 'getMembers', IDsOnly, includeArchived, con }: GetMembersProps): Promise<any> {
 	if (!con) throw new Error('Database connection required');
-	const key = `${REDIS_KEYS.chatMembers}:${chatID}`;
+	const key: string = `${REDIS_KEYS.chatMembers}:${chatID}`;
 
 	// CACHE CHECK: Use in-memory cache for IDs if available and no specific IDs requested
-	let ids = memberIDs;
+	let ids: (string | number)[] = memberIDs;
 	if (!ids.length) {
-		const cachedIDs = membersCache.get(chatID);
+		const cachedIDs: string[] | undefined = membersCache.get(String(chatID));
 		if (cachedIDs) ids = cachedIDs;
 		else {
 			ids = (await redis.smembers(key)) || [];
 			if (ids.length) {
-				membersCache.set(chatID, ids);
+				membersCache.set(String(chatID), ids as string[]);
 				redis.expire(key, MEMBERS_TTL).catch(err => logger.error('getMembers.expire_failed', { error: err }));
 			}
 		}
@@ -169,11 +221,11 @@ async function getMembers({ memberIDs = [], chatID, membSync: prev, mode = 'getM
 
 	if (IDsOnly && ids.length && !includeArchived) return ids;
 
-	const params = [chatID],
-		q = `SELECT u.id${
+	const params: any[] = [chatID],
+		q: string = `SELECT u.id${
 			!IDsOnly ? ', u.first, u.last, u.imgVers, cm.role, cm.punish, cm.until, cm.who, cm.mess, cm.flag, cm.last as lastMessID, cm.seen as seenId' : ''
 		} FROM users u JOIN chat_members cm ON u.id = cm.id WHERE cm.chat = ? ${mode === 'getMembers' && !memberIDs.length ? `AND cm.flag != 'del' ${includeArchived ? '' : 'AND archived = 0'}` : ''}`;
-	const [rows] = await con.execute(q + (ids.length ? ` AND cm.id IN (${ids.map(() => '?').join(',')})` : '') + (prev ? ' AND cm.changed >= FROM_UNIXTIME(?/1000)' : ''), [
+	const [rows]: [any[], any] = await con.execute(q + (ids.length ? ` AND cm.id IN (${ids.map(() => '?').join(',')})` : '') + (prev ? ' AND cm.changed >= FROM_UNIXTIME(?/1000)' : ''), [
 		...params,
 		...ids,
 		...(prev ? [prev] : []),
@@ -184,29 +236,41 @@ async function getMembers({ memberIDs = [], chatID, membSync: prev, mode = 'getM
 	return { members: rows, ...(prev && { membSync: await redis.hget(REDIS_KEYS.lastMembChangeAt, chatID) }) };
 }
 
+interface GetMessagesProps {
+	firstID?: string | number;
+	lastID?: string | number;
+	cursor?: string | number;
+	chatID: string | number;
+	last?: string | number;
+	con: any;
+}
+
 // GET MESSAGES -----------------------------------------------------------------
 // Fetches message history with cursor-based pagination.
 // Supports bounded range fetch and hides deleted content outside explicit range requests.
 // Steps: normalize numeric params, build the appropriate id clause (range/greater/less), then fetch newest-first with a small page size to cap payload.
-async function getMessages({ firstID, lastID = 0, cursor, chatID, last, con }: any) {
-	[firstID, lastID, cursor, last] = [firstID, lastID, cursor, last].map(v => {
-		const numVal = Number(v);
+async function getMessages({ firstID, lastID = 0, cursor, chatID, last, con }: GetMessagesProps): Promise<{ messages: any[] }> {
+	const normalizedParams: (number | undefined)[] = [firstID, lastID, cursor, last].map(v => {
+		const numVal: number = Number(v);
 		return numVal && Number.isFinite(numVal) && numVal > 0 ? numVal : v === undefined ? undefined : 0;
 	});
-	const cur = cursor || last ? Math.min(cursor || Infinity, last || Infinity) : null;
-	const idsClauseSrc =
-		firstID && lastID
-			? { sql: `BETWEEN ? AND ?`, params: [Math.min(firstID, lastID), Math.max(firstID, lastID)] }
-			: firstID
-			? { sql: `> ?`, params: [firstID] }
-			: lastID
-			? { sql: `< ?`, params: [lastID] }
+	let [fID, lID, curs, lst]: (number | undefined)[] = normalizedParams;
+
+	const cur: number | null = curs || lst ? Math.min(curs || Infinity, lst || Infinity) : null;
+	const idsClauseSrc: { sql: string | null; params: any[] } =
+		fID && lID
+			? { sql: `BETWEEN ? AND ?`, params: [Math.min(fID, lID), Math.max(fID, lID)] }
+			: fID
+			? { sql: `> ?`, params: [fID] }
+			: lID
+			? { sql: `< ?`, params: [lID] }
 			: { sql: null, params: [] };
 
-	const q = `SELECT m.id, ${!firstID && !lastID ? 'm.content' : `CASE WHEN m.flag != 'del' THEN m.content ELSE NULL END AS content`}, m.user, m.attach, m.created FROM messages m WHERE m.chat = ? ${
+	const q: string = `SELECT m.id, ${!fID && !lID ? 'm.content' : `CASE WHEN m.flag != 'del' THEN m.content ELSE NULL END AS content`}, m.user, m.attach, m.created FROM messages m WHERE m.chat = ? ${
 		cur ? 'AND m.id < ?' : ''
 	} ${idsClauseSrc.sql ? `AND m.flag = IF(m.id ${idsClauseSrc.sql}, "del", "ok")` : 'AND m.flag = "ok"'} ORDER BY m.id DESC LIMIT 20`;
-	return { messages: (await con.execute(q, [chatID, ...(cur ? [cur] : []), ...idsClauseSrc.params]))[0] };
+	const [rows]: [any[], any] = await con.execute(q, [chatID, ...(cur ? [cur] : []), ...idsClauseSrc.params]);
+	return { messages: rows };
 }
 
 export { authorizeRole, getMembers, getMessages, setRolesAndLasts, needsAuth };

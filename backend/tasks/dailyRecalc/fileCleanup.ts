@@ -1,7 +1,7 @@
 // FILE CLEANUP =================================================================
 import fs from 'fs/promises';
 import path from 'path';
-import { getLogger } from '../../systems/handlers/logging/index';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 
 const logger = getLogger('Task:DailyRecalc:FileCleanup');
 
@@ -22,6 +22,11 @@ async function cleanupDirectory(dir, ids) {
 		const deletions = (await fs.readdir(dir))
 			.filter(f => ids.has(f.split('_')[0]))
 			.map(f => fs.unlink(path.join(dir, f)).catch(error => logger.error('dailyRecalc.file_cleanup_failed', { error, f, dir })));
-		if (deletions.length) { await Promise.all(deletions); logger.info('dailyRecalc.files_cleaned', { dir, count: deletions.length }); }
-	} catch (error) { if (error.code !== 'ENOENT') logger.error('dailyRecalc.dir_cleanup_failed', { error, dir }); }
+		if (deletions.length) {
+			await Promise.all(deletions);
+			logger.info('dailyRecalc.files_cleaned', { dir, count: deletions.length });
+		}
+	} catch (error) {
+		if (error.code !== 'ENOENT') logger.error('dailyRecalc.dir_cleanup_failed', { error, dir });
+	}
 }

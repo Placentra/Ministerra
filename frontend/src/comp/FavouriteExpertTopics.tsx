@@ -82,14 +82,16 @@ function FavouriteExpertTopics(p: any) {
 		}
 	}, [editingValue]);
 	const somethingsWrong = ['notSpecific', 'shortWords', 'addFavs'].some(z => inform.includes(z)) || inputWarn.length > 0;
+	// TOTAL CHARS COUNTER ---
+	const totalChars = [...(data.favs || []), ...(data.exps || [])].reduce((t, u) => t + String(u || '').length, 0);
 	const resetEditing = () => {
 		setEditing({ cat: null, i: null });
 		setEditingValue('');
 		setInputWarn([]);
 	};
 	const renderTopics = (topics, cat, colorClass) => (
-		<div className='flexRow hr3 aliStretch marBotS wrap justCen '>
-			<span className={`fs10 ${colorClass} textSha selfCen inlineBlock marRigS xBold`}>{cat === 'favs' ? 'Oblíbené:' : 'Expertní:'}</span>
+		<div className='flexRow hr3 aliStretch marBotXxs wrap justCen '>
+			<span className={`fs18 ${colorClass} textSha selfCen inlineBlock marRigS xBold`}>{cat === 'favs' ? 'Oblíbené:' : 'Expertní:'}</span>
 			{topics.map((val, i) => (
 				<div key={i} className={`${editing.cat === cat && editing.i === i ? 'bsContentGlow' : ''} sideBors borderBot marRigXxs boRadXxs flexRow`}>
 					{editing.cat === cat && editing.i === i ? (
@@ -99,10 +101,10 @@ function FavouriteExpertTopics(p: any) {
 							placeholder={topics[i]}
 							onChange={e => setEditingValue(e.target.value)}
 							onKeyDown={e => handleKeyPress(e, cat, i)}
-							className='shaBlue bHover w100 wAuto padHorXs h100 fs7 boldXs'
+							className='shaBlue bHover w100 wAuto padHorXs h100 fs10 boldXs'
 						/>
 					) : (
-						<button className='pointer  bHover shaBlue h100 bHover padHorS fs7 boldXs' onClick={() => man('del', cat, i)}>
+						<button className='pointer  bHover shaBlue h100 bHover padHorS fs10 boldXs' onClick={() => man('del', cat, i)}>
 							{val}
 						</button>
 					)}
@@ -127,19 +129,17 @@ function FavouriteExpertTopics(p: any) {
 	);
 
 	return (
-		<div className='marAuto wrap justCen fPadHorS labelM w100'>
+		<div className='marAuto wrap justCen fPadHorS w100'>
 			{data.id && (
 				<title-texts>
 					<span className='xBold marBotXxs inlineBlock fs15'>Vlastní témata</span>
 					<p className='fs8 marBotXs mw160 lh1 marAuto'>
 						Zadej alespoň 2 oblíbená konverzační témata a nebo odborná témata, v nichž rád obohatíš ostatní. Pro obě kategorie dohromady je maximální počet znaků {charsLimit}.
 					</p>
-					{[...(data.favs || []), ...(data.exps || [])].reduce((t, u) => t + String(u || '').length, 0) >= charsLimit && (
-						<span className='fs10 tRed xBold inlineBlock'>Dosažen maximální počet znaků</span>
-					)}
+					{totalChars >= charsLimit && <span className='fs16 tRed xBold inlineBlock'>Dosažen maximální počet znaků</span>}
 				</title-texts>
 			)}
-			{!somethingsWrong && <blue-divider className='hr0-3 borTop block bInsetBlueTopXl borTop opacityM bgTrans posRel w100  borTop marAuto' />}
+
 			<input
 				ref={inputRef}
 				value={inputValue}
@@ -153,10 +153,11 @@ function FavouriteExpertTopics(p: any) {
 					if (inputWarn.length > 0) setInputWarn([]);
 					if (inform.length > 0) setInform([]);
 				}}
-				className={`${somethingsWrong ? 'borderRed' : ''} padAllS  arrowDown1 posRel fs12 bold grow shaComment textAli hr5 w100`}
+				className={`${somethingsWrong ? 'borderRed' : ''} padAllS  arrowDown1 posRel fs18 bold grow shaComment textAli hr5 w100`}
 				placeholder='Zadej oblíbené či expertní téma ...'
 				maxLength={200}
 			/>
+
 			{informSrc.top.some(m => inputWarn.includes(m)) && (
 				<input-warnings className='marTopXxs marBotXxs block'>
 					{inputWarn.map((m, i) => (
@@ -171,7 +172,14 @@ function FavouriteExpertTopics(p: any) {
 					))}
 				</input-warnings>
 			)}
-			{!somethingsWrong && <blue-divider className='hr0-5 borTop block bInsetBlueTopXl borTop bgTrans posRel w100 marBotXs mw120 borTop marAuto' />}
+
+			{!somethingsWrong && <blue-divider className='hr0-5 borTop block bInsetBlueTopXl borTop bgTrans posRel w100  mw120 borTop marAuto' />}
+			{/* CHARACTER COUNTER --- */}
+			{totalChars > 0 && totalChars < charsLimit && (
+				<span className={`fs10 ${totalChars >= charsLimit ? 'tRed xBold' : 'bold tDarkBlue'} textSha block marBotS marTopXs `}>
+					Využito {totalChars} z {charsLimit} znaků
+				</span>
+			)}
 			{data.id && inform.includes('addFavs') && <span className='tRed fs8 marTopXxs inlineBlock xBold'>zadej alespoň 2 oblíbená konverzační témata</span>}
 			{data.favs?.length >= 2 && !inform.includes('addFavs') && informSrc.bottom.some(w => inform.includes(w)) && (
 				<topic-warnings>
@@ -185,23 +193,24 @@ function FavouriteExpertTopics(p: any) {
 				</topic-warnings>
 			)}
 			{inputValue.length > 1 && (
-				<addtopic-buttons className='flexCen w100 borBot gapXxs bInsetBlueTop posRel mw140 marAuto bw50'>
-					<button className='posRel shaBlue borderBot borTop tBlue w80 padVerS marTopXxs boRadXxs miw10' onClick={() => man('addTopic', 'favs')}>
-						<span className='fs10 lh1 tBlue xBold'>Přidat do OBLÍBENÝCH</span>
+				<addtopic-buttons className='flexCen w100 borBot gapXxs  posRel mw120 marAuto bw50'>
+					<button className='posRel shaBlue borderBot bInsetBlueTopXs bBor tBlue w80 padVerS marTopXxs boRadXxs miw10' onClick={() => man('addTopic', 'favs')}>
+						<span className='fs16 lh1 tBlue xBold'>Přidat do OBLÍBENÝCH</span>
 						<span className='fsA lh1 tDarkBlue'>O tomhle si strašně rád povídáš</span>
 					</button>
-					<button className='posRel shaBlue borTop borderBot w80 padVerS marTopXxs boRadXxs miw10' onClick={() => man('addTopic', 'exps')}>
-						<span className='fs10 lh1 tGreen xBold'>Přidat do EXPERTNÍCH</span>
+					<button className='posRel shaBlue bInsetBlueTopXs bBor borderBot w80 padVerS marTopXxs boRadXxs miw10' onClick={() => man('addTopic', 'exps')}>
+						<span className='fs16 lh1 tGreen xBold'>Přidat do EXPERTNÍCH</span>
 						<span className='fsA lh1 tDarkGreen'>V tomhle jsi odborník a rád vzděláš druhé.</span>
 					</button>
 				</addtopic-buttons>
 			)}
 			{inputValue.length < 2 && [...(data.favs || []), ...(data.exps || [])].length > 0 && (
-				<existing-topics className='flexInline justCen gapS w100 padTopXs wrap'>
+				<existing-topics className='flexInline justCen marTopS  w100  wrap'>
 					{data.favs?.length > 0 && renderTopics(data.favs, 'favs', 'tBlue')}
 					{data.exps?.length > 0 && renderTopics(data.exps, 'exps', 'tGreen')}
 				</existing-topics>
 			)}
+
 			<span ref={textMeasureRef} className='hide posAbs preWrap' />
 		</div>
 	);

@@ -1,4 +1,4 @@
-import { getLogger, logContext } from './loggers';
+import { getLogger, logContext } from './loggers.ts';
 
 const logger = getLogger('CircuitBreaker');
 
@@ -11,12 +11,58 @@ const DEFAULT_COOLDOWN_MS = 30000;
 
 // CIRCUIT BREAKER -------------------------------------------------------------
 
+interface CircuitBreakerOptions {
+	failureThreshold?: number;
+	timeoutMs?: number;
+	timeout?: number;
+	cooldownMs?: number;
+	resetTimeout?: number;
+	dropOnOpen?: boolean;
+	slowThresholdMs?: number;
+	slowBurst?: number;
+	slowWindowMs?: number;
+	slowLogIntervalMs?: number;
+	failureLogLevel?: string;
+	fallback?: (context: any) => Promise<any> | any;
+}
+
+interface CircuitBreakerState {
+	name: string;
+	state: string;
+	reason: string | null;
+	totalRequests: number;
+	totalFailures: number;
+	nextProbe: string | null;
+}
+
 // CLASS DEFINITION ---
 // Implements the Circuit Breaker pattern for fault tolerance and resilience.
 // Tracks failures, slow queries, and manages state transitions (OPEN/CLOSED/HALF-OPEN).
 class CircuitBreaker {
-	[key: string]: any;
-	constructor(name, options: any = {}) {
+	name: string;
+	failureThreshold: number;
+	timeoutMs: number;
+	cooldownMs: number;
+	dropOnOpen: boolean;
+	slowThresholdMs: number;
+	slowBurst: number;
+	slowWindowMs: number;
+	slowLogIntervalMs: number;
+	failureLogLevel: string;
+	// unused
+	fallback: ((context: any) => Promise<any> | any) | null;
+	state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+	openReason: string | null;
+	nextProbeTs: number;
+	totalRequests: number;
+	totalFailures: number;
+	consecutiveFailures: number;
+	recentSlowEvents: number[];
+	lastSlowLogTs: number;
+	lastOpenLogTs: number;
+	_probeInFlight: boolean = false;
+
+	constructor(name: string, options: CircuitBreakerOptions = {}) {
 		this.name = name;
 
 		// Failure configuration
@@ -48,7 +94,6 @@ class CircuitBreaker {
 		this.recentSlowEvents = [];
 		this.lastSlowLogTs = 0;
 		this.lastOpenLogTs = 0;
-		// NOTE: Init log removed - 20 workers x 3 breakers = 60 logs of noise
 	}
 
 	// EXECUTE ---------------------------------------------------------------
@@ -58,10 +103,10 @@ class CircuitBreaker {
 	// - timeout enforcement
 	// - failure/success accounting
 	// - slow-operation detection and optional fallback routing
-	async execute(fn, context = {}) {
+	async execute<T>(fn: () => Promise<T>, context: any = {}): Promise<T> {
 		this.totalRequests++;
 
-		const now = Date.now();
+		const now: number = Date.now();
 		// OPEN STATE HANDLING ---
 		if (this.state === 'OPEN') {
 			if (now >= this.nextProbeTs) {
@@ -90,16 +135,16 @@ class CircuitBreaker {
 			}
 		}
 
-		const start = Date.now();
+		const start: number = Date.now();
 		try {
 			// EXECUTION BLOCK ---
-			const result = await this.runWithTimeout(fn);
-			const duration = Date.now() - start;
+			const result: T = await this.runWithTimeout(fn);
+			const duration: number = Date.now() - start;
 			this.recordSuccess(duration, context);
 			return result;
-		} catch (error) {
+		} catch (error: any) {
 			// FAILURE BLOCK ---
-			const duration = Date.now() - start;
+			const duration: number = Date.now() - start;
 			if (this.shouldIgnoreError(error)) {
 				throw error;
 			}
@@ -108,7 +153,7 @@ class CircuitBreaker {
 			if (this.fallback) {
 				try {
 					return await this.fallback(context);
-				} catch (fallbackError) {
+				} catch (fallbackError: any) {
 					logger.error(`Circuit ${this.name} fallback failed`, { error: fallbackError.message });
 				}
 			}
@@ -120,21 +165,21 @@ class CircuitBreaker {
 	// TIMEOUT WRAPPER --------------------------------------------------------
 	// Enforces max execution duration. Rejects with a synthetic timeout error.
 	// Steps: run fn() under a timer; clear timer on resolve/reject; reject with a synthetic timeout error when timer fires.
-	runWithTimeout(fn) {
+	runWithTimeout<T>(fn: () => Promise<T>): Promise<T> {
 		if (!this.timeoutMs || this.timeoutMs <= 0) {
 			return Promise.resolve().then(() => fn());
 		}
 
 		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error(`${this.name} timeout after ${this.timeoutMs}ms`)), this.timeoutMs);
+			const timer: NodeJS.Timeout = setTimeout(() => reject(new Error(`${this.name} timeout after ${this.timeoutMs}ms`)), this.timeoutMs);
 			Promise.resolve()
 				.then(() => fn())
 				.then(
-					result => {
+					(result: T) => {
 						clearTimeout(timer);
 						resolve(result);
 					},
-					error => {
+					(error: any) => {
 						clearTimeout(timer);
 						reject(error);
 					}
@@ -148,11 +193,11 @@ class CircuitBreaker {
 	// Called when the circuit is OPEN and configured to drop traffic.
 	// Either runs fallback or throws a CIRCUIT_OPEN error.
 	// Steps: log rejection once, run fallback if configured, otherwise throw a CIRCUIT_OPEN error with retry hint.
-	handleOpenState(context) {
+	handleOpenState(context: any): any {
 		logger.alert(`Circuit ${this.name} is OPEN (reason=${this.openReason}), rejecting request`, {
 			retryAt: new Date(this.nextProbeTs).toISOString(),
 		});
-		const error = new Error(`Circuit breaker ${this.name} is OPEN`);
+		const error: Error = new Error(`Circuit breaker ${this.name} is OPEN`);
 		(error as any).code = 'CIRCUIT_OPEN';
 		if (this.fallback) {
 			return this.fallback(context);
@@ -163,14 +208,14 @@ class CircuitBreaker {
 	// SUCCESS ACCOUNTING ------------------------------------------------------
 	// Resets failure counters and may close the circuit when a HALF_OPEN probe succeeds.
 	// Steps: reset consecutive failures, track latency, and if this was a HALF_OPEN probe, close and clear probe-in-flight flag.
-	recordSuccess(duration, context) {
+	recordSuccess(duration: number, context: any): void {
 		this.consecutiveFailures = 0;
 		this.trackLatency(duration, context);
 
 		if (this.state === 'HALF_OPEN') {
 			// RECOVERY LOG -------------------------------------------------------
 			// Only log on recovery to avoid a high-frequency success log spam.
-			let msg = `Circuit ${this.name} recovered (${duration}ms)`;
+			let msg: string = `Circuit ${this.name} recovered (${duration}ms)`;
 			if (context.sql) msg += `: ${context.sql}`;
 			else if (context.command) msg += `: ${context.command} ${context.argsPreview || ''}`;
 			logger.info(msg, { duration, pool: context.pool, method: context.method || context.command });
@@ -182,7 +227,7 @@ class CircuitBreaker {
 	// FAILURE ACCOUNTING ------------------------------------------------------
 	// Increments counters and opens the circuit when thresholds are exceeded.
 	// Steps: increment counters, emit a failure log, track latency, and OPEN the circuit on threshold breach or lock wait timeouts.
-	recordFailure(error, duration, context) {
+	recordFailure(error: any, duration: number, context: any): void {
 		this.totalFailures++;
 		this.consecutiveFailures++;
 
@@ -194,7 +239,7 @@ class CircuitBreaker {
 
 		this.trackLatency(duration, context, true);
 
-		const shouldOpen = this.state === 'HALF_OPEN' || this.consecutiveFailures >= this.failureThreshold || (error && (error as any).code === 'ER_LOCK_WAIT_TIMEOUT');
+		const shouldOpen: boolean = this.state === 'HALF_OPEN' || this.consecutiveFailures >= this.failureThreshold || (error && (error as any).code === 'ER_LOCK_WAIT_TIMEOUT');
 
 		if (shouldOpen) {
 			this.open('errors');
@@ -206,18 +251,18 @@ class CircuitBreaker {
 	// IGNORE ERROR ------------------------------------------------------------
 	// Some errors (e.g., Redis BUSYGROUP) are expected and should not contribute to breaker state.
 	// Steps: apply a narrow allowlist of ignorable errors; everything else contributes to breaker state.
-	shouldIgnoreError(error) {
+	shouldIgnoreError(error: any): boolean {
 		if (this.name !== 'Redis') return false;
-		const msg = String(error?.message || error || '');
+		const msg: string = String(error?.message || error || '');
 		if (!msg) return false;
 		return msg.includes('BUSYGROUP') || msg.includes('Consumer Group name already exists');
 	}
 
 	// LEVEL-AWARE LOGGING -----------------------------------------------------
 	// Routes through the configured logger method (warn/info/error/slow), with a silent option.
-	logWithLevel(level, message, meta) {
+	logWithLevel(level: string, message: string, meta: any): void {
 		if (level === 'silent') return;
-		const logFn = typeof logger[level] === 'function' ? logger[level].bind(logger) : logger.alert.bind(logger);
+		const logFn: any = typeof (logger as any)[level] === 'function' ? (logger as any)[level].bind(logger) : logger.alert.bind(logger);
 		logFn(message, meta);
 	}
 
@@ -225,7 +270,7 @@ class CircuitBreaker {
 	// Records slow events, logs slow operations at a controlled interval, and opens the circuit
 	// if slow events burst above threshold.
 	// Steps: push timestamps for slow ops, trim to window, emit slow log at interval, and OPEN when burst threshold is exceeded.
-	trackLatency(duration, context, failed = false) {
+	trackLatency(duration: number, context: any, failed: boolean = false): void {
 		if (typeof duration !== 'number' || Number.isNaN(duration)) {
 			return;
 		}
@@ -248,14 +293,14 @@ class CircuitBreaker {
 	// Emits slow logs. For SQL, uses the dedicated slow channel and tags async-local context
 	// so HTTP slow logging can avoid duplicating the same root-cause.
 	// Steps: throttle slow logs, prefer structured SQL slow channel with request context flagging, otherwise emit generic slow alert for non-SQL.
-	logSlowQuery(duration, context, failed) {
-		const now = Date.now();
+	logSlowQuery(duration: number, context: any, failed: boolean): void {
+		const now: number = Date.now();
 		if (now - this.lastSlowLogTs < this.slowLogIntervalMs) {
 			return;
 		}
 
 		this.lastSlowLogTs = now;
-		const sqlPreview = context.sql ? String(context.sql).replace(/\s+/g, ' ').slice(0, 500) : undefined;
+		const sqlPreview: string | undefined = context.sql ? String(context.sql).replace(/\s+/g, ' ').slice(0, 500) : undefined;
 
 		// SLOW SQL LOGGING ------------------------------------------------------
 		// Dedicated channel for slow SQL. Also mark request context so slow HTTP can be suppressed.
@@ -289,8 +334,8 @@ class CircuitBreaker {
 
 	// SLOW WINDOW MAINTENANCE -------------------------------------------------
 	// Keeps only slow events within the current window so burst detection is time-bounded.
-	trimSlowEvents() {
-		const cutoff = Date.now() - this.slowWindowMs;
+	trimSlowEvents(): void {
+		const cutoff: number = Date.now() - this.slowWindowMs;
 		while (this.recentSlowEvents.length && this.recentSlowEvents[0] < cutoff) {
 			this.recentSlowEvents.shift();
 		}
@@ -301,7 +346,7 @@ class CircuitBreaker {
 	// OPEN CIRCUIT ------------------------------------------------------------
 	// Moves the circuit to OPEN and starts cooldown before the next HALF_OPEN probe.
 	// Steps: mark OPEN with reason, compute nextProbeTs, reset open log throttle, emit a single degraded alert.
-	open(reason) {
+	open(reason: string): void {
 		this.state = 'OPEN';
 		this.openReason = reason;
 		this.nextProbeTs = Date.now() + this.cooldownMs;
@@ -318,7 +363,7 @@ class CircuitBreaker {
 	// CLOSE CIRCUIT -----------------------------------------------------------
 	// Resets state back to CLOSED after recovery.
 	// Steps: clear open reason and counters, clear slow window, emit a recovery info log.
-	close() {
+	close(): void {
 		this.state = 'CLOSED';
 		this.openReason = null;
 		this.consecutiveFailures = 0;
@@ -328,13 +373,13 @@ class CircuitBreaker {
 
 	// COOLDOWN CHECK ----------------------------------------------------------
 	// Indicates whether an OPEN circuit is still within the no-probe cooldown period.
-	isCoolingDown() {
+	isCoolingDown(): boolean {
 		return this.state === 'OPEN' && Date.now() < this.nextProbeTs;
 	}
 
 	// OPEN STATE LOG THROTTLE -------------------------------------------------
 	// Periodically logs that the circuit is still OPEN without spamming.
-	logOpenState(now) {
+	logOpenState(now: number): void {
 		if (now - this.lastOpenLogTs < this.slowLogIntervalMs) return;
 		this.lastOpenLogTs = now;
 		logger.alert(`Circuit ${this.name} still degraded`, {
@@ -345,7 +390,7 @@ class CircuitBreaker {
 
 	// STATE SNAPSHOT ----------------------------------------------------------
 	// Provides a minimal view for diagnostics endpoints and tests.
-	getState() {
+	getState(): CircuitBreakerState {
 		return {
 			name: this.name,
 			state: this.state,
@@ -359,7 +404,7 @@ class CircuitBreaker {
 
 // FACTORY ---------------------------------------------------------------------
 // Convenience wrapper to avoid exporting `new` usage across the codebase.
-export function createCircuitBreaker(name, options) {
+export function createCircuitBreaker(name: string, options?: CircuitBreakerOptions): CircuitBreaker {
 	return new CircuitBreaker(name, options);
 }
 

@@ -1,11 +1,25 @@
-import { Catcher, Sql } from '../systems/systems';
+import { Catcher, Sql } from '../systems/systems.ts';
 import { encode } from 'cbor-x';
-import { getLogger } from '../systems/handlers/logging/index';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { Redis } from 'ioredis';
+import { Response } from 'express';
 
-let redis;
+interface InviteRequest {
+	mode?: 'list' | 'cancel' | 'delete' | 'accept' | 'refuse' | 'cancelAll' | 'deleteAll' | string;
+	userID?: string | number;
+	targetUser?: string | number;
+	targetEvent?: string | number;
+	note?: string;
+	userIDs?: (string | number)[];
+	eventIDs?: (string | number)[];
+	direction?: 'in' | 'out';
+	offset?: number;
+}
+
+let redis: Redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Invites uses redis streams for async processing and redis presence for availability gating.
-const ioRedisSetter = redisClient => (redis = redisClient);
+const ioRedisSetter = (redisClient: Redis) => (redis = redisClient);
 const logger = getLogger('Invites');
 
 // INVITES HANDLER -------------------------------------------------------------
@@ -18,12 +32,12 @@ const logger = getLogger('Invites');
 // - list: reads invites from SQL (paginated)
 // - invite*/cancel*/delete*/accept/refuse: appends an action payload into redis stream for worker processing
 // Steps: validate and normalize input, run SQL reads for list mode, otherwise enqueue an action into `newInvites` stream so background workers can fan out and persist.
-async function Invites(req, res) {
-	let con;
+async function Invites(req: { body: InviteRequest }, res: Response) {
+	let con: any;
 	const { mode, userID, targetUser, targetEvent, note, userIDs, eventIDs, direction, offset } = req.body || {};
 	try {
 		// VALIDATION ----------------------------------------------------------
-		// Steps: cap note length and batch sizes so single requests can’t create unbounded downstream work.
+		// Steps: cap note length and batch sizes so single requests can’t create undocumented downstream work.
 		const safeNote = typeof note === 'string' ? note.slice(0, 200) : null;
 		// Consistent limits: eventIDs max 3 (user can invite to max 3 events), userIDs max 20 (per batch)
 		if (eventIDs && (!Array.isArray(eventIDs) || eventIDs.length === 0 || eventIDs.length > 3)) throw new Error('badPayload');
@@ -40,7 +54,7 @@ async function Invites(req, res) {
 			if (!userID) throw new Error('missingUser');
 			// OFFSET NORMALIZATION ----------------------------------------------
 			// Steps: enforce non-negative integer offset so pagination remains predictable.
-			const safeOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
+			const safeOffset = Number.isInteger(offset) && offset! >= 0 ? offset : 0;
 
 			// Use parameterized query structure based on direction to prevent SQL injection
 			const query = isIn
@@ -58,7 +72,7 @@ async function Invites(req, res) {
 				   LIMIT 20 OFFSET ?`;
 
 			if (!targetEvent) throw new Error('badPayload'); // Require targetEvent for list queries ---------------------------
-			const [rows] = await con.execute(query, [userID, targetEvent, safeOffset]);
+			const [rows]: [any[], any] = await con.execute(query, [userID, targetEvent, safeOffset]);
 			return res.json(rows);
 		}
 

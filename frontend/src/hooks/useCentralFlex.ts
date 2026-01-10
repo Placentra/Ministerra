@@ -22,7 +22,7 @@ const useCentralFlex = (mode, dependencyArr = [], nowAt, numOfItems, wrapperRef 
 		days: { cont: 'day-picker', minOnRow: 7, maxOnRow: 7 },
 		hours: { cont: 'hour-picker', minOnRow: 6, maxOnRow: 12 },
 		minutes: { cont: 'minutes-picker', minOnRow: 6, maxOnRow: 12 },
-		indicators: { cont: 'indicator-bs', minOnRow: nowAt === 'home' ? 5 : 4, maxOnRow: nowAt !== 'home' ? 5 : 10, minWidth: 100 },
+		indicators: { cont: 'indicator-bs', minOnRow: nowAt === 'home' ? 5 : 3, maxOnRow: nowAt !== 'home' ? 5 : 10, minWidth: 100 },
 		catFilter: { cont: 'cat-filter', minOnRow: 2, maxOnRow: 4, minWidth: 300 },
 		quicks: { cont: 'quick-friendly', minOnRow: 2, maxOnRow: Math.min(numOfItems || 6, 6) },
 		feedbackPraises: { cont: 'praises-grid', minOnRow: 4, maxOnRow: 7 },

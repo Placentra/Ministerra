@@ -2,7 +2,7 @@ services:
     # Development backend (bind mounts). In production, use the 'backend' service below.
     backend-app:
         profiles: ['dev']
-        image: node:24.12.0-bullseye
+        image: node:25.2.1-bullseye
         working_dir: /usr/src/app
         volumes:
             - ./:/usr/src/app
@@ -45,7 +45,7 @@ services:
                   npm ci --no-audit --no-fund
                 fi;
                 [ -x node_modules/.bin/tsx ] || npm install --no-audit --no-fund;
-                node_modules/.bin/tsx app.ts
+                node_modules/.bin/nodemon --exec "node_modules/.bin/tsx app.ts"
         ports:
             - '${BE_PORT:-2208}:${BE_PORT:-2208}'
             - '${SOCKET_PORT:-2209}:${SOCKET_PORT:-2209}'
@@ -77,7 +77,7 @@ services:
     backend-min:
         profiles: ['min']
         container_name: Back
-        image: node:24.12.0-bullseye
+        image: node:25.2.1-bullseye
         working_dir: /usr/src/app
         volumes:
             - ./:/usr/src/app
@@ -89,7 +89,7 @@ services:
             - BE_PORT=${BE_PORT:-2208}
             - SOCKET_PORT=${SOCKET_PORT:-2209}
             - MONITORING_PORT=${MONITORING_PORT:-9464}
-            - MONITORING_TOKEN=${MONITORING_TOKEN:-devtoken}
+            - MONITORING_TOKEN=${MONITORING_TOKEN:-}
             - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-backend}
             - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
             - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
@@ -122,14 +122,21 @@ services:
                   npm ci --no-audit --no-fund
                 fi;
                 [ -x node_modules/.bin/tsx ] || npm install --no-audit --no-fund;
-                node_modules/.bin/tsx --watch app.ts
+                node_modules/.bin/nodemon --exec "node_modules/.bin/tsx app.ts"
         ports:
             - '${BE_PORT:-2208}:${BE_PORT:-2208}'
             - '${SOCKET_PORT:-2209}:${SOCKET_PORT:-2209}'
         healthcheck:
-            test: ['CMD-SHELL', 'curl -fsS http://localhost:${BE_PORT:-2208}/metrics || exit 1']
+            test:
+                - CMD-SHELL
+                - >-
+                    if [ -z "$${MONITORING_TOKEN}" ]; then
+                      curl -fsS http://localhost:${BE_PORT:-2208}/metrics || exit 1;
+                    else
+                      curl -fsS -H "Authorization: Bearer $${MONITORING_TOKEN}" http://localhost:${BE_PORT:-2208}/metrics || exit 1;
+                    fi
             interval: 30s
-            timeout: 5s
+            timeout: 10s
             retries: 5
         restart: unless-stopped
         labels:
@@ -253,7 +260,7 @@ services:
     frontend-dev:
         profiles: ['dev', 'min']
         container_name: Fron
-        image: node:24.12.0-bullseye
+        image: node:25.2.1-bullseye
         working_dir: /app
         volumes:
             - ../frontend:/app

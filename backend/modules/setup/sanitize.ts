@@ -7,8 +7,8 @@
  * Replace with actual implementation once ready.
  * --------------------------------------------------------------------------- */
 
-import { ALLOWED_IDS, PRIVACIES_SET, GENDER_VALUES, MAX_COUNTS, MAX_CHARS, MIN_CHARS, MIN_COUNTS, REGEXES } from '../../../shared/constants';
-import { checkFavouriteExpertTopicsQuality } from '../../../shared/utilities';
+import { ALLOWED_IDS, PRIVACIES_SET, GENDER_VALUES, MAX_COUNTS, MAX_CHARS, MIN_CHARS, MIN_COUNTS, REGEXES } from '../../../shared/constants.ts';
+import { checkFavouriteExpertTopicsQuality } from '../../../shared/utilities.ts';
 
 // VALIDATION CONSTANTS ---------------------------------------------------------
 // Favex strict limits (mirror frontend `FavexAreas.jsx`)
@@ -86,7 +86,7 @@ function sanitizeIDList(value, { minItems = 0, allowedSet = new Set(), maxItems 
 		if (entry === undefined || entry === null) continue;
 		// Try numeric conversion for numeric allowed sets
 		const item = typeof entry === 'string' && /^\d+$/.test(entry) ? Number(entry) : entry;
-	if (!allowedSet.has(item)) continue;
+		if (!allowedSet.has(item)) continue;
 		if (seen.has(item)) continue;
 		seen.add(item);
 		normalized.push(item);
@@ -134,7 +134,18 @@ function sanitizeCities(value, { minItems = 0, maxItems = MAX_COUNTS.cities } = 
 				const hash = entry.hashID.trim();
 				if (seen.has(`hash:${hash}`)) continue;
 				seen.add(`hash:${hash}`);
-				formatted = { hashID: hash };
+				// PRESERVE FULL CITY OBJECT ---
+				// New cities need city name, lat, lng, etc. for DB insert.
+				formatted = {
+					hashID: hash,
+					city: entry.city || null,
+					lat: typeof entry.lat === 'number' ? entry.lat : null,
+					lng: typeof entry.lng === 'number' ? entry.lng : null,
+					part: entry.part || null,
+					county: entry.county || null,
+					region: entry.region || null,
+					country: entry.country || null,
+				};
 			} else continue;
 		} else continue;
 		sanitized.push(formatted);

@@ -1,6 +1,6 @@
-import { Sql, Catcher } from '../systems/systems';
+import { Sql, Catcher } from '../systems/systems.ts';
 import { checkRedisAccess } from '../utilities/contentFilters';
-import { getLogger } from '../systems/handlers/logging/index';
+import { getLogger } from '../systems/handlers/loggers.ts';
 
 const logger = getLogger('Search');
 const MAX_OFFSET = 5000;
@@ -11,7 +11,7 @@ const [usersCols, eveCols, matchUser, likeConc, fullText] = [
 	'u.id, u.first, u.last, u.imgVers',
 	'e.id, e.priv, e.owner, e.title, e.imgVers, e.starts, e.type',
 	'MATCH(u.first, u.last)',
-	"LIKE CONCAT(?, '%')", // NOTE: searchQ is escaped via escapeLikeWildcards before use ---------------------------
+	"LIKE CONCAT(?, '%')",
 	'AGAINST(? IN BOOLEAN MODE)',
 ];
 

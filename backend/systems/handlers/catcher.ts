@@ -1,11 +1,14 @@
-import { getLogger } from './loggers';
+import { getLogger } from './loggers.ts';
 
 // ERROR STATUS MAP -------------------------------------------------------------
 // Normalizes backend error codes into HTTP status codes.
 // This keeps module handlers free to throw string codes instead of manually mapping status.
-const errorStatus = {
+const errorStatus: Record<string, number> = {
 	unauthorized: 401,
 	tokenExpired: 401,
+	wrongLogin: 401,
+	wrongPass: 401,
+	invalidDevicePrint: 400,
 	badRequest: 400,
 	userNotFound: 404,
 	notFound: 404,
@@ -62,7 +65,7 @@ const errorStatus = {
 // FRIENDLY MESSAGE MAP ---------------------------------------------------------
 // Converts internal error codes into user-facing Czech messages.
 // Only include messages that are safe to display to end users (no secrets, no stack traces).
-const friendlyMessages = {
+const friendlyMessages: Record<string, string> = {
 	unauthorized: 'Nemáte oprávnění k této akci.',
 	tokenExpired: 'Vaše přihlášení vypršelo. Přihlaste se prosím znovu.',
 	logout: 'Byli jste odhlášeni. Přihlaste se prosím znovu.',
@@ -79,6 +82,7 @@ const friendlyMessages = {
 	emailMismatch: 'Zadané e-maily se neshodují.',
 	emailReverted: 'Změna e-mailu byla vrácena.',
 	missingDeviceFingerprint: 'Chybí identifikace zařízení. Aktualizujte stránku a zkuste to znovu.',
+	invalidDevicePrint: 'Neplatná identifikace zařízení. Aktualizujte stránku a zkuste to znovu.',
 	missingData: 'Chybí požadovaná data.',
 	validationError: 'Odeslaná data nejsou platná.',
 	rateLimited: 'Odesíláte příliš mnoho požadavků. Zkuste to znovu později.',
@@ -127,14 +131,13 @@ const friendlyMessages = {
 const fallbackMessage = 'Něco se pokazilo. Zkuste to prosím znovu.';
 
 // ALIASES ----------------------------------------------------------------------
-// NOTE: keep index signature friendly by using bracket assignment (TS object has fixed keys).
 friendlyMessages['somethingsWrong'] = fallbackMessage;
 
 // FRIENDLY MESSAGE RESOLUTION --------------------------------------------------
 // Accepts a thrown error message/code and returns a safe user-facing message.
 // Heuristic: if message looks like a readable sentence (e.g. Czech text), allow it through.
 // Steps: resolve known codes first, map common prefixes to stable messages, allow readable sentences through, otherwise return fallback.
-function resolveFriendlyMessage(message = '') {
+function resolveFriendlyMessage(message: string = ''): string {
 	if (!message) return fallbackMessage;
 	if (friendlyMessages[message]) return friendlyMessages[message];
 	const normalized = String(message).toLowerCase();
@@ -155,7 +158,7 @@ const logger = getLogger('Catcher');
 // - translates internal codes into HTTP status + friendly message
 // - optionally redirects auth-related errors for entrance flows
 // Steps: log with bounded request context, map code->status, resolve friendly message, optionally redirect entrance auth errors, otherwise return JSON error envelope.
-export function Catcher({ origin, error, res = null, req = null, context = null }) {
+export function Catcher({ origin, error, res = null, req = null, context = null }: { origin: string; error: any; res?: any; req?: any; context?: any }): void {
 	// Log the error
 	logger.error(`${origin}`, {
 		error,
@@ -164,16 +167,16 @@ export function Catcher({ origin, error, res = null, req = null, context = null 
 		context,
 	});
 
-	const code = error?.message || 'serverError';
-	const friendly = resolveFriendlyMessage(code);
+	const code: string = error?.message || 'serverError';
+	const friendly: string = resolveFriendlyMessage(code);
 
-	let redirect;
+	let redirect: string | undefined;
 	if (origin === 'entrance' && (code === 'tokenExpired' || code === 'unauthorized')) {
 		redirect = `${process.env.FRONT_END}/entrance/?mess=${code}`;
 	}
 
 	if (res && !res.headersSent) {
-		const statusCode = errorStatus[code] || 500;
+		const statusCode: number = errorStatus[code] || 500;
 		if (redirect) res.redirect(302, redirect); // Express ignores status() with redirect, use redirect(status, url) ---------------------------
 		else res.status(statusCode).json({ code, message: friendly, status: statusCode, timestamp: Date.now() });
 	}

@@ -1,11 +1,12 @@
-import { Sql, Catcher, Socket } from '../systems/systems';
-import { calculateAge, delFalsy } from '../../shared/utilities';
+import { Sql, Catcher, Socket } from '../systems/systems.ts';
+import { calculateAge, delFalsy } from '../../shared/utilities.ts';
 import { encode, decode } from 'cbor-x';
-import { USER_GENERIC_KEYS, USER_PROFILE_KEYS, REDIS_KEYS } from '../../shared/constants';
-import { emitToUsers } from '../systems/socket/socket';
-import { fetchUserData } from '../systems/handlers/emitter';
-import { getLogger } from '../systems/handlers/logging/index';
+import { USER_GENERIC_KEYS, USER_PROFILE_KEYS, REDIS_KEYS } from '../../shared/constants.ts';
+import { emitToUsers } from '../systems/socket/socket.ts';
+import { fetchUserData } from '../systems/handlers/emitter.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
 import { LRUCache } from 'lru-cache';
+import { generateIDString } from '../utilities/idGenerator.ts';
 
 let redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------
@@ -129,13 +130,16 @@ const linksHandler = async ({ mode, userID, id, note, message }, con) => {
 		if (!['trust', 'untrust', 'note'].includes(mode)) t.hset(`userSummary:${id}`, 'user_links', ts);
 
 		if (['accept', 'unlink', 'trust', 'untrust'].includes(mode)) await updateRedis(mode, userID, id);
-		if (['accept', 'link'].includes(mode))
-			await con.execute(`INSERT INTO user_alerts (user, what, target, data) VALUES (?, ?, ?, ?)`, [
+		if (['accept', 'link'].includes(mode)) {
+			const alertID = generateIDString();
+			await con.execute(`INSERT INTO user_alerts (id, user, what, target, data) VALUES (?, ?, ?, ?, ?)`, [
+				alertID,
 				id,
 				mode,
 				userID,
 				JSON.stringify({ ...(await fetchUserData([userID, id], redis, con))[userID], ...(message && { message }) }),
 			]);
+		}
 
 		// EMIT ---------------------------------------------------------------
 		// Steps: exec redis mutations, then emit to users unless mode is refuse (refuse is silent to the other party).
@@ -182,7 +186,9 @@ const blocksHandler = async ({ mode, userID, id }, con) => {
 		if (mode !== 'unblock' || b.affectedRows)
 			await Promise.all([
 				redis
-					.multi()[mode === 'block' ? 'sadd' : 'srem'](`blocks:${userID}`, id)[mode === 'block' ? 'sadd' : 'srem'](`blocks:${id}`, userID)
+					.multi()
+					[mode === 'block' ? 'sadd' : 'srem'](`blocks:${userID}`, id)
+					[mode === 'block' ? 'sadd' : 'srem'](`blocks:${id}`, userID)
 					.hset(`${REDIS_KEYS.userSetsLastChange}:${userID}`, 'blocks', Date.now())
 					.hset(`${REDIS_KEYS.userSetsLastChange}:${id}`, 'blocks', Date.now())
 					.exec(),

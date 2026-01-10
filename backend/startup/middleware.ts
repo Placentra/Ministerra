@@ -14,10 +14,10 @@ import { nanoid } from 'nanoid';
 
 import { LIGHT_MODE } from './config';
 import { initializeMetrics } from './metrics';
-import { getLogger } from '../systems/handlers/logging/index';
-import { Redis } from '../systems/systems';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { Redis } from '../systems/systems.ts';
 import { jwtVerify } from '../modules/jwtokens';
-import { defaultMiddleware } from '../utilities/sanitize';
+import { defaultMiddleware, setupEditorMiddleware } from '../utilities/sanitize';
 import masterRouter from '../router';
 import { unless } from 'express-unless';
 
@@ -29,6 +29,7 @@ const staticAssetsLogger = getLogger('StaticAssets');
 // REDIS-BACKED RATE LIMITER ---------------------------------------------------
 // One bucket per (windowSec, keyFn(req)). Fast path in Redis; fails open on
 // Redis errors so availability has priority over strict throttling.
+
 // CREATE REDIS RATE LIMITER ----------------------------------------------------
 // Returns an Express middleware that:
 // - computes a stable per-request key via keyFn(req)
@@ -151,6 +152,42 @@ function configureFrontendStatic(app, __dirname) {
 	}
 }
 
+// HEALTH ENDPOINTS SETUP ------------------------------------------------------
+// Minimal endpoints for orchestrator/load-balancer health probes.
+// Mounted early (before auth/rate-limit) so probes always succeed when app is up.
+function setupHealthEndpoints(app) {
+	// HEALTH (LIVENESS) -------------------------------------------------------
+	// Returns 200 if Express is responding. No dependency checks.
+	app.get('/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: Date.now() }));
+
+	// READY (READINESS) -------------------------------------------------------
+	// Returns 200 only after critical subsystems are initialized.
+	// Orchestrators should wait for this before routing traffic.
+	app.get('/ready', async (req, res) => {
+		try {
+			const redis = await Redis.getClient();
+			await redis.ping();
+			res.status(200).json({ status: 'ready', timestamp: Date.now() });
+		} catch (error) {
+			res.status(503).json({ status: 'not_ready', error: error.message, timestamp: Date.now() });
+		}
+	});
+
+	// LIVE (DEEP LIVENESS) ----------------------------------------------------
+	// Checks active connections are healthy. Use for periodic deep health checks.
+	app.get('/live', async (req, res) => {
+		const checks = { redis: false, timestamp: Date.now() };
+		try {
+			const redis = await Redis.getClient();
+			await redis.ping();
+			checks.redis = true;
+			res.status(200).json({ status: 'live', checks });
+		} catch (error) {
+			res.status(503).json({ status: 'degraded', checks, error: error.message });
+		}
+	});
+}
+
 // MAIN MIDDLEWARE SETUP -------------------------------------------------------
 // Called by worker init. Configures full Express middleware stack.
 // SETUP MIDDLEWARE -------------------------------------------------------------
@@ -161,6 +198,8 @@ function configureFrontendStatic(app, __dirname) {
 // - routers before SPA catch-all so API paths are never hijacked by index.html
 // Steps: install global middleware in deterministic order, then mount routers, then mount SPA fallback (if present), then final 404 handler.
 export function setupMiddleware(app, __dirname) {
+	// METRICS ---
+	// Expose prom-client metrics early so the rest of the chain is observable.
 	initializeMetrics(app);
 
 	const TRUST_PROXY = process.env.TRUST_PROXY ? Number(process.env.TRUST_PROXY) : 0;
@@ -180,6 +219,13 @@ export function setupMiddleware(app, __dirname) {
 		}
 		next();
 	});
+
+	// HEALTH ENDPOINTS --------------------------------------------------------
+	// Exposed early (before auth/rate-limit) for orchestrator/load-balancer probes.
+	// /health - basic liveness (Express is responding)
+	// /ready  - subsystem readiness (all critical subsystems initialized)
+	// /live   - deep liveness (connections are healthy)
+	setupHealthEndpoints(app);
 
 	// Serve static files before CORS (assets aren't blocked by CORS gate) ----
 	// STATIC SERVE ------------------------------------------------------------
@@ -222,6 +268,8 @@ export function setupMiddleware(app, __dirname) {
 		})
 	);
 
+	// DEBUG: After CORS ---
+
 	// RATE LIMIT (IP) ---------------------------------------------------------
 	// Broad protection against abusive request floods; can be scoped to selected endpoints via env.
 	const ipRateLimiter = createRedisRateLimiter({
@@ -235,6 +283,8 @@ export function setupMiddleware(app, __dirname) {
 	const ipLimiterPaths = parseLimiterPaths(process.env.IP_RATE_LIMIT_PATHS ?? (LIGHT_MODE ? '/entrance,/foundation,/setup,/invites' : ''));
 	if (ipLimiterPaths.length) app.use(ipLimiterPaths, ipRateLimiter);
 	else if (!LIGHT_MODE) app.use(ipRateLimiter);
+
+	// DEBUG: After rate limit ---
 
 	// SECURITY + PARSERS + AUTH ----------------------------------------------
 	// Helmet + compression + JSON parser are applied before JWT so auth can inspect req.body when needed.
@@ -261,26 +311,29 @@ export function setupMiddleware(app, __dirname) {
 			xFrameOptions: { action: 'sameorigin' },
 		}),
 		compression({ level: 6, threshold: 1024 }),
-		express.json({ limit: '1mb' }),
+		express.json({ limit: '1mb' })
+	);
+
+	// DEBUG: After body parsing ---
+
+	// JWT verification
+	app.use(
 		(jwtVerify as any).unless({
 			path: ['/favicon.ico', { url: '/public', methods: ['GET'] }],
-			// ENTRANCE ROUTE BYPASS ---
-			// Email-link GET requests carry auth in query param, handled by Entrance directly.
-			// POST requests for public modes (register/login/etc) also bypass JWT middleware.
-			custom: req => {
-				if (req.path !== '/entrance') return false;
-				// GET requests with auth query param bypass JWT (email verification links)
-				if (req.method === 'GET' && req.query?.auth) return true;
-				// POST requests with public modes bypass JWT
-				if (req.method === 'POST') {
-					const mode = req.body?.mode;
-					return ['register', 'login', 'forgotPass', 'resendMail'].includes(mode);
-				}
-				return false;
-			},
-		}),
-		defaultMiddleware
+		})
 	);
+
+	// DEBUG: After JWT ---
+
+	// SANITIZER MIDDLEWARE --------------------------------------------------------
+	// Use relaxed array limits for /setup and /editor routes to allow image byte arrays.
+	// Other routes use the strict default sanitizer.
+	app.use((req, res, next) => {
+		const isImageUploadRoute = req.path === '/setup' || req.path === '/editor';
+		return isImageUploadRoute ? setupEditorMiddleware(req, res, next) : defaultMiddleware(req, res, next);
+	});
+
+	// DEBUG: After defaultMiddleware ---
 
 	// RATE LIMIT (USER) -------------------------------------------------------
 	// Tight per-user throttling for endpoints that trigger expensive fanout work.

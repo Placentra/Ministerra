@@ -1,13 +1,32 @@
 import { Sql } from '../systems/systems.ts';
 import { listDevices, revokeDevice, renameDevice } from '../utilities/helpers/device.ts';
-import { getLogger } from '../systems/handlers/logging/index.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
 import { invalidateCacheForDevice } from './jwtokens.ts';
 import { REDIS_KEYS } from '../../shared/constants.ts';
+import { Redis } from 'ioredis';
+
+interface DeviceRequest {
+	userID: string | number;
+	mode: 'list' | 'revoke' | 'rename';
+	deviceID?: string;
+	name?: string;
+	currentDeviceID?: string;
+}
+
+interface FormattedDevice {
+	id: string;
+	name: string;
+	fingerprintHash: string;
+	createdAt: Date | string;
+	lastSeen: Date | string;
+	isRevoked: boolean;
+	isCurrent: boolean;
+}
 
 const logger = getLogger('Devices');
 
-let redis;
-const ioRedisSetter = redisClient => (redis = redisClient);
+let redis: Redis | undefined;
+const ioRedisSetter = (redisClient: Redis) => (redis = redisClient);
 
 // DEVICES HANDLER -------------------------------------------------------------
 
@@ -16,8 +35,8 @@ const ioRedisSetter = redisClient => (redis = redisClient);
  * Manages per-device encryption salts for isolated device security.
  * Provides list, revoke, and rename operations.
  * -------------------------------------------------------------------------- */
-async function Devices(req, res) {
-	let con = null;
+async function Devices(req: { body: DeviceRequest }, res: any) {
+	let con: any = null;
 	const { userID, mode, deviceID, name } = req.body;
 
 	if (!userID) return res.status(400).json({ error: 'Missing userID' });
@@ -31,8 +50,8 @@ async function Devices(req, res) {
 			case 'list': {
 				// LIST DEVICES ------------------------------------------------------
 				// Steps: read device rows, normalize/label fields for frontend, and mark current device based on request payload.
-				const devices = await listDevices(con, userID);
-				const formatted = devices.map(d => ({
+				const devices: any[] = await listDevices(con, userID);
+				const formatted: FormattedDevice[] = devices.map((d: any) => ({
 					id: d.device_id,
 					name: d.name || 'Neznámé zařízení',
 					fingerprintHash: d.fingerprint_hash,
@@ -53,7 +72,7 @@ async function Devices(req, res) {
 				if (redis) {
 					try {
 						await redis.hdel(REDIS_KEYS.refreshTokens, `${userID}_${deviceID}`);
-					} catch (redisErr) {
+					} catch (redisErr: any) {
 						logger.alert('Failed to invalidate refresh token in Redis', { userID, deviceID, error: redisErr?.message });
 					}
 				}

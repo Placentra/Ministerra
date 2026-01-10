@@ -1,12 +1,11 @@
 // USER DATA SYNC ----------------------------------------------------------------
-import { delFalsy } from '../../../shared/utilities';
-import { getOrCacheFilteringSets } from '../../utilities/helpers/cache';
-import { getProfile } from '../user';
-import { updateLoginsTable } from '../entrance/index';
-import { Sql } from '../../systems/systems';
-import { getLogger } from '../../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../../shared/constants';
-import { userSummaryKey, redis } from './utils';
+import { delFalsy } from '../../../shared/utilities.ts';
+import { getOrCacheFilteringSets } from '../../utilities/helpers/cache.ts';
+import { getProfile } from '../user.ts';
+import { updateLoginsTable } from '../entrance/index.ts';
+import { Sql } from '../../systems/systems.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
+import { userSummaryKey, redis } from './utils.ts';
 
 const logger = getLogger('FoundationUserSync');
 
@@ -24,26 +23,37 @@ const configs = {
 };
 const tableNames = Object.keys(configs);
 
+interface ExecQueryProps {
+	table: string;
+	userID: string | number;
+	sync: number;
+	interactions: any;
+	delInteractions: any;
+	con: any;
+}
+
 // EXECUTE DELTA QUERY -----------------------------------------------------------
 // Generic processor for fetching table changes (sync) or full state (init)
 // EXECUTE TABLE DELTA -----------------------------------------------------------
 // Steps: choose query by table + sync mode, read rows, partition into add/del payloads, then attach them under stable frontend keys (interactions/delInteractions).
-async function execQuery({ table, userID, sync, interactions, delInteractions, con }) {
+async function execQuery({ table, userID, sync, interactions, delInteractions, con }: ExecQueryProps): Promise<void> {
 	try {
-		const [isLinks, { cols, arrName, targetCol }] = [table === 'user_links', configs[table]];
+		const [isLinks, { cols, arrName, targetCol }]: [boolean, any] = [table === 'user_links', (configs as any)[table]];
 
 		// QUERY BUILD -----------------------------------------------------------
 		// Steps: when sync=0 do full snapshot for that table; when sync>0 do changed-since to minimize rows and keep client convergence fast.
-		const query = `SELECT ${cols} FROM ${table} WHERE ${isLinks ? '(user = ? OR user2 = ?)' : 'user = ?'} ${
+		const query: string = `SELECT ${cols} FROM ${table} WHERE ${isLinks ? '(user = ? OR user2 = ?)' : 'user = ?'} ${
 			!sync
 				? table.includes('rating')
 					? 'AND mark > 0'
-					: `AND ${{ eve_inters: 'inter', user_links: 'link', users: 'flag' }[table]} != "del" ${table === 'user_links' ? 'AND link NOT IN ("req", "ref")' : ''}`
+					: `AND ${{ eve_inters: 'inter', user_links: 'link', users: 'flag' }[table as 'eve_inters' | 'user_links']} != "del" ${
+							table === 'user_links' ? 'AND link NOT IN ("req", "ref")' : ''
+					  }`
 				: `AND changed >= FROM_UNIXTIME(?) ${isLinks ? 'AND link NOT IN ("req", "ref")' : ''}`
 		}`;
-		const params = [userID, ...(isLinks ? [userID] : []), ...(sync ? [Math.floor(sync / 1000)] : [])];
+		const params: (string | number)[] = [userID, ...(isLinks ? [userID] : []), ...(sync ? [Math.floor(sync / 1000)] : [])];
 
-		const [res] = await con.execute(query, params);
+		const [res]: [any[], any] = await con.execute(query, params);
 
 		// PARTITION RESULTS -----------------------------------------------------
 		// Steps: convert SQL row shapes into compact client arrays; treat “del” markers / mark=0 as deletes so UI can remove without full refetch.
@@ -59,7 +69,7 @@ async function execQuery({ table, userID, sync, interactions, delInteractions, c
 		} else {
 			// User Links: Handle bidirectional relationships and "Trusts" flags
 			for (const { user, user2, link, who } of res) {
-				const [userWho, otherUser] = userID == user ? [1, user2] : [2, user];
+				const [userWho, otherUser]: [number, any] = userID == user ? [1, user2] : [2, user];
 				link === 'del' ? del.push(otherUser) : add.push([otherUser, ...(link === 'tru' && [userWho, 3].includes(who) ? ['tru'] : [])]);
 			}
 		}
@@ -70,14 +80,33 @@ async function execQuery({ table, userID, sync, interactions, delInteractions, c
 	}
 }
 
+interface SyncUserDataProps {
+	userID: string | number;
+	load: string;
+	devID: string;
+	devSync: number;
+	linksSync: number;
+	oldUserUnstableDev: boolean;
+}
+
+interface SyncUserDataResult {
+	user: any;
+	interactions: any;
+	delInteractions: any;
+	devSync: number;
+	linksSync: number;
+}
+
 // SYNC HANDLER ------------------------------------------------------------------
 // Orchestrates the check-fetch-update cycle for user data tables
 // SYNC USER DATA ---------------------------------------------------------------
 // Steps: update login stats (init), read redis summary watermarks, decide which tables need fetch (full vs delta), run minimal SQL reads, then persist missing summary timestamps.
-async function syncUserData(req, con, { userID, load, devID, devSync, linksSync, oldUserUnstableDev }) {
-	let user: any = null, interactions: any = {}, delInteractions: any = {};
-	const [tablesToFetch, hasNoTimestamp, now] = [[], [], Date.now()];
-	const summaryKey = userSummaryKey(userID);
+async function syncUserData(req: any, con: any, { userID, load, devID, devSync, linksSync, oldUserUnstableDev }: SyncUserDataProps): Promise<SyncUserDataResult> {
+	let user: any = null,
+		interactions: any = {},
+		delInteractions: any = {};
+	const [tablesToFetch, hasNoTimestamp, now]: [string[], string[], number] = [[], [], Date.now()];
+	const summaryKey: string = userSummaryKey(userID);
 
 	// 1. UPDATE LOGIN STATS (Non-blocking) -----------------------------------
 	// Steps: fire-and-forget so init doesn’t stall on analytics bookkeeping.
@@ -88,7 +117,7 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 
 	// 2. CHECK REDIS SUMMARIES FOR CHANGES -----------------------------------
 	// Steps: fetch summary watermarks unless device is unstable (unstable devices follow a safer fallback path).
-	let [lastDevSummary, linksChangeSummary] = [null, null];
+	let [lastDevSummary, linksChangeSummary]: [string | null, string | null] = [null, null];
 	if (!oldUserUnstableDev) {
 		try {
 			[lastDevSummary, linksChangeSummary] = await redis.hmget(summaryKey, 'last_dev', 'user_links');
@@ -105,7 +134,10 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 		if (!linksSync) {
 			// LINKS REBUILD ------------------------------------------------------
 			// Steps: prefer redis sets, otherwise repopulate from SQL via getOrCacheFilteringSets so future requests are cheap.
-			const [linksSet, trustsSet] = await Promise.all([getOrCacheFilteringSets(con, REDIS_KEYS.links as any, userID), getOrCacheFilteringSets(con, REDIS_KEYS.trusts as any, userID)]);
+			const [linksSet, trustsSet]: [Set<string | number>, Set<string | number>] = await Promise.all([
+				getOrCacheFilteringSets(con, 'links', userID),
+				getOrCacheFilteringSets(con, 'trusts', userID),
+			]);
 
 			interactions.linkUsers = [...linksSet].map(id => [id, ...(trustsSet.has(id) ? ['tru'] : [])]);
 			linksSync = now;
@@ -115,8 +147,8 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 		} else {
 			// LINKS DELTA CHECK --------------------------------------------------
 			// Steps: fetch links only when summary indicates changes since client watermark.
-			const linksChange = await redis.hget(summaryKey, 'user_links');
-			if (!linksChange || linksChange > linksSync) tablesToFetch.push('user_links'), !linksChange && hasNoTimestamp.push('user_links');
+			const linksChange: string | null = await redis.hget(summaryKey, 'user_links');
+			if (!linksChange || Number(linksChange) > linksSync) tablesToFetch.push('user_links'), !linksChange && hasNoTimestamp.push('user_links');
 		}
 	} else if (!devSync) {
 		// CLEAN STATE FULL SNAPSHOT -------------------------------------------
@@ -128,15 +160,15 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 		try {
 			// LINKS CHECK --------------------------------------------------------
 			// Steps: links are checked against summary and use devSync as default watermark when linksSync isn’t separate.
-			if (!linksChangeSummary || linksChangeSummary > devSync) tablesToFetch.push('user_links'), !linksChangeSummary && hasNoTimestamp.push('user_links');
+			if (!linksChangeSummary || Number(linksChangeSummary) > devSync) tablesToFetch.push('user_links'), !linksChangeSummary && hasNoTimestamp.push('user_links');
 			// CROSS-DEVICE UPDATE CHECK -----------------------------------------
 			// Steps: when last_dev differs, another device likely wrote changes; fetch only tables whose summary timestamp exceeds devSync.
 			if (lastDevSummary !== devID) {
 				if (devID) await redis.hset(summaryKey, 'last_dev', devID);
-				const ownInteractionTables = tableNames.filter(t => t !== 'user_links');
-				const summaryValues = await redis.hmget(summaryKey, ...ownInteractionTables);
+				const ownInteractionTables: string[] = tableNames.filter(t => t !== 'user_links');
+				const summaryValues: (string | null)[] = await redis.hmget(summaryKey, ...ownInteractionTables);
 				for (const [idx, value] of summaryValues.entries())
-					if (!value || value > devSync) tablesToFetch.push(ownInteractionTables[idx]), !value && hasNoTimestamp.push(ownInteractionTables[idx]);
+					if (!value || Number(value) > devSync) tablesToFetch.push(ownInteractionTables[idx]), !value && hasNoTimestamp.push(ownInteractionTables[idx]);
 			}
 		} catch (error) {
 			logger.error('Foundation', { error, userID, step: 'checkForUpdates' });
@@ -152,10 +184,8 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 			// Steps: fetch profile only when explicitly included; most deltas avoid the user profile read.
 			if (tablesToFetch.includes('users')) user = await getProfile({ userID, id: userID, basiOnly: false, devIsStable: true }, con);
 
-			const syncStart = Date.now();
-			await Promise.all(
-				tablesToFetch.filter(table => table !== 'users').map(table => execQuery({ table, userID, sync: linksSync || devSync, con, interactions, delInteractions }))
-			);
+			const syncStart: number = Date.now();
+			await Promise.all(tablesToFetch.filter(table => table !== 'users').map(table => execQuery({ table, userID, sync: linksSync || devSync, con, interactions, delInteractions })));
 
 			// WATERMARK ADVANCE --------------------------------------------------
 			// Steps: advance the relevant watermark to the start of this sync; client can request changes strictly after this point next time.
@@ -181,4 +211,3 @@ async function syncUserData(req, con, { userID, load, devID, devSync, linksSync,
 }
 
 export { syncUserData };
-

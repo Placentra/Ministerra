@@ -1,8 +1,8 @@
 // CHAT CLEANUP =================================================================
-import { getIDsString } from '../../../shared/utilities';
-import { Querer } from '../../systems/systems';
-import { REDIS_KEYS } from '../../../shared/constants';
-import { getLogger } from '../../systems/handlers/logging/index';
+import { getIDsString } from '../../../shared/utilities.ts';
+import { Querer } from '../../systems/systems.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 
 const logger = getLogger('Task:DailyRecalc:ChatCleanup');
 

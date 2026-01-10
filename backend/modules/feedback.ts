@@ -1,5 +1,28 @@
-import { Catcher, Sql } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
+import { Catcher, Sql } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { generateIDString } from '../utilities/idGenerator';
+
+interface FeedbackRequest {
+	mode: 'getMine' | 'submit' | 'getTotals';
+	eventID: number | string;
+	userID?: number | string;
+	payload?: {
+		rating?: number | null;
+		praises?: Record<string, number> | string[];
+		reprimands?: Record<string, number> | string[];
+		aspects?: Record<string, number>;
+		comment?: string;
+		ideas?: string;
+	};
+}
+
+interface FeedbackTotals {
+	rating_sum: number;
+	rating_count: number;
+	praises: Record<string, number>;
+	reprimands: Record<string, number>;
+	aspects: Record<string, { sum: number; count: number }>;
+}
 
 // FEEDBACK MODULE --------------------------------------------------------------
 // Stores per-user event feedback and maintains aggregated totals for event owners.
@@ -11,13 +34,13 @@ const logger = getLogger('Feedback');
 
 // CLAMP 0..10 ------------------------------------------------------------------
 // Steps: normalize arbitrary input into numeric 0..10 so aggregates can be updated safely without trusting client input.
-const clamp10 = val => {
+const clamp10 = (val: any): number | null => {
 	const num = Number(val);
 	return Number.isFinite(num) ? Math.max(0, Math.min(10, num)) : null;
 };
 // SAFE JSON PARSER -------------------------------------------------------------
 // Steps: parse JSON when present; on null/invalid payload return fallback so one bad row doesn’t break the whole handler.
-const parseJson = (val, fallback) => {
+const parseJson = (val: string | null | undefined, fallback: any): any => {
 	if (!val) return fallback;
 	try {
 		return JSON.parse(val);
@@ -28,9 +51,9 @@ const parseJson = (val, fallback) => {
 
 // TALLY COUNTS ----------------------------------------------------------------
 // Steps: normalize old array format into {id:level}, then add/subtract levels into the bucket so totals can be updated by diffing prev vs next.
-const tally = (bucket = {}, items = {}, sign = 1) => {
-	if (Array.isArray(items)) items = items.reduce((acc, id) => ((acc[id] = 1), acc), {}); // Convert old array format
-	Object.entries(items || {}).forEach(([key, level]) => {
+const tally = (bucket: Record<string, number> = {}, items: Record<string, number> | string[] = {}, sign: number = 1): Record<string, number> => {
+	const normalizedItems = Array.isArray(items) ? items.reduce((acc: Record<string, number>, id) => ((acc[id] = 1), acc), {}) : items; // Convert old array format
+	Object.entries(normalizedItems || {}).forEach(([key, level]) => {
 		if (!key || !level) return;
 		const lvl = Math.max(0, Math.min(3, Number(level) || 0)); // Clamp level 0-3
 		bucket[key] = (bucket[key] || 0) + sign * lvl;
@@ -41,7 +64,11 @@ const tally = (bucket = {}, items = {}, sign = 1) => {
 
 // MERGE ASPECTS ---------------------------------------------------------------
 // Steps: for each aspect key, subtract prev contribution, add next contribution, and delete empty buckets so stored totals stay small.
-const mergeAspects = (bucket = {}, prev = {}, next = {}) => {
+const mergeAspects = (
+	bucket: Record<string, { sum: number; count: number }> = {},
+	prev: Record<string, number> = {},
+	next: Record<string, number> = {}
+): Record<string, { sum: number; count: number }> => {
 	const keys = Array.from(new Set([...Object.keys(prev || {}), ...Object.keys(next || {})]));
 	keys.forEach(key => {
 		const prevVal = clamp10(prev[key]);
@@ -67,16 +94,17 @@ const mergeAspects = (bucket = {}, prev = {}, next = {}) => {
  * Handles user feedback for events (ratings, praises, reprimands, aspects).
  * Manages both individual user submissions and aggregated totals.
  * -------------------------------------------------------------------------- */
-async function Feedback(req, res) {
+async function Feedback(req: { body: FeedbackRequest }, res: any) {
 	const { mode, eventID, userID, payload } = req.body;
 	if (!eventID || !['getMine', 'submit', 'getTotals'].includes(mode)) return res.status(400).json({ reason: 'badRequest' });
-	let con;
+	let con: any;
 	try {
 		con = await Sql.getConnection();
 
 		// EVENT META + ACCESS -------------------------------------------------
 		// Steps: load owner/type/time window, enforce feedback window rules, then branch by mode (getMine/getTotals/submit).
-		const [[eventMeta]] = await con.execute(/*sql*/ 'SELECT owner,type,starts,ends FROM events WHERE id=?', [eventID]);
+		const [eventMetas]: [any[], any] = await con.execute(/*sql*/ 'SELECT owner,type,starts,ends FROM events WHERE id=?', [eventID]);
+		const eventMeta = eventMetas[0];
 		if (!eventMeta) return res.status(404).json({ reason: 'notFound' });
 		if (eventMeta.type.startsWith('a')) return res.status(403).json({ reason: 'forbidden' });
 		const feedbackBase = eventMeta.ends || eventMeta.starts;
@@ -92,12 +120,14 @@ async function Feedback(req, res) {
 		// READ OWN FEEDBACK ---------------------------------------------------
 		// Steps: read user row + totals row, normalize legacy praise formats, then return both so client can render “mine vs totals”.
 		if (mode === 'getMine') {
-			const normLevels = val => {
-				if (Array.isArray(val)) return val.reduce((acc, id) => ((acc[id] = 1), acc), {});
+			const normLevels = (val: any): Record<string, number> => {
+				if (Array.isArray(val)) return val.reduce((acc: Record<string, number>, id: string) => ((acc[id] = 1), acc), {});
 				return val || {};
 			};
-			const [[row]] = await con.execute('SELECT rating,praises,reprimands,aspects,payload,comment,ideas FROM eve_feedback_user WHERE event=? AND user=?', [eventID, userID || 0]);
-			const [[totals]] = await con.execute('SELECT rating_sum,rating_count,praises,reprimands,aspects FROM eve_feedback_totals WHERE event=?', [eventID]);
+			const [rows]: [any[], any] = await con.execute('SELECT rating,praises,reprimands,aspects,payload,comment,ideas FROM eve_feedback_user WHERE event=? AND user=?', [eventID, userID || 0]);
+			const row = rows[0];
+			const [totalsRows]: [any[], any] = await con.execute('SELECT rating_sum,rating_count,praises,reprimands,aspects FROM eve_feedback_totals WHERE event=?', [eventID]);
+			const totals = totalsRows[0];
 			return res.status(200).json({
 				feedback: row
 					? {
@@ -125,7 +155,8 @@ async function Feedback(req, res) {
 		// READ TOTALS ---------------------------------------------------------
 		// Steps: owner-only read; return parsed totals or a zeroed shape so UI doesn’t branch on null.
 		if (mode === 'getTotals') {
-			const [[totals]] = await con.execute('SELECT rating_sum,rating_count,praises,reprimands,aspects FROM eve_feedback_totals WHERE event=?', [eventID]);
+			const [totalsRows]: [any[], any] = await con.execute('SELECT rating_sum,rating_count,praises,reprimands,aspects FROM eve_feedback_totals WHERE event=?', [eventID]);
+			const totals = totalsRows[0];
 			return res.status(200).json(
 				totals
 					? {
@@ -142,17 +173,17 @@ async function Feedback(req, res) {
 		// SUBMIT / UPSERT -----------------------------------------------------
 		// Steps: normalize payload, lock user row + totals row, upsert user row, update totals by diff(prev,next), then commit so totals are consistent.
 		if (!userID) return res.status(401).json({ reason: 'unauthorized' });
-		const safePayload = payload || {};
+		const safePayload: any = payload || {};
 		const { rating, praises = {}, reprimands = {}, aspects = {}, comment = '', ideas = '' } = safePayload;
 		const ratingNum = rating === null || rating === undefined ? null : Math.max(1, Math.min(10, Number(rating)));
 
 		// NORMALIZE INPUTS ----------------------------------------------------
 		// Steps: cap item counts, clamp levels, and stringify once so both user row and totals delta logic share the same normalized view.
-		const normalizeLevels = val => {
-			if (Array.isArray(val)) return val.slice(0, 64).reduce((acc, id) => ((acc[id] = 1), acc), {});
+		const normalizeLevels = (val: Record<string, number> | string[]): Record<string, number> => {
+			if (Array.isArray(val)) return val.slice(0, 64).reduce((acc: Record<string, number>, id: string) => ((acc[id] = 1), acc), {});
 			return Object.entries(val || {})
 				.slice(0, 64)
-				.reduce((acc, [k, v]) => {
+				.reduce((acc: Record<string, number>, [k, v]) => {
 					const lvl = Math.max(0, Math.min(3, Number(v) || 0));
 					if (lvl > 0) acc[k] = lvl;
 					return acc;
@@ -160,7 +191,7 @@ async function Feedback(req, res) {
 		};
 		const safePraises = normalizeLevels(praises),
 			safeReprimands = normalizeLevels(reprimands);
-		const safeAspects = Object.entries(aspects || {}).reduce((acc, [k, v]) => ((acc[k] = clamp10(v)), acc), {});
+		const safeAspects: Record<string, number | null> = Object.entries(aspects || {}).reduce((acc: Record<string, number | null>, [k, v]) => ((acc[k] = clamp10(v)), acc), {});
 		const safePayloadJson = JSON.stringify({
 			rating: ratingNum,
 			praises: safePraises,
@@ -173,23 +204,37 @@ async function Feedback(req, res) {
 		// TRANSACTION + LOCKS -------------------------------------------------
 		// Steps: lock user row to compute a stable prev state, then lock totals row so concurrent submitters can’t corrupt aggregates.
 		await con.beginTransaction();
-		const [[prevRow]] = await con.execute('SELECT rating,praises,reprimands,aspects FROM eve_feedback_user WHERE event=? AND user=? FOR UPDATE', [eventID, userID]);
+		const [prevRows]: [any[], any] = await con.execute('SELECT rating,praises,reprimands,aspects FROM eve_feedback_user WHERE event=? AND user=? FOR UPDATE', [eventID, userID]);
+		const prevRow = prevRows[0];
 		const prevRating = prevRow?.rating || null;
 		const prevPraises = normalizeLevels(parseJson(prevRow?.praises, {}));
 		const prevReprimands = normalizeLevels(parseJson(prevRow?.reprimands, {}));
 		const prevAspects = parseJson(prevRow?.aspects, {});
 
+		const feedbackID = generateIDString();
 		await con.execute(
-			`INSERT INTO eve_feedback_user (event,user,rating,praises,reprimands,aspects,payload,comment,ideas)
-             VALUES (?,?,?,?,?,?,?,?,?)
+			`INSERT INTO eve_feedback_user (id,event,user,rating,praises,reprimands,aspects,payload,comment,ideas)
+             VALUES (?,?,?,?,?,?,?,?,?,?)
              ON DUPLICATE KEY UPDATE rating=VALUES(rating), praises=VALUES(praises), reprimands=VALUES(reprimands), aspects=VALUES(aspects), payload=VALUES(payload), comment=VALUES(comment), ideas=VALUES(ideas)`,
-			[eventID, userID, ratingNum, JSON.stringify(safePraises), JSON.stringify(safeReprimands), JSON.stringify(safeAspects), safePayloadJson, comment.slice(0, 800), ideas.slice(0, 800)]
+			[
+				feedbackID,
+				eventID,
+				userID,
+				ratingNum,
+				JSON.stringify(safePraises),
+				JSON.stringify(safeReprimands),
+				JSON.stringify(safeAspects),
+				safePayloadJson,
+				comment.slice(0, 800),
+				ideas.slice(0, 800),
+			]
 		);
 
 		// UPDATE AGGREGATES ---------------------------------------------------
 		// Steps: load totals under lock, then apply rating/praise/reprimand/aspect deltas so totals reflect the new user submission.
-		const [[totalsRow]] = await con.execute('SELECT rating_sum,rating_count,praises,reprimands,aspects FROM eve_feedback_totals WHERE event=? FOR UPDATE', [eventID]);
-		const totals = totalsRow
+		const [totalsRows]: [any[], any] = await con.execute('SELECT rating_sum,rating_count,praises,reprimands,aspects FROM eve_feedback_totals WHERE event=? FOR UPDATE', [eventID]);
+		const totalsRow = totalsRows[0];
+		const totals: FeedbackTotals = totalsRow
 			? {
 					rating_sum: Number(totalsRow.rating_sum) || 0,
 					rating_count: Number(totalsRow.rating_count) || 0,
@@ -210,7 +255,7 @@ async function Feedback(req, res) {
 		tally(totals.reprimands, prevReprimands, -1);
 		tally(totals.praises, safePraises, 1);
 		tally(totals.reprimands, safeReprimands, 1);
-		mergeAspects(totals.aspects, prevAspects, safeAspects);
+		mergeAspects(totals.aspects, prevAspects, safeAspects as any);
 
 		await con.execute(
 			`INSERT INTO eve_feedback_totals (event,rating_sum,rating_count,praises,reprimands,aspects,updated_at)

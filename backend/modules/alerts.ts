@@ -1,6 +1,42 @@
-import { Sql, Catcher } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../shared/constants';
+import { Sql, Catcher } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { REDIS_KEYS } from '../../shared/constants.ts';
+
+interface AlertRequest {
+	cursor?: string | number;
+	firstID?: string | number;
+	lastID?: string | number;
+	userID: string | number;
+	mode?: 'delete' | 'getNotifDots' | 'list';
+	alertId?: string | number;
+}
+
+interface NotifDots {
+	chats: number;
+	alerts: number;
+	archive: number;
+	lastSeenAlert: number;
+}
+
+interface AlertRow {
+	id: number;
+	user: number;
+	what: string;
+	target: string;
+	data: string | any;
+	created: Date | string | number;
+	flag: string;
+}
+
+interface NormalizedAlert {
+	id: number;
+	user: number;
+	what: string;
+	target: string;
+	data: any;
+	created: Date | string | number;
+	flag: string;
+}
 
 // TODO need to figure out how to correctly index the table and how to store alets on frontend and how to fetch (FE doesn´t receive IDs, so we can´t cursor based on that. Also cursoring ). For alerts older than 3 months, probably tell FE to not fetch the imgVers for users (since pictures older than 3 months are deleted)
 
@@ -15,10 +51,10 @@ const summaryQ = `SELECT
 	EXISTS (SELECT 1 FROM chat_members cm JOIN chats c ON cm.chat=c.id JOIN last_seen ls ON cm.seen=ls.mess WHERE cm.id=? AND cm.flag = 'ok' AND c.last_mess>ls.mess LIMIT 1) AS hasMissedChats,
 	EXISTS (SELECT 1 FROM chat_members cm WHERE cm.id=? AND cm.archived = TRUE AND cm.miss_arc=1 LIMIT 1) AS hasArchivedChats`;
 
-let redis;
+let redis: any;
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Alerts uses redis summary keys to avoid unnecessary SQL reads for notif dots.
-export const ioRedisSetter = redisClient => (redis = redisClient);
+export const ioRedisSetter = (redisClient: any) => (redis = redisClient);
 const logger = getLogger('Alerts');
 
 // ALERTS HANDLER --------------------------------------------------------------
@@ -29,16 +65,18 @@ const logger = getLogger('Alerts');
  * Also exposes delete + unread summary helpers consumed by the frontend.
  * Steps: route by mode: (1) delete one alert, (2) read notif dots from Redis with SQL fallback + recache, (3) fetch alerts with cursor/ID bounds and clear dots/pointers.
  * -------------------------------------------------------------------------- */
-async function Alerts(req, res = null) {
+async function Alerts(req: { body: AlertRequest }, res: any = null): Promise<NormalizedAlert[] | NotifDots | { success: boolean } | void> {
 	const { cursor, firstID, lastID, userID, mode, alertId } = req.body;
-	let con, payload;
+	let con: any,
+		payload: NormalizedAlert[] | NotifDots | { success: boolean } = [];
 	try {
 		// DELETE SINGLE ALERT -------------------------------------------------
 		if (mode === 'delete') {
 			if (!alertId || !userID) throw new Error('badRequest');
 			con = await Sql.getConnection();
 			await con.execute('DELETE FROM user_alerts WHERE id = ? AND user = ?', [alertId, userID]);
-			return res ? res.status(200).json({ success: true }) : { success: true };
+			payload = { success: true };
+			return res ? res.status(200).json(payload) : payload;
 		}
 
 		// GET NOTIFICATION DOTS -----------------------------------------------
@@ -52,8 +90,8 @@ async function Alerts(req, res = null) {
 				// SQL FALLBACK -------------------------------------------------------
 				// Steps: use EXISTS probes so DB work is bounded, then recache only when any indicator is non-zero so Redis stays sparse.
 				con = await Sql.getConnection();
-				const [result] = await con.execute(summaryQ, [userID, userID, userID]);
-				const [[{ lastAlert = 0 } = {}]] = await con.execute('SELECT COALESCE(alert, 0) AS lastAlert FROM last_seen WHERE user = ?', [userID]);
+				const [result]: [any[], any] = await con.execute(summaryQ, [userID, userID, userID]);
+				const [[{ lastAlert = 0 } = {}]]: [any[], any] = await con.execute('SELECT COALESCE(alert, 0) AS lastAlert FROM last_seen WHERE user = ?', [userID]);
 				// Redis returns strings; '0' is truthy so use explicit null check
 				const chatsState = result[0]?.hasMissedChats ? 1 : 0;
 				const alertsState = result[0]?.hasNewAlerts ? 1 : 0;
@@ -69,8 +107,8 @@ async function Alerts(req, res = null) {
 						lastSeenAlert: lastSeenAlertState,
 					});
 				}
-				payload = { chats: chatsState, alerts: alertsState, archive: archiveState, lastSeenAlert: lastSeenAlertState };
-			} else payload = { chats: Number(chats) || 0, alerts: Number(alerts) || 0, archive: Number(archive) || 0, lastSeenAlert: Number(lastSeenAlert) || 0 };
+				payload = { chats: chatsState, alerts: alertsState, archive: archiveState, lastSeenAlert: lastSeenAlertState } as NotifDots;
+			} else payload = { chats: Number(chats) || 0, alerts: Number(alerts) || 0, archive: Number(archive) || 0, lastSeenAlert: Number(lastSeenAlert) || 0 } as NotifDots;
 			return res ? res.status(200).json(payload) : payload;
 		}
 
@@ -96,11 +134,11 @@ async function Alerts(req, res = null) {
 			}
 
 			con = await Sql.getConnection();
-			let rows = [];
+			let rows: AlertRow[] = [];
 
 			// QUERY BUILDER ---
 			const conditions = ['user=?'];
-			const params = [userID];
+			const params: any[] = [userID];
 			if (cursor) {
 				conditions.push('id<?');
 				params.push(cursor);
@@ -131,8 +169,8 @@ async function Alerts(req, res = null) {
 			}
 
 			// NORMALIZE DATA ---
-			const normalizeWhat = w => (w === 'linked' ? 'accept' : w);
-			const parseData = d => {
+			const normalizeWhat = (w: string) => (w === 'linked' ? 'accept' : w);
+			const parseData = (d: string | any) => {
 				try {
 					return typeof d === 'string' ? JSON.parse(d) : d || {};
 				} catch (error) {
@@ -141,15 +179,17 @@ async function Alerts(req, res = null) {
 				}
 			};
 
-			payload = rows.map(r => ({
-				id: r.id,
-				user: r.user,
-				what: normalizeWhat(r.what),
-				target: r.target,
-				data: parseData(r.data),
-				created: r.created,
-				flag: r.flag || 'ok',
-			}));
+			payload = rows.map(
+				(r: AlertRow): NormalizedAlert => ({
+					id: r.id,
+					user: r.user,
+					what: normalizeWhat(r.what),
+					target: r.target,
+					data: parseData(r.data),
+					created: r.created,
+					flag: r.flag || 'ok',
+				})
+			);
 		}
 
 		if (res) res.status(200).json(payload);

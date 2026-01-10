@@ -1,8 +1,8 @@
-import { getLogger } from '../handlers/loggers';
-import { getOnlineStatus } from './socket';
-import { REDIS_KEYS } from '../../../shared/constants';
-import { Chat } from '../../modules/chat';
-import { getMembers } from '../../modules/chat/chatHelpers';
+import { getLogger } from '../handlers/loggers.ts';
+import { getOnlineStatus } from './socket.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
+import { Chat } from '../../modules/chat.ts';
+import { getMembers } from '../../modules/chat/chatHelpers.ts';
 
 const logger = getLogger('ChatHandlers');
 let [redis, socketIO] = [null, null];

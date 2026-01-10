@@ -3,7 +3,7 @@
 // Centralizes cluster-wide state and translates worker metrics into actionable scaling events
 
 import cluster from 'cluster';
-import { CONFIG, DEBUG_LOG_ENABLED } from '../startup/config';
+import { CONFIG, DEBUG_LOG_ENABLED } from '../startup/config.ts';
 import {
 	clusterWorkersReadyGauge,
 	clusterHelpersTotalGauge,
@@ -11,9 +11,9 @@ import {
 	clusterWorkerBacklogGauge,
 	clusterWorkerProcessingMsGauge,
 	clusterWorkerCpuUsagePercentGauge,
-} from '../startup/metrics';
-import { getLogger } from '../systems/handlers/logging/index';
-import { handleSubsystemReady, logStartupComplete } from './readiness';
+} from '../startup/metrics.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { handleSubsystemReady, logStartupComplete } from './readiness.ts';
 
 const primaryLogger = getLogger('Primary');
 

@@ -1,7 +1,7 @@
 import { delFalsy, calculateAge } from '../../shared/utilities.ts';
 import { createEveMeta, createUserMeta } from './helpers/metasCreate.ts';
 import { encode, decode } from 'cbor-x';
-import { getLogger } from '../systems/handlers/logging/index.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
 import { REDIS_KEYS } from '../../shared/constants.ts';
 import { getGeohash } from './helpers/location.ts';
 
@@ -63,7 +63,22 @@ async function processNewEvents({ data, state: { eveBasics, eveDetails, eveCityI
 			eventIDString,
 			delFalsy({ ...basics, basiVers: Number(basiVers), ...(place || location ? { ...(place ? { place } : { location }), hashID } : {}), ends: Number(new Date(basics.ends)) })
 		);
-		eveDetails.set(eventIDString, delFalsy({ meetHow, meetWhen: meetWhen ? Number(new Date(meetWhen)) : undefined, organizer, contacts, location, links, detail, fee, takeWith, detaVers: Number(detaVers), ...(place ? { location } : {}) }));
+		eveDetails.set(
+			eventIDString,
+			delFalsy({
+				meetHow,
+				meetWhen: meetWhen ? Number(new Date(meetWhen)) : undefined,
+				organizer,
+				contacts,
+				location,
+				links,
+				detail,
+				fee,
+				takeWith,
+				detaVers: Number(detaVers),
+				...(place ? { location } : {}),
+			})
+		);
 		eveCityIDs.set(eventIDString, Number(cityID));
 
 		// BEST-OF CANDIDATES ---

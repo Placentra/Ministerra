@@ -1,11 +1,11 @@
 # Multi-stage build for backend
 
-FROM node:24.12.0-bullseye AS deps
+FROM node:25.2.1-bullseye AS deps
 WORKDIR /usr/src/app
 COPY backend/package*.json ./
 RUN npm ci --no-audit --no-fund
 
-FROM node:24.12.0-bullseye AS runner
+FROM node:25.2.1-bullseye AS runner
 ENV NODE_ENV=production
 WORKDIR /usr/src/app
 COPY --from=deps /usr/src/app/node_modules ./node_modules

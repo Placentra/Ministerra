@@ -71,7 +71,7 @@ const Router = ({ brain, foundationLoader }) =>
 					element: <EditorPathnameRemounter />,
 				},
 				// CATCH-ALL REDIRECT ---
-				{ path: '*', element: <Navigate to='/' replace /> },
+				{ path: '*', element: <Navigate to='/entrance' replace /> },
 			],
 		},
 		{
@@ -82,6 +82,12 @@ const Router = ({ brain, foundationLoader }) =>
 					<Entrance brain={brain} />
 				</Suspense>
 			),
+		},
+		{
+			// TOP-LEVEL CATCH-ALL ---
+			// Redirects any unmatched route to entrance (safest default for unauthenticated users).
+			path: '*',
+			element: <Navigate to='/entrance' replace />,
 		},
 	]);
 

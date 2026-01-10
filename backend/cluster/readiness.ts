@@ -4,7 +4,8 @@
 // =============================================================================
 
 import cluster from 'cluster';
-import { getLogger } from '../systems/handlers/logging/index';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { logSubsystemReady } from './startupLogger.ts';
 
 const logger = getLogger('Startup');
 
@@ -34,7 +35,7 @@ let startupStartTime = Date.now(); // Initialize early so global subsystems have
 export function initReadinessTracker(numWorkers: number) {
 	if (!cluster.isPrimary) return;
 	totalWorkers = numWorkers;
-	
+
 	// Timeout check - log warning if non-optional subsystems don't complete in 60s
 	setTimeout(() => {
 		const incomplete: string[] = [];
@@ -63,28 +64,26 @@ function countWorkersWithSubsystem(subsystem: SubsystemKey): number {
 // PRIMARY-SIDE HANDLER --------------------------------------------------------
 export function handleSubsystemReady(workerId: string, subsystem: SubsystemKey) {
 	if (!cluster.isPrimary) return;
-	
+
 	const def = SUBSYSTEMS[subsystem];
 	if (!def) return;
-	
+
 	if (def.perWorker) {
 		// Track per-worker subsystem
 		if (!workerSubsystems.has(workerId)) workerSubsystems.set(workerId, new Set());
 		workerSubsystems.get(workerId)!.add(subsystem);
-		
+
 		const readyCount = countWorkersWithSubsystem(subsystem);
 		if (readyCount === totalWorkers && !subsystemReadyTimes.has(subsystem)) {
 			subsystemReadyTimes.set(subsystem, Date.now());
-			const elapsed = Date.now() - startupStartTime;
-			logger.info(`✓ ${def.name} ready (all ${totalWorkers} workers, ${elapsed}ms)`);
+			logSubsystemReady(def.name, `all ${totalWorkers} workers`);
 		}
 	} else {
 		// Global subsystem - log immediately
 		if (!globalSubsystemsReady.has(subsystem)) {
 			globalSubsystemsReady.add(subsystem);
 			subsystemReadyTimes.set(subsystem, Date.now());
-			const elapsed = Date.now() - startupStartTime;
-			logger.info(`✓ ${def.name} completed (${elapsed}ms)`);
+			logSubsystemReady(def.name);
 		}
 	}
 }
@@ -93,7 +92,7 @@ export function handleSubsystemReady(workerId: string, subsystem: SubsystemKey) 
 export function reportSubsystemReady(subsystem: SubsystemKey) {
 	const def = SUBSYSTEMS[subsystem];
 	if (!def) return;
-	
+
 	if (cluster.isPrimary) {
 		// Primary reporting for itself (global subsystems)
 		handleSubsystemReady('primary', subsystem);
@@ -107,8 +106,5 @@ export function reportSubsystemReady(subsystem: SubsystemKey) {
 export function logStartupComplete() {
 	if (!cluster.isPrimary) return;
 	const elapsed = Date.now() - startupStartTime;
-	logger.info(`══════════════════════════════════════════════════════`);
-	logger.info(`  STARTUP COMPLETE (${elapsed}ms)`);
-	logger.info(`══════════════════════════════════════════════════════`);
+	import('./startupLogger.ts').then(({ logCompletion }) => logCompletion(elapsed));
 }
-

@@ -3,58 +3,109 @@
 // Cluster metrics exported for primary, initializeMetrics for workers.
 // =============================================================================
 
-import client from 'prom-client';
+import client, { Gauge, Histogram, Counter } from 'prom-client';
+import type { Application, Request, Response, NextFunction } from 'express';
+import { timingSafeEqual } from 'crypto';
 import { LIGHT_MODE } from './config';
-import { getLogger } from '../systems/handlers/logging/index';
+import { getLogger } from '../systems/handlers/loggers.ts';
 
 const metricsLogger = getLogger('Metrics');
 const httpMetricsLogger = getLogger('HTTP');
 
+// INIT GUARDS -----------------------------------------------------------------
+// Prevent duplicated collectors/intervals if initializeMetrics is called more than once
+// in the same process (dev reloads / accidental double wiring).
+const METRICS_INIT_GUARD_KEY = '__ministerra_metrics_initialized__';
+const DEFAULT_METRICS_GUARD_KEY = '__ministerra_default_metrics_started__';
+
+// TYPE DEFINITIONS ------------------------------------------------------------
+type MetricName = string;
+
+interface GlobalMetricsState {
+	[METRICS_INIT_GUARD_KEY]?: boolean;
+	[DEFAULT_METRICS_GUARD_KEY]?: boolean;
+}
+
+// STATIC ASSET DETECTION REGEX ------------------------------------------------
+// Compiled once at module load for zero per-request allocation.
+const STATIC_EXT_REGEX = /\.(?:png|jpe?g|webp|gif|svg|ico|css|js|map|woff2?|ttf|otf|txt|mp3|mp4|webm|ogg)$/i;
+
+// STATIC PREFIX TABLE ---------------------------------------------------------
+// O(1) prefix lookup instead of multiple startsWith calls.
+const STATIC_PREFIXES = new Set(['/public/', '/static/', '/assets/', '/events/']);
+
+// SENSITIVE KEY PATTERNS ------------------------------------------------------
+// Lowercase patterns for O(1) Set lookup instead of O(n) array scan.
+const SENSITIVE_KEYS = new Set([
+	'password',
+	'pass',
+	'token',
+	'authorization',
+	'auth',
+	'cookie',
+	'cookies',
+	'secret',
+	'apikey',
+	'api_key',
+	'accesstoken',
+	'access_token',
+	'refreshtoken',
+	'refresh_token',
+	'credential',
+	'credentials',
+	'private',
+	'privatekey',
+	'private_key',
+	'ssn',
+	'creditcard',
+	'credit_card',
+	'cvv',
+	'pin',
+]);
+
 // METRIC CREATORS (GUARDED) ---------------------------------------------------
-// GET OR CREATE GAUGE ----------------------------------------------------------
+// GET OR CREATE GAUGE ---------------------------------------------------------
 // Prom-client throws on duplicate metric registration; this helper makes metric
 // creation idempotent across dev reloads and clustered imports.
-// Steps: return existing metric if present; otherwise attempt create; if creation races, re-fetch and return the winner.
-export function getOrCreateGauge(name, help, labelNames = []) {
-	const existing = client.register.getSingleMetric(name) as client.Gauge<string> | undefined;
+export function getOrCreateGauge<Labels extends string = string>(name: MetricName, help: string, labelNames: Labels[] = []): Gauge<Labels> {
+	const existing = client.register.getSingleMetric(name) as Gauge<Labels> | undefined;
 	if (existing) return existing;
 	try {
-		return new client.Gauge({ name, help, labelNames });
-	} catch (e) {
-		const retry = client.register.getSingleMetric(name) as client.Gauge<string> | undefined;
+		return new client.Gauge<Labels>({ name, help, labelNames });
+	} catch (creationError) {
+		// Race condition fallback: another caller registered between check and create
+		const retry = client.register.getSingleMetric(name) as Gauge<Labels> | undefined;
 		if (retry) return retry;
-		throw e;
+		throw Object.assign(new Error(`Failed to create gauge metric: ${name}`), { cause: creationError });
 	}
 }
 
-// GET OR CREATE HISTOGRAM ------------------------------------------------------
-// Histogram is used for request latency/size distributions. Buckets are caller-defined
-// so callers can tune based on expected magnitude (seconds vs ms, etc).
-// Steps: same pattern as gauge, but for histogram with explicit buckets.
-export function getOrCreateHistogram(name, help, labelNames = [], buckets) {
-	const existing = client.register.getSingleMetric(name) as client.Histogram<string> | undefined;
+// GET OR CREATE HISTOGRAM -----------------------------------------------------
+// Histogram is used for request latency/size distributions.
+// Buckets are caller-defined for tuning based on expected magnitude.
+export function getOrCreateHistogram<Labels extends string = string>(name: MetricName, help: string, labelNames: Labels[] = [], buckets: number[]): Histogram<Labels> {
+	const existing = client.register.getSingleMetric(name) as Histogram<Labels> | undefined;
 	if (existing) return existing;
 	try {
-		return new client.Histogram({ name, help, labelNames, buckets });
-	} catch (e) {
-		const retry = client.register.getSingleMetric(name) as client.Histogram<string> | undefined;
+		return new client.Histogram<Labels>({ name, help, labelNames, buckets });
+	} catch (creationError) {
+		const retry = client.register.getSingleMetric(name) as Histogram<Labels> | undefined;
 		if (retry) return retry;
-		throw e;
+		throw Object.assign(new Error(`Failed to create histogram metric: ${name}`), { cause: creationError });
 	}
 }
 
-// GET OR CREATE COUNTER --------------------------------------------------------
+// GET OR CREATE COUNTER -------------------------------------------------------
 // Counter is used for monotonically increasing counts (requests, errors, etc).
-// Steps: same pattern as gauge, but for counter; counters must be monotonic.
-export function getOrCreateCounter(name, help, labelNames = []) {
-	const existing = client.register.getSingleMetric(name) as client.Counter<string> | undefined;
+export function getOrCreateCounter<Labels extends string = string>(name: MetricName, help: string, labelNames: Labels[] = []): Counter<Labels> {
+	const existing = client.register.getSingleMetric(name) as Counter<Labels> | undefined;
 	if (existing) return existing;
 	try {
-		return new client.Counter({ name, help, labelNames });
-	} catch (e) {
-		const retry = client.register.getSingleMetric(name) as client.Counter<string> | undefined;
+		return new client.Counter<Labels>({ name, help, labelNames });
+	} catch (creationError) {
+		const retry = client.register.getSingleMetric(name) as Counter<Labels> | undefined;
 		if (retry) return retry;
-		throw e;
+		throw Object.assign(new Error(`Failed to create counter metric: ${name}`), { cause: creationError });
 	}
 }
 
@@ -67,158 +118,279 @@ export const clusterWorkerBacklogGauge = getOrCreateGauge('cluster_worker_backlo
 export const clusterWorkerProcessingMsGauge = getOrCreateGauge('cluster_worker_processing_ms', 'Task processing time per worker (ms)', ['worker_id']);
 export const clusterWorkerCpuUsagePercentGauge = getOrCreateGauge('cluster_worker_cpu_usage_percent', 'CPU usage percent per worker', ['worker_id']);
 
-// HELPERS FOR ROUTE NORMALIZATION ---------------------------------------------
-const STATIC_EXT_REGEX = /\.(?:png|jpe?g|webp|gif|svg|ico|css|js|map|woff2?|ttf|otf|txt|mp3|mp4|webm|ogg)$/i;
-// STATIC REQUEST DETECTION -----------------------------------------------------
-// Filters out asset traffic so metrics represent API load instead of static CDN-like load.
-// Steps: treat known prefixes and file extensions as static; exclude them from request timing to keep metrics meaningful.
-function isStaticAssetRequest(req) {
+// TASK EXECUTION METRICS ------------------------------------------------------
+export const taskExecutionDurationHistogram = getOrCreateHistogram<'task_name' | 'status'>(
+	'task_execution_duration_seconds',
+	'Duration of background task executions in seconds',
+	['task_name', 'status'],
+	[0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60]
+);
+export const taskExecutionsTotal = getOrCreateCounter<'task_name' | 'status'>('task_executions_total', 'Total background task executions', ['task_name', 'status']);
+
+// STREAM METRICS --------------------------------------------------------------
+export const streamPendingGauge = getOrCreateGauge<'stream_name'>('stream_pending_count', 'Pending messages in Redis stream consumer group', ['stream_name']);
+
+// STATIC REQUEST DETECTION ----------------------------------------------------
+// Filters out asset traffic so metrics represent API load, not static CDN-like load.
+function isStaticAssetRequest(requestPath: string): boolean {
+	if (!requestPath) return false;
+	if (requestPath === '/favicon.ico' || requestPath === '/metrics') return true;
+	// Extract 8-char prefix for static directory check
+	if (requestPath.length >= 8) {
+		const prefix = requestPath.slice(0, 8);
+		if (STATIC_PREFIXES.has(prefix)) return true;
+	}
+	return STATIC_EXT_REGEX.test(requestPath);
+}
+
+// ROUTE LABEL NORMALIZATION ---------------------------------------------------
+// Prometheus label cardinality must be controlled; this collapses dynamic paths
+// into stable buckets so dashboards remain queryable and storage doesn't explode.
+function normalizeRouteLabel(req: Request): string {
+	// EXPRESS ROUTE LABEL ----------------------------------------------------
+	// Prefer express route match when available; include baseUrl so mounted routers
+	// keep stable and accurate labels (avoids everything becoming 'unmatched').
+	const expressRouteLabel = extractExpressRouteLabel(req);
+	if (expressRouteLabel) return expressRouteLabel;
+	const requestPath = req.path || req.originalUrl || '/';
+	// Map static prefixes to wildcards
+	if (requestPath.length >= 8) {
+		const prefix = requestPath.slice(0, 8);
+		if (STATIC_PREFIXES.has(prefix)) return prefix + '*';
+	}
+	if (STATIC_EXT_REGEX.test(requestPath)) return '/static/*';
+	return 'unmatched';
+}
+
+// EXTRACT EXPRESS ROUTE LABEL -------------------------------------------------
+// Converts express route shapes (string/regexp/array) into a stable, low-cardinality label.
+function extractExpressRouteLabel(req: Request): string | undefined {
+	const routePath = req.route?.path;
+	if (!routePath) return undefined;
+	const baseUrl = req.baseUrl || '';
+	if (typeof routePath === 'string') return baseUrl + routePath;
+	if (routePath instanceof RegExp) return baseUrl + '[regexp]';
+	if (Array.isArray(routePath)) return baseUrl + '[multi]';
+	return baseUrl + String(routePath);
+}
+
+// BODY SANITIZATION -----------------------------------------------------------
+// Deep redacts secrets for slow-request logging. Handles nested objects and circular refs.
+const MAX_STRING_LENGTH = 256;
+const MAX_SANITIZE_DEPTH = 4;
+const MAX_ARRAY_LENGTH = 20;
+const MAX_OBJECT_KEYS = 50;
+const REDACTED = '[REDACTED]';
+const CIRCULAR_REF = '[CIRCULAR]';
+
+// SANITIZE UNKNOWN VALUE ------------------------------------------------------
+// Recursively sanitizes values, tracking visited objects to detect cycles.
+function sanitizeUnknownValue(value: unknown, depth: number, visitedObjects: WeakSet<object>): unknown {
+	// Depth guard
+	if (depth > MAX_SANITIZE_DEPTH) return '[MAX_DEPTH]';
+	// Primitives pass through (with string truncation)
+	if (value === null || value === undefined) return value;
+	if (typeof value === 'string') return value.length > MAX_STRING_LENGTH ? value.slice(0, MAX_STRING_LENGTH) + '…' : value;
+	if (typeof value !== 'object') return value;
+	// Circular reference detection
+	if (visitedObjects.has(value)) return CIRCULAR_REF;
+	visitedObjects.add(value);
+	// Array handling
+	if (Array.isArray(value)) {
+		if (value.length > MAX_ARRAY_LENGTH) return `[Array(${value.length})]`;
+		return value.map(item => sanitizeUnknownValue(item, depth + 1, visitedObjects));
+	}
+	// Object handling with key redaction
+	const inputObject = value as Record<string, unknown>;
+	const keys = Object.keys(inputObject);
+	if (keys.length > MAX_OBJECT_KEYS) return `[Object(${keys.length} keys)]`;
+	const sanitized: Record<string, unknown> = {};
+	for (const key of keys) {
+		const lowerKey = key.toLowerCase();
+		sanitized[key] = SENSITIVE_KEYS.has(lowerKey) ? REDACTED : sanitizeUnknownValue(inputObject[key], depth + 1, visitedObjects);
+	}
+	return sanitized;
+}
+
+// SANITIZE BODY FOR LOGGING ---------------------------------------------------
+function sanitizeBodyForLog(body: unknown): unknown {
+	if (!body || typeof body !== 'object') return undefined;
 	try {
-		const p = req.path || req.originalUrl || '';
-		if (!p) return false;
-		if (p === '/favicon.ico' || p === '/metrics') return true;
-		if (p.startsWith('/public/') || p.startsWith('/static/') || p.startsWith('/assets/') || p.startsWith('/events/')) return true;
-		return STATIC_EXT_REGEX.test(p);
+		return sanitizeUnknownValue(body, 0, new WeakSet<object>());
 	} catch {
-		return false;
+		return '[SANITIZE_ERROR]';
 	}
 }
 
-// ROUTE LABEL NORMALIZATION ----------------------------------------------------
-// Prometheus label cardinality must be controlled; this collapses dynamic paths into
-// stable buckets so dashboards remain queryable and storage doesn't explode.
-// Steps: prefer express route path when available, else map common static prefixes to wildcards, else fall back to 'unmatched'.
-function normalizeRouteLabel(req) {
-	try {
-		if (req.route?.path) return req.route.path;
-		const p = req.path || req.originalUrl || '/';
-		if (p.startsWith('/public/')) return '/public/*';
-		if (p.startsWith('/events/')) return '/events/*';
-		if (p.startsWith('/static/')) return '/static/*';
-		if (p.startsWith('/assets/')) return '/assets/*';
-		if (STATIC_EXT_REGEX.test(p)) return '/static/*';
-		return 'unmatched';
-	} catch {
-		return 'unmatched';
-	}
+// TIMING-SAFE TOKEN COMPARISON ------------------------------------------------
+// Prevents timing attacks on Bearer token validation.
+function isTokenValid(providedToken: string, expectedToken: string): boolean {
+	if (!providedToken || !expectedToken) return false;
+	const providedBuffer = Buffer.from(providedToken, 'utf8');
+	const expectedBuffer = Buffer.from(expectedToken, 'utf8');
+	if (providedBuffer.length !== expectedBuffer.length) return false;
+	return timingSafeEqual(providedBuffer, expectedBuffer);
 }
 
-// SANITIZE REQUEST BODY FOR LOGGING -------------------------------------------
-// BODY SANITIZATION ------------------------------------------------------------
-// Only used for slow-request alerts; redacts obvious secrets and truncates long strings.
-// Steps: deep-clone via JSON, redact known secret-like keys, truncate long strings, return undefined on failure.
-function sanitizeBodyForLog(body) {
-	try {
-		if (!body || typeof body !== 'object') return undefined;
-		const cloned = JSON.parse(JSON.stringify(body));
-		const redactKeys = ['password', 'pass', 'token', 'authorization', 'auth', 'cookie', 'cookies'];
-		for (const key of Object.keys(cloned)) {
-			if (redactKeys.includes(key.toLowerCase())) cloned[key] = '[REDACTED]';
-			else if (typeof cloned[key] === 'string' && cloned[key].length > 256) cloned[key] = cloned[key].slice(0, 256) + '…';
-		}
-		return cloned;
-	} catch {
-		return undefined;
+// LOCAL/PRIVATE CALLER DETECTION ----------------------------------------------
+// Determines if request originates from localhost or private network (RFC 1918).
+// Covers: 127.x.x.x, 10.x.x.x, 172.16-31.x.x, 192.168.x.x, ::1, ::ffff: mapped.
+function isPrivateNetworkCaller(remoteAddress: string): boolean {
+	if (!remoteAddress) return false;
+	// IPv6 localhost
+	if (remoteAddress === '::1') return true;
+	// Handle IPv4-mapped IPv6 addresses
+	const ipv4Address = remoteAddress.startsWith('::ffff:') ? remoteAddress.slice(7) : remoteAddress;
+	// 127.x.x.x - loopback
+	if (ipv4Address.startsWith('127.')) return true;
+	// 10.x.x.x - Class A private (common in K8s/Docker)
+	if (ipv4Address.startsWith('10.')) return true;
+	// 192.168.x.x - Class C private
+	if (ipv4Address.startsWith('192.168.')) return true;
+	// 172.16.0.0/12 - Class B private (Docker bridge)
+	if (ipv4Address.startsWith('172.')) {
+		const secondOctet = parseInt(ipv4Address.slice(4).split('.')[0], 10);
+		return secondOctet >= 16 && secondOctet <= 31;
 	}
+	return false;
 }
 
 // WORKER METRICS INITIALIZATION -----------------------------------------------
-// HTTP RED metrics (request rate, errors, duration) per worker.
-// Aggregated via Prometheus using sum() across workers.
-// INITIALIZE METRICS -----------------------------------------------------------
 // Wires per-worker metrics collection:
-// - default nodejs metrics (CPU/mem/GC)
-// - event loop lag gauge
+// - Default nodejs metrics (CPU/mem/GC)
 // - HTTP RED metrics with sampling and static-asset filtering
-// - token-gated /metrics endpoint in prod
-// Steps: register default metrics, start event loop lag sampling, add request/finish hooks for histogram+counter, add error counter, expose /metrics.
-export function initializeMetrics(app) {
+// - Token-gated /metrics endpoint in prod
+export function initializeMetrics(app: Application): void {
+	const globalState = globalThis as unknown as GlobalMetricsState;
+
+	// INIT GUARD --------------------------------------------------------------
+	// Ensure this wiring only happens once per process to avoid multiple
+	// prom-client default collectors and duplicated middleware hooks.
+	if (globalState[METRICS_INIT_GUARD_KEY]) return;
+	globalState[METRICS_INIT_GUARD_KEY] = true;
+
 	try {
-		const metricsSampleRate = Math.max(0, Math.min(1, Number(process.env.HTTP_METRIC_SAMPLE_RATE ?? (LIGHT_MODE ? 0.3 : 1))));
-		const eventLoopLagIntervalMs = Number(process.env.EVENT_LOOP_LAG_INTERVAL_MS || (LIGHT_MODE ? 2000 : 500));
-		const slowRequestThresholdMs = Number(process.env.SLOW_HTTP_MS || (LIGHT_MODE ? 1000 : 400));
-		const trackSlowRequests = slowRequestThresholdMs > 0;
+		// CONFIGURATION -------------------------------------------------------
+		const rawSampleRate = Number(process.env.HTTP_METRIC_SAMPLE_RATE ?? (LIGHT_MODE ? 0.3 : 1));
+		const metricsSampleRate = Math.max(0, Math.min(1, rawSampleRate));
+		const slowRequestThresholdMs = Math.max(0, Number(process.env.SLOW_HTTP_MS) || (LIGHT_MODE ? 1000 : 400));
+		const shouldTrackSlowRequests = slowRequestThresholdMs > 0;
 
-		// Default metrics per worker (include GC buckets) ---------------------
-		client.collectDefaultMetrics({ labels: { worker_id: process.env.WORKER_ID, pid: String(process.pid) }, gcDurationBuckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5] });
+		// DEFAULT PROCESS METRICS ---------------------------------------------
+		// Restored after MySQL idleTimeout fix resolved the actual hang cause.
+		if (!globalState[DEFAULT_METRICS_GUARD_KEY]) {
+			globalState[DEFAULT_METRICS_GUARD_KEY] = true;
+			client.collectDefaultMetrics({ prefix: '' });
+		}
 
-		// Event loop lag metric -----------------------------------------------
-		const eventLoopLag = getOrCreateGauge('nodejs_event_loop_lag_seconds', 'Event loop lag in seconds');
-		setInterval(() => {
-			const start = process.hrtime.bigint();
-			setImmediate(() => {
-				eventLoopLag.set(Number(process.hrtime.bigint() - start) / 1e9);
-			});
-		}, eventLoopLagIntervalMs).unref();
-
-		// HTTP RED metrics ----------------------------------------------------
-		const httpRequestDuration = getOrCreateHistogram(
+		// HTTP RED METRICS ----------------------------------------------------
+		const httpRequestDuration = getOrCreateHistogram<'method' | 'route' | 'status_code'>(
 			'http_request_duration_seconds',
 			'Duration of HTTP requests in seconds',
 			['method', 'route', 'status_code'],
 			[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
 		);
-		const httpRequestsTotal = getOrCreateCounter('http_requests_total', 'Total number of HTTP requests', ['method', 'route', 'status_code']);
-		const httpErrorsTotal = getOrCreateCounter('http_errors_total', 'Total number of HTTP errors', ['route', 'error_type']);
-		const slowHttpRequestsTotal = getOrCreateCounter('slow_http_requests_total', 'Count of HTTP requests exceeding threshold', ['method', 'route', 'status_code', 'threshold_ms']);
+		const httpRequestsTotal = getOrCreateCounter<'method' | 'route' | 'status_code'>('http_requests_total', 'Total number of HTTP requests', ['method', 'route', 'status_code']);
+		const httpErrorsTotal = getOrCreateCounter<'route' | 'error_type'>('http_errors_total', 'Total number of HTTP errors', ['route', 'error_type']);
+		const slowHttpRequestsTotal = getOrCreateCounter<'method' | 'route' | 'status_code'>('slow_http_requests_total', 'Count of HTTP requests exceeding configured threshold', [
+			'method',
+			'route',
+			'status_code',
+		]);
+		const httpActiveRequests = getOrCreateGauge('http_active_requests', 'Number of HTTP requests currently being processed');
 
-		// Request timing middleware -------------------------------------------
-		app.use((req, res, next) => {
-			if (req.method === 'OPTIONS' || isStaticAssetRequest(req)) return next();
-			const shouldSample = metricsSampleRate >= 1 || Math.random() <= metricsSampleRate;
-			const shouldTime = shouldSample || trackSlowRequests;
+		// REQUEST TIMING MIDDLEWARE -------------------------------------------
+		app.use((req: Request, res: Response, next: NextFunction) => {
+			const requestPath = req.path || req.originalUrl || '';
+			if (req.method === 'OPTIONS' || isStaticAssetRequest(requestPath)) return next();
+
+			const shouldSample = metricsSampleRate >= 1 || Math.random() < metricsSampleRate;
+			const shouldTime = shouldSample || shouldTrackSlowRequests;
 			if (!shouldTime) return next();
-			const startHr = process.hrtime.bigint();
+
+			httpActiveRequests.inc();
+			const startHrtime = process.hrtime.bigint();
 
 			res.on('finish', () => {
-				const durationNs = Number(process.hrtime.bigint() - startHr),
-					durationSec = durationNs / 1e9,
-					durationMs = Math.round(durationSec * 1000);
-				const finalRoute = normalizeRouteLabel(req);
+				httpActiveRequests.dec();
+				const durationNanoseconds = Number(process.hrtime.bigint() - startHrtime);
+				const durationSeconds = durationNanoseconds / 1e9;
+				const durationMilliseconds = durationNanoseconds / 1e6;
+				const routeLabel = normalizeRouteLabel(req);
+				const statusCodeLabel = String(res.statusCode);
+				const labels = { method: req.method, route: routeLabel, status_code: statusCodeLabel };
+
 				if (shouldSample) {
-					httpRequestDuration.observe({ method: req.method, route: finalRoute, status_code: String(res.statusCode) }, durationSec);
-					httpRequestsTotal.inc({ method: req.method, route: finalRoute, status_code: String(res.statusCode) });
+					httpRequestDuration.observe(labels, durationSeconds);
+					httpRequestsTotal.inc(labels);
 				}
-				if (trackSlowRequests && durationMs >= slowRequestThresholdMs) {
-					slowHttpRequestsTotal.inc({ method: req.method, route: finalRoute, status_code: String(res.statusCode), threshold_ms: String(slowRequestThresholdMs) });
+
+				if (shouldTrackSlowRequests && durationMilliseconds >= slowRequestThresholdMs) {
+					slowHttpRequestsTotal.inc(labels);
 					httpMetricsLogger.alert('Slow request', {
 						method: req.method,
-						route: finalRoute,
+						route: routeLabel,
 						status: res.statusCode,
-						duration: durationMs,
-						userId: req.body?.userID,
+						durationMs: Math.round(durationMilliseconds),
+						thresholdMs: slowRequestThresholdMs,
+						userId: (req.body as Record<string, unknown>)?.userID,
 						body: sanitizeBodyForLog(req.body),
 					});
 				}
 			});
+
 			next();
 		});
 
-		// Error counter hookup ------------------------------------------------
-		app.use((err, req, res, next) => {
-			const routePath = normalizeRouteLabel(req);
-			httpErrorsTotal.inc({ route: routePath, error_type: err?.name || 'Error' });
+		// ERROR COUNTER MIDDLEWARE --------------------------------------------
+		app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+			const routeLabel = normalizeRouteLabel(req);
+			const errorType = err?.name || err?.constructor?.name || 'Error';
+			httpErrorsTotal.inc({ route: routeLabel, error_type: errorType });
 			next(err);
 		});
 
-		// Per-worker /metrics endpoint ----------------------------------------
-		app.get('/metrics', async (req, res) => {
-			const token = process.env.MONITORING_TOKEN;
-			if (token || process.env.NODE_ENV === 'production') {
-				const auth = req.headers['authorization'] || '',
-					expected = `Bearer ${token}`;
-				if (!token || auth !== expected) return res.status(403).json({ error: 'forbidden' });
+		// METRICS ENDPOINT ----------------------------------------------------
+		app.get('/metrics', async (req: Request, res: Response) => {
+			const monitoringToken = process.env.MONITORING_TOKEN;
+			const isProduction = process.env.NODE_ENV === 'production';
+			const remoteAddress = String(req.ip || req.socket?.remoteAddress || '');
+			const isLocalCaller = isPrivateNetworkCaller(remoteAddress);
+			const requireAuthExplicitly = process.env.REQUIRE_METRICS_AUTH === '1';
+			const shouldRequireAuth = (isProduction || requireAuthExplicitly) && !!monitoringToken;
+
+			// AUTH CHECK ------------------------------------------------------
+			if (!isLocalCaller) {
+				if (shouldRequireAuth) {
+					const authHeader = String(req.headers['authorization'] || '');
+					const expectedAuth = `Bearer ${monitoringToken}`;
+					if (!isTokenValid(authHeader, expectedAuth)) return res.status(403).json({ error: 'forbidden' });
+				} else if (isProduction) {
+					// Production without token configured: deny non-local callers
+					return res.status(403).json({ error: 'forbidden' });
+				}
 			}
+
+			// SERVE METRICS ---------------------------------------------------
 			try {
 				res.set('Content-Type', client.register.contentType);
 				res.end(await client.register.metrics());
-			} catch (e) {
-				res.status(500).end(String(e));
+			} catch (metricsError) {
+				metricsLogger.error('Failed to collect metrics', { error: metricsError });
+				res.status(500).end('metrics collection failed');
 			}
 		});
-
-		// NOTE: Removed per-worker log - 20 workers = 20 identical logs
-	} catch (e) {
-		metricsLogger.error('Failed to initialize metrics', { error: e });
+	} catch (initError) {
+		// Reset guard so retry is possible after fixing the issue
+		globalState[METRICS_INIT_GUARD_KEY] = false;
+		metricsLogger.error('Failed to initialize metrics', { error: initError });
 	}
+}
+
+// CLEANUP FUNCTION ------------------------------------------------------------
+// Allows graceful shutdown of metrics collection (useful for testing/HMR).
+export function shutdownMetrics(): void {
+	const globalState = globalThis as unknown as GlobalMetricsState;
+	globalState[METRICS_INIT_GUARD_KEY] = false;
+	globalState[DEFAULT_METRICS_GUARD_KEY] = false;
 }

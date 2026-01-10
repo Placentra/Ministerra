@@ -1,8 +1,8 @@
 // DELETION QUERIES =============================================================
-import { getIDsString } from '../../../shared/utilities';
-import { Querer } from '../../systems/systems';
-import { getLogger } from '../../systems/handlers/logging/index';
-import { REDIS_KEYS } from '../../../shared/constants';
+import { getIDsString } from '../../../shared/utilities.ts';
+import { Querer } from '../../systems/systems.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
 
 const logger = getLogger('Task:DailyRecalc:DeletionQueries');
 

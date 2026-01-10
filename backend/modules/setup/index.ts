@@ -1,18 +1,19 @@
-import { getOrSaveCityData } from '../../utilities/helpers/location';
-import { getAuth } from '../../utilities/helpers/auth';
-import { createUserMeta } from '../../utilities/helpers/metasCreate';
-import { delFalsy, calculateAge } from '../../../shared/utilities';
-import { Sql, Catcher } from '../../systems/systems';
-import { jwtCreate } from '../jwtokens';
-import { getLogger } from '../../systems/handlers/logging/index';
+import { getOrSaveCityData } from '../../utilities/helpers/location.ts';
+import { getAuth } from '../../utilities/helpers/auth.ts';
+import { registerDevice } from '../../utilities/helpers/device.ts';
+import { createUserMeta } from '../../utilities/helpers/metasCreate.ts';
+import { delFalsy, calculateAge } from '../../../shared/utilities.ts';
+import { Sql, Catcher } from '../../systems/systems.ts';
+import { jwtCreate } from '../jwtokens.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 import { encode, decode } from 'cbor-x';
-import { Socket } from '../../systems/systems';
-import { normalizeSetupPayload } from './sanitize';
-import { REDIS_KEYS } from '../../../shared/constants';
-import { invalidateUserCache } from '../user';
+import { Socket } from '../../systems/systems.ts';
+import { normalizeSetupPayload } from './sanitize.ts';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
+import { invalidateUserCache } from '../user.ts';
 
 // META INDEXES ------------------------------------------
-import { USER_META_INDEXES, USER_BASI_KEYS } from '../../../shared/constants';
+import { USER_META_INDEXES, USER_BASI_KEYS } from '../../../shared/constants.ts';
 const { userPrivIdx, userBasiVersIdx, userAttendIdx } = USER_META_INDEXES;
 
 /** ----------------------------------------------------------------------------
@@ -91,9 +92,16 @@ async function Setup(req, res) {
 			const missingCities = restData.cities.filter(city => typeof city === 'object');
 			if (missingCities.length) citiesData = await getOrSaveCityData(con, missingCities);
 			restData.cities = restData.cities
-				.map(city => (!isNaN(city) ? city : citiesData.find(c => c.hashID === city.hashID)?.cityID))
+				.map(city => {
+					// NUMERIC IDS PASS THROUGH ---
+					if (!isNaN(city)) return city;
+					// MATCH BY ORIGINAL OR CANONICAL HASHID ---
+					// getOrSaveCityData regenerates hashIDs; match by originalHashID (preserved from input) or canonical hashID.
+					const match = citiesData?.find(c => c.hashID === city.hashID || (c as any).originalHashID === city.hashID);
+					return match?.cityID;
+				})
 				.filter(id => id != null)
-				.join(','); // Filter undefined ---------------------------
+				.join(',');
 		}
 
 		// NORMALIZE BIRTH DATE ------------------------------------------------
@@ -127,6 +135,14 @@ async function Setup(req, res) {
 			}
 		}
 
+		// ARRAY TO STRING CONVERSION ---
+		// Database stores these fields as comma/pipe-separated strings.
+		if (Array.isArray(restData.basics)) restData.basics = restData.basics.join(',');
+		if (Array.isArray(restData.indis)) restData.indis = restData.indis.join(',');
+		if (Array.isArray(restData.groups)) restData.groups = restData.groups.join(',');
+		if (Array.isArray(restData.favs)) restData.favs = restData.favs.join('|');
+		if (Array.isArray(restData.exps)) restData.exps = restData.exps.join('|');
+
 		// SQL UPDATE ----------------------------------------------------------
 		// Steps: update only provided columns, bump basiVers for basi changes, or set status=newUser during introduction.
 		const [columns, values] = Object.entries(restData).reduce((acc, [key, value]) => (acc[0].push(key), acc[1].push(value), acc), [[], []]);
@@ -136,15 +152,17 @@ async function Setup(req, res) {
 		await con.execute(sqlQuery, [...values, userID]);
 
 		// NEW USER PATH -------------------------------------------------------
-		// Steps: mint auth/tokens, seed user summary watermarks, and write name/image index so discovery features can find the user.
+		// Steps: mint auth/tokens, register device, seed user summary watermarks, and write name/image index so discovery features can find the user.
+		let deviceData;
 		if (print) {
-			(authData = getAuth(userID)), await jwtCreate({ res, con, create: 'both', userID, print, is: 'newUser' });
+			authData = getAuth(userID);
+			deviceData = await registerDevice(con, userID, print);
+			await jwtCreate({ res, con, create: 'both', userID, print, is: 'newUser' });
 			pipeline.hset(`${REDIS_KEYS.userSummary}:${userID}`, 'last_dev', print.slice(0, 8)); // Don't add empty strings to sets - causes filtering issues ---------------------------
 
 			// ADD NEW USER TO USER NAMES HASH ---------------------------------------------
 			pipeline.hset(REDIS_KEYS.userNameImage, userID, encode([restData.first || '', restData.last || '', restData.imgVers || '']));
 		} else {
-			logger.debug('HERE-----------------');
 			// EXISTING USER PATH -------------------------------------------------
 			// Steps: update redis only when meta is already cached (user has attendance footprint); avoids rebuilding caches for users with no content presence.
 			const metaBuffer = await redis.hgetBuffer(REDIS_KEYS.userMetas, userID);
@@ -198,7 +216,6 @@ async function Setup(req, res) {
 					}
 				}
 			}
-			logger.debug('EMITTING-----------------');
 			// SOCKET EMIT --------------------------------------------------------
 			// Steps: emit minimal delta to user room so active sessions can update UI without polling.
 			const socketIO = await (Socket as any)();
@@ -219,7 +236,7 @@ async function Setup(req, res) {
 		await con.commit();
 
 		// RESPONSE BUILD ------------------------------------------------------
-		// Steps: return citiesData/imgVers when present and include auth rotation fields only for new-user path.
+		// Steps: return citiesData/imgVers when present and include auth/device fields only for new-user path.
 		const response: any = {
 			...(citiesData && { citiesData }),
 			...(restData.imgVers && { imgVers: restData.imgVers }),
@@ -232,6 +249,12 @@ async function Setup(req, res) {
 				response.previousAuth = authData.previousAuth;
 				response.previousEpoch = authData.previousEpoch;
 			}
+		}
+		// DEVICE DATA (NEW USER REGISTRATION) ---
+		if (deviceData) {
+			response.deviceID = deviceData.deviceID;
+			response.deviceSalt = deviceData.salt;
+			response.deviceKey = deviceData.deviceKey;
 		}
 		res.status(200).json(delFalsy(response));
 	} catch (error) {

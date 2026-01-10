@@ -2,8 +2,8 @@
 // Consumes the `chatMessages` redis stream and persists new messages into SQL.
 // This is run by the worker thread scheduler; it is safe to be called repeatedly (no-op when stream is empty).
 
-import { Writer, drainStream } from '../systems/systems';
-import { getLogger } from '../systems/handlers/logging/index';
+import { Writer, drainStream } from '../systems/systems.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
 
 const logger = getLogger('Task:ChatMessages');
 
@@ -39,7 +39,6 @@ async function processChatMessages(con, redis) {
 
 		// SQL INSERT -----------------------------------------------------------
 		// Steps: insert message rows; duplicates are handled by DB constraints (or rejected).
-		// NOTE: Use insertIgnore because the fallback path in messageHandlers.ts may have already inserted the message directly when stream add fails with a network error after the XADD succeeded.
 		const tasks = [
 			{
 				name: 'newMessages',
@@ -47,7 +46,7 @@ async function processChatMessages(con, redis) {
 				table: 'messages',
 				cols: ['id', 'chat', 'user', 'content', 'attach', 'created'],
 				onDupli: [],
-				is: 'insertIgnore',
+				is: 'insertIgnore' as const,
 			},
 		];
 
@@ -80,7 +79,7 @@ async function processChatMessages(con, redis) {
 					cols: ['last_mess'],
 					colsDef: ['BIGINT', 'INT'],
 					where: ['id'],
-					is: 'replace',
+					is: 'replace' as const,
 				};
 				await Writer({ mode: 'chatsLastMessage', tasksConfig: [chatUpdateTask], redis, con });
 			}

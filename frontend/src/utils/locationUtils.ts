@@ -59,15 +59,16 @@ export function processLocationItems(items) {
 }
 
 // GENERATE LOCATION HASH -------------------------------------------------------
-// Steps: normalize lat/lng to coarse buckets (2 decimals) so minor provider jitter doesn’t create cache misses, then hash a stable string into a short base36 token.
+// Steps: normalize lat/lng to coarse buckets (~2.2km precision) so minor provider jitter doesn't create cache misses, then hash a stable string into a short base36 token.
+// Rationale: different geocoding providers can return coordinates 2-5km apart for the same city.
 export function generateLocationHash({ city, part, lat = 0, lng = 0 }) {
 	// Return null for items without valid coordinates to prevent cache collisions
 	if ((lat === undefined || lat === null || lat === 0) && (lng === undefined || lng === null || lng === 0)) {
 		// Only generate hash if we have at least city name
 		if (!city) return null;
 	}
-	const roundedLat = lat ? Math.round(lat * 100) / 100 : 0;
-	const roundedLon = lng ? Math.round(lng * 100) / 100 : 0;
+	const roundedLat = lat ? Math.round(lat * 50) / 50 : 0;
+	const roundedLon = lng ? Math.round(lng * 50) / 50 : 0;
 	const hashInput = `${city}|${part}|${roundedLat}|${roundedLon}`;
 
 	// Use BigInt to avoid 32-bit integer overflow with bitwise ops

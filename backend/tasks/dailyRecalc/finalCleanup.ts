@@ -2,18 +2,14 @@
 import { getIDsString } from '../../../shared/utilities.ts';
 import { Querer } from '../../systems/systems.ts';
 import { loadMetaPipes, loadBasicsDetailsPipe, clearState } from '../../utilities/contentHelpers.ts';
-import { getLogger } from '../../systems/handlers/logging/index.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 import { REDIS_KEYS } from '../../../shared/constants.ts';
-
-// NOTE: Type-only capability declarations removed (minimal backend typing).
 
 const logger = getLogger('Task:DailyRecalc:FinalCleanup');
 
 // REFRESH TOP 100 EVENTS -------------------------------------------------------
 // Steps: compute top 100 ids from SQL, hmget their metas from redis, then replace topEvents hash in one pipeline so readers see a single coherent snapshot.
 export async function refreshTop100Events({ con, redis }) {
-	// QUERY RESULT SHAPE -------------------------------------------------------
-	// Steps: only `id` is used; keep the row type minimal and local to this function.
 	let rows = [];
 	try {
 		rows = (await con.execute(`SELECT id FROM events WHERE starts > CURDATE() AND priv = 'pub' AND type NOT LIKE 'a%' ORDER BY 3 * surely + 2 * maybe + score DESC LIMIT 100`))[0];

@@ -41,7 +41,7 @@ const TASKS = {
 		priority: 1,
 	},
 	lastSeenMess: {
-		interval: 5000,
+		interval: 15000,
 		timeout: 25000,
 		streamName: 'lastSeenMess',
 		process: lastSeenMess,
@@ -49,7 +49,7 @@ const TASKS = {
 		priority: 2,
 	},
 	comments: {
-		interval: 20000,
+		interval: 15000,
 		timeout: 45000,
 		streamName: 'eveComments',
 		process: comments,
@@ -65,14 +65,14 @@ const TASKS = {
 		priority: 3,
 	},
 	userInteractions: {
-		interval: 30000,
+		interval: 15000,
 		timeout: 60000,
 		process: userInteractions,
 		type: 'contentTasks',
 		priority: 2,
 	},
 	flagChanges: {
-		interval: 60000,
+		interval: 10000,
 		timeout: 60000,
 		streamName: 'flagChanges',
 		process: flagChanges,
@@ -120,6 +120,7 @@ const state = {
 	taskType: workerData?.taskName || null,
 	isHelper: workerData?.isHelper || false,
 	initialized: false,
+	shuttingDown: false,
 
 	// Processing state
 	isProcessing: false,
@@ -174,6 +175,7 @@ async function handleParentPortMessage(message) {
 		if (message.type === 'status') return reportStatus();
 		log(`Unknown message type: ${message.type}`, 'warn');
 	} catch (error) {
+		log(`Message handler error: ${error.message}`, 'error');
 		sendError(error instanceof Error ? error : new Error(String(error)));
 	}
 }
@@ -239,23 +241,18 @@ async function handleInitialize(message) {
 	try {
 		// STATE SYNC --------------------------------------------------------------
 		// Bind worker identity and role early; later logs/metrics depend on it.
-		// Update state from message
 		Object.assign(state, {
 			workerId: message.workerId || state.workerId,
 			taskType: message.taskName || state.taskType,
 			isHelper: message.isHelper || state.isHelper,
 		});
 
-		// NOTE: Removed per-worker init log - "Worker initialized" log is sufficient
-
 		// CONNECTION WARMUP -------------------------------------------------------
 		// Fail fast on infra issues; scheduler assumes redis+sql are ready.
-		// Establish connections with retries
 		await ensureConnections();
 
 		// ROLE STARTUP ------------------------------------------------------------
 		// Task workers schedule their cadence; helpers opportunistically assist.
-		// Initialize task scheduling
 		if (!state.isHelper && state.taskType) {
 			await initializeTaskSchedule();
 			startTaskProcessing();
@@ -265,11 +262,10 @@ async function handleInitialize(message) {
 
 		// TELEMETRY ---------------------------------------------------------------
 		// Monitoring is optional (light mode), but when enabled it feeds autoscaling.
-		// Start monitoring
 		if (ENABLE_WORKER_MONITORING) startMonitoring();
 
 		state.initialized = true;
-		log(`Thread ${state.taskType} ready`, 'success');
+		// Thread ready is logged by parent process; no duplicate here
 		sendMessage('initialized');
 	} catch (error) {
 		log(`Initialization failed: ${error.message}`, 'error');
@@ -340,8 +336,6 @@ function startTaskProcessing() {
 	const baseInterval = shortIntervals.length > 0 ? Math.min(...shortIntervals) : Math.min(...intervals);
 	const actualInterval = Math.max(Math.min(baseInterval / 4, 2000), 500);
 
-	// NOTE: Removed per-worker "starting task processing" log
-
 	// IMPORTANT: never use an `async` setInterval callback without a catch.
 	// If `processScheduledTasks()` throws, an async interval callback creates an
 	// unhandled rejection which can crash the worker thread/process.
@@ -358,7 +352,7 @@ function startTaskProcessing() {
 
 // TASK LOOP TICK ---------------------------------------------------------------
 async function processScheduledTasks() {
-	if (state.isProcessing) return;
+	if (state.isProcessing || state.shuttingDown) return;
 
 	const now = Date.now();
 	const dueTasks = [];
@@ -389,8 +383,11 @@ async function processScheduledTasks() {
 	state.isProcessing = true;
 
 	try {
-		const tasksToRun = dueTasks.slice(0, CONFIG.MAX_CONCURRENT_TASKS);
-		await Promise.all(tasksToRun.map(taskName => executeTask(taskName)));
+		// CONCURRENCY CAP --------------------------------------------------------
+		// Each task now acquires its own DB connection; safe to run in parallel.
+		const maxConcurrentTasks = Math.max(1, Number(CONFIG.MAX_CONCURRENT_TASKS) || 1);
+		const selectedTasks = dueTasks.slice(0, maxConcurrentTasks);
+		await Promise.all(selectedTasks.map(taskName => executeTask(taskName)));
 	} finally {
 		state.isProcessing = false;
 	}
@@ -417,6 +414,17 @@ async function executeTask(taskName) {
 		return { taskName, skipped: true, reason: 'recently_run' };
 	}
 
+	// DISTRIBUTED LOCK -----------------------------------------------------------
+	// SETNX-based lock prevents concurrent execution across multiple workers/nodes.
+	// TTL = task timeout so lock auto-expires if the process crashes mid-execution.
+	const lockKey = `task_lock:${taskName}`;
+	const lockTTL = Math.ceil((taskConfig.timeout || CONFIG.DEFAULT_TASK_TIMEOUT) / 1000);
+	const lockAcquired = await state.redis.set(lockKey, state.workerId, 'EX', lockTTL, 'NX');
+	if (!lockAcquired) {
+		schedule.nextRun = Date.now() + 5000 + Math.floor(Math.random() * 2000);
+		return { taskName, skipped: true, reason: 'lock_held' };
+	}
+
 	const startTime = Date.now();
 
 	// CIRCUIT BREAKER ------------------------------------------------------------
@@ -434,12 +442,23 @@ async function executeTask(taskName) {
 		log(`Circuit breaker HALF-OPEN probe for ${taskName}`, 'warn');
 	}
 
+	// PER-TASK CONNECTION --------------------------------------------------------
+	// Acquire a dedicated DB connection for this task execution.
+	// This enables concurrent task execution without interleaving queries.
+	let taskCon = null;
+
 	try {
 		// EXECUTION ---------------------------------------------------------------
 		// Enforce timeout so a single task cannot wedge the scheduler.
 		await ensureConnections();
+		taskCon = await Sql.getConnection();
 		state.currentTaskName = taskName;
-		const result = await withTimeout(taskConfig.process(state.con, state.redis), taskConfig.timeout || CONFIG.DEFAULT_TASK_TIMEOUT);
+
+		if (typeof taskConfig.process !== 'function') {
+			throw new Error(`Task process is not a function (type=${typeof taskConfig.process})`);
+		}
+
+		const result = await withTimeout(taskConfig.process(taskCon, state.redis), taskConfig.timeout || CONFIG.DEFAULT_TASK_TIMEOUT);
 
 		const endTime = Date.now();
 		const processingTime = endTime - startTime;
@@ -473,6 +492,10 @@ async function executeTask(taskName) {
 		if (history.length > CONFIG.MAX_TASK_HISTORY) {
 			history.shift();
 		}
+
+		// IPC METRIC REPORT -------------------------------------------------------
+		// Send execution metrics to parent process for prom-client aggregation.
+		sendMessage('task_metric', { taskName, durationSeconds: processingTime / 1000, success: true });
 
 		if (result && !result.error) {
 			await processTaskResults(result, taskName);
@@ -510,9 +533,25 @@ async function executeTask(taskName) {
 		}
 		state.circuitBreakers.set(taskName, failCb);
 
+		// IPC METRIC REPORT (FAILURE) ---------------------------------------------
+		const failDuration = (Date.now() - startTime) / 1000;
+		sendMessage('task_metric', { taskName, durationSeconds: failDuration, success: false });
+
 		return { taskName, result: null, error };
 	} finally {
 		state.currentTaskName = null;
+		// CONNECTION RELEASE ------------------------------------------------------
+		// Return the per-task connection to the pool regardless of success/failure.
+		if (taskCon) {
+			try {
+				taskCon.release();
+			} catch {}
+		}
+		// LOCK RELEASE ------------------------------------------------------------
+		// Delete the distributed lock so other workers can proceed.
+		try {
+			await state.redis.del(lockKey);
+		} catch {}
 	}
 }
 
@@ -761,13 +800,9 @@ async function ensureConnections() {
 	while (attempts < CONFIG.MAX_RETRIES) {
 		try {
 			// SQL CONNECTION -------------------------------------------------------
-			if (!state.con) {
-				state.con = await Sql.getConnection();
-			}
+			if (!state.con) state.con = await Sql.getConnection();
 			// REDIS CONNECTION -----------------------------------------------------
-			if (!state.redis) {
-				state.redis = await Redis.getClient();
-			}
+			if (!state.redis) state.redis = await Redis.getClient();
 			return;
 		} catch (error) {
 			attempts++;
@@ -805,6 +840,8 @@ function stopAllTimers() {
 
 // SHUTDOWN ---------------------------------------------------------------------
 async function shutdown(signal, exitCode = 0) {
+	if (state.shuttingDown) return;
+	state.shuttingDown = true;
 	log(`Received ${signal}, shutting down gracefully`);
 
 	stopAllTimers();

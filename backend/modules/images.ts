@@ -2,7 +2,28 @@ import sharp from 'sharp';
 import { Catcher } from '../systems/systems.ts';
 import fs from 'fs/promises';
 import { Sql } from '../systems/systems.ts';
-import { getLogger } from '../systems/handlers/logging/index.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { Request, Response, NextFunction } from 'express';
+
+interface ProcessedImage {
+	size: string;
+	buffer: Buffer;
+}
+
+interface ImageProcessingResult {
+	processedImages: ProcessedImage[];
+	height: number;
+}
+
+interface ImagesRequest extends Request {
+	processedImages?: ProcessedImage[];
+	body: {
+		userID: string | number;
+		eventID?: string | number;
+		image?: number[] | Uint8Array | null;
+		imgVers?: string | number;
+	};
+}
 
 // IMAGES MODULE ----------------------------------------------------------------
 // Handles image upload preprocessing:
@@ -16,7 +37,7 @@ const logger = getLogger('Images');
 
 // PROCESS IMAGES ---------------------------------------------------------------
 // Steps: read original metadata, then render a small set of WebP renditions; for events we capture a reference height so imgVers encodes a stable layout hint.
-const processImages = async (buffer, imgFolder) => {
+const processImages = async (buffer: Buffer, imgFolder: 'events' | 'users'): Promise<ImageProcessingResult> => {
 	const sizeConfigs = {
 		events: [{ size: 100, name: 'S' }, { size: 600 }, { size: 1920, name: 'L' }],
 		users: [{ size: 100, name: 'S' }, { size: 600 }],
@@ -25,8 +46,8 @@ const processImages = async (buffer, imgFolder) => {
 	// ORIGINAL META ----------------------------------------------------------
 	// Steps: read once so we can return height even when a later rendition path fails to capture it.
 	const originalMeta = await sharp(buffer).metadata();
-	let height;
-	const processedImages = [];
+	let height: number | undefined;
+	const processedImages: ProcessedImage[] = [];
 
 	// PROCESSING LOOP --------------------------------------------------------
 	// Steps: process serially so a single request can’t saturate the sharp thread pool and starve other requests.
@@ -50,7 +71,7 @@ const processImages = async (buffer, imgFolder) => {
 
 // SAVE IMAGES ------------------------------------------------------------------
 // Writes processed images to `public/<folder>/<id>_<imgVers><size>.webp`.
-const saveImages = async (images, targetID, imgVers, imgFolder) => {
+const saveImages = async (images: ProcessedImage[], targetID: number | string, imgVers: number | string, imgFolder: string): Promise<void> => {
 	const directoryPath = `public/${imgFolder}/`;
 	try {
 		await fs.access(directoryPath);
@@ -58,7 +79,9 @@ const saveImages = async (images, targetID, imgVers, imgFolder) => {
 		await fs.mkdir(directoryPath, { recursive: true });
 	}
 
-	await Promise.all(images.map(img => fs.writeFile(`${directoryPath}${targetID}_${imgVers}${img.size}.webp`, img.buffer)));
+	// BOUNDED WRITE LOOP ------------------------------------------------------
+	// Steps: write serially to avoid FD exhaustion and disk spikes on multi-image uploads.
+	for (const img of images) await fs.writeFile(`${directoryPath}${targetID}_${imgVers}${img.size}.webp`, img.buffer);
 };
 
 // IMAGES MIDDLEWARE -----------------------------------------------------------
@@ -66,12 +89,12 @@ const saveImages = async (images, targetID, imgVers, imgFolder) => {
 // IMAGES ---
 // Express middleware guarding image uploads and wiring processed assets to downstream handlers.
 // Validates upload payloads, produces optimized WebP renditions and updates `imgVers` counters.
-const Images = async (req, res, next) => {
-	let con, imgVers;
+const Images = async (req: ImagesRequest, res: Response, next: NextFunction) => {
+	let con: any, imgVers: any;
 
 	try {
 		const { userID, eventID, image } = req.body;
-		const imgFolder = req.url.includes('editor') ? 'events' : req.url.includes('setup') ? 'users' : '';
+		const imgFolder: 'events' | 'users' | '' = req.url.includes('editor') ? 'events' : req.url.includes('setup') ? 'users' : '';
 		const targetID = imgFolder === 'users' ? userID : eventID;
 
 		// PASS-THROUGH CHECK --------------------------------------------------
@@ -82,7 +105,7 @@ const Images = async (req, res, next) => {
 		else if (image === null) {
 			if (imgFolder === 'users') {
 				con = await Sql.getConnection();
-				const [rows] = await con.execute(`SELECT imgVers FROM users WHERE id = ?`, [userID]);
+				const [rows]: [any[], any] = await con.execute(`SELECT imgVers FROM users WHERE id = ?`, [userID]);
 				imgVers = rows?.[0]?.imgVers || 0;
 				if (imgVers) {
 					for (const size of ['', 'S']) {
@@ -100,18 +123,19 @@ const Images = async (req, res, next) => {
 
 		// VALIDATION ----------------------------------------------------------
 		// Steps: reject empty payloads and cap size before decoding so we don’t waste CPU on oversized buffers.
-		if (!image || (typeof image.length === 'number' && image.length === 0)) throw new Error('invalidImage');
-		if (typeof image.length === 'number' && image.length > 5 * 1024 * 1024) throw new Error('imageTooLarge');
+		if (!image || (Array.isArray(image) && image.length === 0)) throw new Error('invalidImage');
+		if (Array.isArray(image) && image.length > 5 * 1024 * 1024) throw new Error('imageTooLarge');
 
 		// SQL READ -------------------------------------------------------------
 		// Steps: read current imgVers so we can increment; table is selected from a fixed map to avoid injection.
 		con = await Sql.getConnection();
 		// Validate imgFolder to prevent SQL injection
-		const allowedTables = { events: 'events', users: 'users' };
+		const allowedTables: Record<string, string> = { events: 'events', users: 'users' };
 		const safeTable = allowedTables[imgFolder];
 		if (!safeTable) throw new Error('invalidImageFolder');
-		imgVers = targetID ? (await con.execute(`SELECT imgVers FROM ${safeTable} WHERE id = ?`, [targetID]))[0][0]?.imgVers || 0 : 0;
-		const buffer = Buffer.from(new Uint8Array(image));
+		const [rows]: [any[], any] = targetID ? await con.execute(`SELECT imgVers FROM ${safeTable} WHERE id = ?`, [targetID]) : [[{ imgVers: 0 }]];
+		imgVers = rows[0]?.imgVers || 0;
+		const buffer = Buffer.from(new Uint8Array(image as number[]));
 
 		// FORMAT CHECK ---------------------------------------------------------
 		// Steps: validate the buffer is a real image via sharp metadata; reject unsupported formats before doing expensive transforms.
@@ -120,14 +144,14 @@ const Images = async (req, res, next) => {
 			if (!meta.format || !['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff'].includes(meta.format)) {
 				throw new Error('unsupportedImageFormat');
 			}
-		} catch (sharpErr) {
+		} catch (sharpErr: any) {
 			logger.error('Images validation failed', { error: sharpErr?.message, userID, eventID });
 			throw new Error('invalidImage');
 		}
 
 		// PROCESSING -----------------------------------------------------------
 		// Steps: generate renditions and capture height; actual saving may be deferred for events until authorization succeeds.
-		const { processedImages, height } = await processImages(buffer, imgFolder);
+		const { processedImages, height } = await processImages(buffer, imgFolder as 'events' | 'users');
 
 		delete req.body.image;
 
@@ -147,7 +171,7 @@ const Images = async (req, res, next) => {
 		} else {
 			// User images can be saved immediately
 			const newVImg = Number(imgVers) + 1;
-			await saveImages(processedImages, targetID, newVImg, imgFolder);
+			await saveImages(processedImages, targetID!, newVImg, imgFolder);
 			req.body.imgVers = newVImg;
 		}
 

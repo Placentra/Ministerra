@@ -227,6 +227,18 @@ function App() {
 					const errorData = error.response?.data,
 						errorCode = typeof errorData === 'string' ? errorData : errorData?.code;
 					if (errorCode === 'logout' && !error.config?.__skipLogoutCleanup) return await logoutCleanUp(brain, emptyBrain, true);
+					// INTRODUCTION AUTH EXPIRY REDIRECT ---
+					// When intro token expires (useAuthToken requests), clear session and redirect to entrance with autoLogout message.
+					const isAuthError = ['unauthorized', 'tokenExpired'].includes(errorCode);
+					let usedAuthToken = false;
+					try {
+						usedAuthToken = error.config?.data && typeof error.config.data === 'string' && JSON.parse(error.config.data)?.useAuthToken;
+					} catch {}
+					if (isAuthError && usedAuthToken) {
+						sessionStorage.removeItem('authToken');
+						window.location.href = '/entrance?mess=autoLogout';
+						return Promise.reject(error);
+					}
 					if (!(error?.code === 'ERR_CANCELED' || error?.message === 'canceled') && !error?.config?.__skipGlobalErrorBanner)
 						notifyGlobalError(error, typeof errorData === 'object' ? errorData?.message : undefined);
 					return Promise.reject(error);
@@ -269,6 +281,7 @@ function App() {
 		};
 	}, []);
 
+	console.log('WAITING FOR FOUNDATION LOAD:', waitForFoundationLoad);
 	// MAIN RENDER BRANCH ---
 	if (!waitForFoundationLoad) {
 		const router = Router({ brain, foundationLoader });

@@ -243,7 +243,7 @@ const DateTimePicker = props => {
 										<button
 											key={d}
 											style={{ width: '100%', maxWidth: selDecade && !showAllDecades ? '800px' : decadeWidth ? `${decadeWidth}px` : undefined }}
-											className={`${d === selDecade ? `borBotLight  arrowDown1 posRel fs14 flexRow  zinMax  xBold textSha` : ' fs14'} grow`}
+											className={`${d === selDecade ? `borBotLight  arrowDown1 posRel fs20 flexRow  zinMax  xBold textSha` : 'xBold fs16'} grow`}
 											onClick={() => {
 												if (selDecade && !showAllDecades && year) handlePickerChange('year', null);
 												else if (!showAllDecades) {
@@ -280,7 +280,7 @@ const DateTimePicker = props => {
 							{/* MONTH SELECTION GRID --- */}
 							{/* Interactive month list filtered by logical date constraints */}
 							{year && !showAllDecades && (
-								<month-picker class={'flexCen   marAuto marBotM marTopS  bPadVerM wrap w100'}>
+								<month-picker class={'flexCen   marAuto  marTopS  bPadVerM wrap w100'}>
 									{Array.from({ length: 12 }, (_, i) => i)
 										.filter(monthsFilter)
 										.map(b => (

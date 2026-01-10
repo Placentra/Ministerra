@@ -1,6 +1,6 @@
-import { Catcher, Sql } from '../systems/systems';
+import { Catcher, Sql } from '../systems/systems.ts';
 import { encode } from 'cbor-x';
-import { getLogger } from '../systems/handlers/logging/index';
+import { getLogger } from '../systems/handlers/loggers.ts';
 
 let redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------

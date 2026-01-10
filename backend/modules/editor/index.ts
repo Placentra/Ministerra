@@ -2,7 +2,7 @@ import { getOrSaveCityData } from '../../utilities/helpers/location.ts';
 import { createEveMeta } from '../../utilities/helpers/metasCreate.ts';
 import { delFalsy, toMySqlDateFormat } from '../../../shared/utilities.ts';
 import { Sql, Catcher } from '../../systems/systems.ts';
-import { getLogger } from '../../systems/handlers/logging/index.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 import { REDIS_KEYS, EVENT_META_INDEXES, EVENT_BASICS_KEYS, EVENT_DETAILS_KEYS } from '../../../shared/constants.ts';
 import { getGeohash } from '../../utilities/helpers/location.ts';
 import { saveImages } from '../images.ts';
@@ -11,7 +11,7 @@ import { Interests } from '../interests.ts';
 import { invalidateEventCache } from '../event.ts';
 import fs from 'fs/promises';
 
-import { nanoid } from 'nanoid';
+import { generateIDString } from '../../utilities/idGenerator.ts';
 import { encode, decode } from 'cbor-x';
 let redis;
 // REDIS CLIENT SETTER ----------------------------------------------------------
@@ -150,32 +150,27 @@ async function Editor(req, res) {
 			const startMs = new Date(starts).getTime();
 			if (isNaN(startMs) || startMs < Date.now() - 300000) throw new Error('startsMustBeInFuture');
 
-			const MAX_ID_RETRIES = 5;
-			let idRetryCount = 0;
-			await (async function createEvent() {
-				try {
-					eventID = `${Math.floor(Date.now() / 86400000)
-						.toString(36)
-						.slice(-4)}${nanoid(4)}`;
-					const placeholders = cols.map(c => (c === 'coords' ? 'Point(?, ?)' : '?'));
-					await con.execute(`INSERT INTO events (id, ${cols.join(', ')}, owner, flag) VALUES (?, ${placeholders.join(',')}, ?, 'new')`, [eventID, ...values, userID]);
-					createdID = eventID;
+			// GENERATE SNOWFLAKE ID ---
+			// Steps: generate globally unique ID, insert event, run side effects.
+			try {
+				eventID = generateIDString();
+				const placeholders = cols.map(c => (c === 'coords' ? 'Point(?, ?)' : '?'));
+				await con.execute(`INSERT INTO events (id, ${cols.join(', ')}, owner, flag) VALUES (?, ${placeholders.join(',')}, ?, 'new')`, [eventID, ...values, userID]);
+				createdID = eventID;
 
-					// SIDE EFFECTS ---------------------------------------------------
-					// Steps: save deferred images (if present), set initial interest (if requested), and write redis indexes for city and title/owner lookup.
-					const tasks = [
-						req.processedImages && saveImages(req.processedImages, eventID, 1, 'events'),
-						inter && Interests({ eventID, userID, inter, priv, con }),
-						redis.hset(REDIS_KEYS.eveCityIDs, eventID, vars.cityID),
-						title && redis.hset(REDIS_KEYS.eveTitleOwner, eventID, encode([title.length > 40 ? title.slice(0, 39) + '…' : title, userID])),
-					];
-					await Promise.all(tasks);
-				} catch (error) {
-					if (error.code === 'ER_DUP_ENTRY') return ++idRetryCount < MAX_ID_RETRIES ? createEvent() : logger.error('createEvent ID collision limit reached', { userID });
-					logger.error('createEvent', { error, userID, eventID });
-					throw new Error('eventCreateFailed');
-				}
-			})();
+				// SIDE EFFECTS ---
+				// Steps: save deferred images (if present), set initial interest (if requested), and write redis indexes for city and title/owner lookup.
+				const tasks = [
+					req.processedImages && saveImages(req.processedImages, eventID, 1, 'events'),
+					inter && Interests({ eventID, userID, inter, priv, con }),
+					redis.hset(REDIS_KEYS.eveCityIDs, eventID, vars.cityID),
+					title && redis.hset(REDIS_KEYS.eveTitleOwner, eventID, encode([title.length > 40 ? title.slice(0, 39) + '…' : title, userID])),
+				];
+				await Promise.all(tasks);
+			} catch (error) {
+				logger.error('createEvent', { error, userID, eventID });
+				throw new Error('eventCreateFailed');
+			}
 		} else {
 			// EDIT EXISTING EVENT ---------------------------------------------
 			const [[ev]] = await con.execute(`SELECT flag, imgVers, cityID, type, priv FROM events WHERE id = ? AND owner = ? AND flag IN ('ok', 'new')`, [eventID, userID]);

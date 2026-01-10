@@ -1,6 +1,7 @@
-import { Writer, drainStream } from '../systems/systems';
-import { encode, decode } from 'cbor-x';
-import { getLogger } from '../systems/handlers/logging/index';
+import { Writer, drainStream } from '../systems/systems.ts';
+import { decode } from 'cbor-x';
+import { getLogger } from '../systems/handlers/loggers.ts';
+import { REDIS_KEYS } from '../../shared/constants.ts';
 
 const logger = getLogger('Task:Comments');
 // COMMENTS TASK ----------------------------------------------------------------
@@ -52,7 +53,7 @@ async function processComments(con, redis) {
 				// ALERT BUILD -------------------------------------------------------
 				// Steps: when the eventDelta indicates a new visible comment, load cached author/content preview from redis and emit a compact alert record.
 				if ((Number(eventDelta) || 0) > 0) {
-					const raw = await redis.hgetBuffer('commentAuthorContent', commentId);
+					const raw = await redis.hgetBuffer(REDIS_KEYS.commentAuthorContent, commentId);
 					let user = null,
 						content = '';
 					if (raw) {

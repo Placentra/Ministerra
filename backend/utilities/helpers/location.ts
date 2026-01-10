@@ -5,38 +5,46 @@
 
 import { Sql } from '../../systems/mysql/mysql.ts';
 import { encode, decode } from 'cbor-x';
-import { getLogger } from '../../systems/handlers/logging/index.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 import { REDIS_KEYS } from '../../../shared/constants.ts';
-
-import { Redis } from 'ioredis';
 
 const logger = getLogger('Helpers:Location');
 
-let redis, geohash;
+let redis: any, geohash: any;
 
 // REDIS CLIENT INJECTION ---
 // Steps: accept external redis instance at boot, then reuse it for all cache paths.
-export const ioRedisSetter = r => (redis = r);
+export const ioRedisSetter = (r: any): any => (redis = r);
 
 // GEOHASH LAZY LOAD ---
 // Steps: load the module once (async) so cold boot is cheap, then expose accessor.
 import('latlon-geohash').then(module => (geohash = module.default));
 // GET GEOHASH ---
 // Steps: return the lazily-loaded module reference so callers can gate usage on availability.
-export const getGeohash = () => geohash;
+export const getGeohash = (): any => geohash;
+
+interface LocationInput {
+	city: string;
+	part?: string;
+	lat: number;
+	lng: number;
+}
 
 // GENERATE LOCATION HASH -------------------------------------------------------
 // used for stable comparison between third party location providers and our own database
-export function generateLocationHash({ city, part, lat, lng }) {
+export function generateLocationHash({ city, part, lat, lng }: LocationInput): string {
 	// INPUT NORMALIZATION ---
-	// Steps: snap to ~1km-ish precision so “same city, slightly different GPS” stays identical.
-	const roundedLat = Math.round(lat * 100) / 100;
-	const roundedLon = Math.round(lng * 100) / 100;
-	const hashInput = `${city}|${part}|${roundedLat}|${roundedLon}`;
+	// Steps: snap to ~2.2km precision so "same city, slightly different GPS" stays identical.
+	// Rationale: different geocoding providers can return coordinates 2-5km apart for the same city
+	// (city center vs administrative center, different districts). Since hash includes city+part,
+	// collisions between different cities are unlikely; this tolerance mainly affects same-city matching
+	const roundedLat: number = Math.round(lat * 50) / 50;
+	const roundedLon: number = Math.round(lng * 50) / 50;
+	const hashInput: string = `${city}|${part || ''}|${roundedLat}|${roundedLon}`;
 
 	// HASH ACCUMULATION ---
 	// Steps: run djb2-like mixing with BigInt so bit-ops don’t overflow into nonsense.
-	let hash = 5381n;
+	let hash: bigint = 5381n;
 	for (let i = 0; i < hashInput.length; i++) {
 		hash = ((hash << 5n) + hash + BigInt(hashInput.charCodeAt(i))) & 0xffffffffn;
 	}
@@ -45,63 +53,72 @@ export function generateLocationHash({ city, part, lat, lng }) {
 	return Number(hash).toString(36).substring(0, 10);
 }
 
+interface CityObject extends LocationInput {
+	hashID?: string;
+	cityID?: number;
+	county?: string;
+	region?: string;
+	country?: string;
+}
+
 // GET OR SAVE CITY DATA -------------------------------------------------------
 // Steps: split numeric IDs vs city objects, resolve whatever can be resolved from Redis,
 // then only hit SQL for the truly-new cities, then push everything back into Redis
 // so the next request stays on the fast path.
-export async function getOrSaveCityData(con, cities) {
+export async function getOrSaveCityData(con: any, cities: (string | number | CityObject)[]): Promise<CityObject[]> {
 	// REQUEST TRACE ------------------------------------------------------------
 	// Steps: log start with count so cache-miss storms can be diagnosed without logging every city object payload.
 	logger.info('helpers.get_or_save_city_data.start', { cityCount: cities.length, __skipRateLimit: true });
-	let obtainedCon = false;
+	let obtainedCon: boolean = false;
 
 	try {
-		let existingCities = [],
-			foundByhashIDs = [];
+		let existingCities: CityObject[] = [],
+			foundByhashIDs: CityObject[] = [];
 
 		// INPUT SPLIT ---
 		// Steps: keep numeric cityIDs (already canonical) separate from objects (need resolution).
 
-		const [cityIDsOnly, cityObjects] = cities.reduce(
+		const [cityIDsOnly, cityObjects]: [(string | number)[], CityObject[]] = cities.reduce(
 			(acc, city) => {
-				typeof city === 'object' ? acc[1].push(city) : acc[0].push(city);
+				typeof city === 'object' ? acc[1].push(city as CityObject) : acc[0].push(city as string | number);
 				return acc;
 			},
-			[[], []]
+			[[], []] as [(string | number)[], CityObject[]]
 		);
 
 		// FAST PATH: CITYID -> CITYDATA ---
 		// Steps: hmget packed CBOR by known IDs, then early-return if everything was satisfied.
 		if (cityIDsOnly.length)
 			existingCities = (await redis.hmgetBuffer(REDIS_KEYS.citiesData, ...cityIDsOnly.map(String)))
-				.map((data, i) => (data ? { cityID: cityIDsOnly[i], ...decode(data) } : null))
+				.map((data: Buffer | null, i: number) => (data ? { cityID: Number(cityIDsOnly[i]), ...decode(data) } : null))
 				.filter(Boolean);
 
-		const validExistingCities = existingCities.filter(c => c !== null);
+		const validExistingCities: CityObject[] = existingCities.filter(c => c !== null);
 
 		if (validExistingCities.length === cities.length) return validExistingCities;
 
 		// SECOND FAST PATH: HASHID -> CITYID -> CITYDATA ---
 		// Steps: resolve hashIDs to cityIDs (dedupe key), then fetch the actual city payloads.
-		const hashIDs = cityObjects.map(c => c.hashID).filter(h => !!h);
+		const hashIDs: string[] = cityObjects.map(c => c.hashID).filter((h): h is string => !!h);
 
 		if (hashIDs.length) {
-			const existingCityIDs = (await redis.hmget(REDIS_KEYS.cityIDs, ...hashIDs)).filter(id => id);
+			const existingCityIDs: (string | null)[] = (await redis.hmget(REDIS_KEYS.cityIDs, ...hashIDs)).filter(id => id);
 			if (existingCityIDs.length)
 				foundByhashIDs = (await redis.hmgetBuffer(REDIS_KEYS.citiesData, ...existingCityIDs))
-					.map((data, i) => (data ? { cityID: Number(existingCityIDs[i]), ...decode(data) } : null))
+					.map((data: Buffer | null, i: number) => (data ? { cityID: Number(existingCityIDs[i]), ...decode(data) } : null))
 					.filter(Boolean);
 		}
-		const validFoundByHashIDs = foundByhashIDs.filter(c => c !== null);
-		const foundHashIDsSet = new Set(validFoundByHashIDs.map(c => c.hashID));
+		const validFoundByHashIDs: CityObject[] = foundByhashIDs.filter(c => c !== null);
+		const foundHashIDsSet: Set<string | undefined> = new Set(validFoundByHashIDs.map(c => c.hashID));
 
 		// Combine our partial results
-		const allFoundSoFar = [...validExistingCities, ...validFoundByHashIDs];
+		const allFoundSoFar: CityObject[] = [...validExistingCities, ...validFoundByHashIDs];
 
 		// SQL SLOW PATH: INSERT NEW CITIES ---
-		// Steps: only carry forward hashIDs that weren’t in Redis, then insert-ignore to survive races.
-		const newCities = cityObjects.filter(c => !c.hashID || !foundHashIDsSet.has(c.hashID));
-		const newCitiesWithIDs = [];
+		// Steps: only carry forward hashIDs that weren't in Redis, then insert-ignore to survive races.
+		// Filter: require city name and valid coordinates for insert.
+		const newCities: CityObject[] = cityObjects.filter(c => c.city && (!c.hashID || !foundHashIDsSet.has(c.hashID)));
+		const newCitiesWithIDs: CityObject[] = [];
 
 		if (newCities.length) {
 			try {
@@ -114,7 +131,11 @@ export async function getOrSaveCityData(con, cities) {
 
 				// HASH ID FINALIZATION ---
 				// Steps: ensure every new city has a stable hash before insert (required for re-select).
-				for (const city of newCities) city.hashID = generateLocationHash(city);
+				// Preserve original hashID for caller matching, store canonical hash for DB.
+				for (const city of newCities) {
+					(city as any).originalHashID = city.hashID;
+					city.hashID = generateLocationHash(city);
+				}
 
 				// TRANSACTIONAL WRITE + READBACK ---
 				// Steps: insert-ignore (idempotent), then select IDs by hash so we can cache deterministically.
@@ -122,10 +143,10 @@ export async function getOrSaveCityData(con, cities) {
 				await con.execute(
 					/*sql*/ `INSERT IGNORE INTO cities (city, coords, hashID, county, region, part, country) VALUES ${newCities.map(() => '(?, POINT(?, ?), ?, ?, ?, ?, ?)').join(', ')}`,
 					newCities.flatMap(city => [
-						city.city,
+						city.city || null,
 						(city.lng || 0).toFixed(6),
 						(city.lat || 0).toFixed(6),
-						city.hashID,
+						city.hashID || null,
 						city.county || null,
 						city.region || null,
 						city.part || null,
@@ -135,27 +156,27 @@ export async function getOrSaveCityData(con, cities) {
 
 				// ID RECOVERY ---
 				// Steps: re-select by hashIDs (covers both freshly inserted and raced-in rows).
-				const newhashIDs = newCities.map(c => c.hashID);
-				const [newCityIDRows] = await con.execute(/*sql*/ `SELECT id, hashID FROM cities WHERE hashID IN (${newhashIDs.map(() => '?').join(',')})`, newhashIDs);
+				const newhashIDs: string[] = newCities.map(c => c.hashID!);
+				const [newCityIDRows]: [any[], any] = await con.execute(/*sql*/ `SELECT id, hashID FROM cities WHERE hashID IN (${newhashIDs.map(() => '?').join(',')})`, newhashIDs);
 
 				newCitiesWithIDs.push(
-					...(newCities
+					...newCities
 						.map(city => {
-							const matchingRow = newCityIDRows.find(row => row.hashID === city.hashID);
+							const matchingRow: any = newCityIDRows.find((row: any) => row.hashID === city.hashID);
 							if (!matchingRow) {
 								logger.alert('helpers.city_id_not_found', { hashID: city.hashID });
 								return null;
 							}
 							return { ...city, cityID: Number(matchingRow.id) };
 						})
-						.filter(c => c !== null))
+						.filter((c): c is CityObject => c !== null)
 				);
 
 				await con.commit();
 
 				// CACHE WRITEBACK ---
 				// Steps: cache both directions (id->payload, hash->id) so the next call avoids SQL entirely.
-				const txn = redis.multi();
+				const txn: any = redis.multi();
 				for (const city of newCitiesWithIDs) {
 					if (city.cityID && city.hashID) {
 						txn.hset(REDIS_KEYS.citiesData, String(city.cityID), encode(city));

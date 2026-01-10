@@ -6,6 +6,13 @@ import { REDIS_KEYS } from '../../../shared/constants.ts';
 
 const logger = getLogger('Emitter');
 
+interface AlertData {
+	interactionsAlerts?: any[];
+	commentsAlerts?: any[];
+	userRatingsMap?: Map<string | number, any[]>;
+	userInvitesMap?: Map<string | number, any[]>;
+}
+
 // CORE EMITTER LOGIC ------------------------------------------------------------
 // Orchestrates alert fanout:
 // - normalizes alert inputs from worker tasks (interactions/comments/invites/ratings)
@@ -13,15 +20,17 @@ const logger = getLogger('Emitter');
 // - delivers to online users via Socket.IO and marks offline users in redis summary
 // - persists stored alerts into SQL for inbox/history
 // Steps: collect unique IDs, batch-enrich via redis/sql, build per-recipient queues, emit to online users, mark offline users, then bulk-persist stored alerts.
-async function Emitter(data, con, redis) {
+async function Emitter(data: AlertData, con: any, redis: any): Promise<void> {
 	try {
 		const { interactionsAlerts = [], commentsAlerts = [], userRatingsMap = new Map(), userInvitesMap = new Map() } = data;
 
 		// 1) DATA COLLECTION ---------------------------------------------------------
 		// Steps: gather unique entity IDs needed for enrichment so the enrichment phase can be fully batched.
-		const [uniqueEventIds, uniqueCommentIds, uniqueUserIds] = [new Set(), new Set(), new Set()];
+		const [uniqueEventIds, uniqueCommentIds, uniqueUserIds]: [Set<string>, Set<string>, Set<string>] = [new Set(), new Set(), new Set()];
 		// Helper to normalize and add non-null IDs to sets
-		const add = (set, id) => id != null && set.add(String(id));
+		const add = (set: Set<string>, id: any): void => {
+			if (id != null) set.add(String(id));
+		};
 
 		// Interactions: Collect IDs from likes, ratings, etc.
 		for (const { what, target } of interactionsAlerts) {
@@ -43,7 +52,7 @@ async function Emitter(data, con, redis) {
 
 		// Invites: Collect IDs from user invites
 		for (const invites of userInvitesMap.values()) {
-			for (const { target, data: iData } of invites) {
+			for (const { target, data: iData } of (invites as any[])) {
 				add(uniqueEventIds, target);
 				add(uniqueUserIds, iData.user);
 			}
@@ -51,42 +60,42 @@ async function Emitter(data, con, redis) {
 
 		// 2) DATA ENRICHMENT ---------------------------------------------------------
 		// Steps: hmgetBuffer in batch, SQL fetch only for misses, then backfill redis so repeated alerts become cheaper.
-		const [eventData, commentData, userData] = await Promise.all([
-			fetchEntityData([...uniqueEventIds], 'eveTitleOwner', redis, con, 'events', ['id', 'title', 'owner'], r => ({ id: r.id, title: r.title, owner: r.owner })),
-			fetchEntityData([...uniqueCommentIds], 'commentAuthorContent', redis, con, 'comments', ['id', 'user AS author', 'content'], r => ({
+		const [eventData, commentData, userData]: [Record<string, any>, Record<string, any>, Record<string, any>] = await Promise.all([
+			fetchEntityData([...uniqueEventIds], 'eveTitleOwner', redis, con, 'events', ['id', 'title', 'owner'], (r: any) => ({ id: r.id, title: r.title, owner: r.owner })),
+			fetchEntityData([...uniqueCommentIds], 'commentAuthorContent', redis, con, 'comments', ['id', 'user AS author', 'content'], (r: any) => ({
 				author: r.author,
 				content: r.content ? r.content.substring(0, 50) : '',
 			})),
-			fetchEntityData([...uniqueUserIds], 'userNameImage', redis, con, 'users', ['id', 'first', 'last', 'imgVers'], r => ({ id: r.id, first: r.first, last: r.last, imgVers: r.imgVers })),
+			fetchEntityData([...uniqueUserIds], 'userNameImage', redis, con, 'users', ['id', 'first', 'last', 'imgVers'], (r: any) => ({ id: r.id, first: r.first, last: r.last, imgVers: r.imgVers })),
 		]);
 
 		// 3) ALERT CONSTRUCTION ------------------------------------------------------
 		// Steps: normalize payload shapes, attach lightweight enrichment, group by recipient, and stage rows for SQL persistence.
-		const alertsByRecipient = new Map(),
-			dbAlerts = [];
+		const alertsByRecipient: Map<string, any[]> = new Map(),
+			dbAlerts: any[][] = [];
 
 		// Helper: Adds alert to memory map and DB queue
 		// Steps: normalize recipient id, stage alert for socket fanout, and stage SQL row only when store=true.
-		const pushAlert = (recipient, what, target, dataObj, store = true) => {
+		const pushAlert = (recipient: any, what: string, target: any, dataObj: any, store: boolean = true): void => {
 			if (!recipient) return;
-			const normRec = String(recipient);
+			const normRec: string = String(recipient);
 			if (!alertsByRecipient.has(normRec)) alertsByRecipient.set(normRec, []);
-			alertsByRecipient.get(normRec).push({ what, target, data: dataObj, store });
+			alertsByRecipient.get(normRec)!.push({ what, target, data: dataObj, store });
 			if (store) dbAlerts.push([normRec, what, target, JSON.stringify(dataObj)]);
 		};
 		// Helper: Hydrates title if missing
-		const setTitle = (obj, id) => {
+		const setTitle = (obj: any, id: any): void => {
 			if (eventData[String(id)]?.title) obj.title ??= eventData[String(id)].title;
 		};
 		// Helper: Hydrates user info
-		const userBrief = id => ({ user: id, ...(userData[String(id)] || {}) });
+		const userBrief = (id: any): any => ({ user: id, ...(userData[String(id)] || {}) });
 
 		// PROCESS: Interactions
 		for (const { what, target, data: iData = {} } of interactionsAlerts) {
-			const tKey = String(target),
-				eventInfo = eventData[tKey];
+			const tKey: string = String(target),
+				eventInfo: any = eventData[tKey];
 			// Determine recipient based on interaction type
-			const recipient = what === 'comm_rating' ? commentData[tKey]?.author : what === 'user_rating' ? target : eventInfo?.owner;
+			const recipient: any = what === 'comm_rating' ? commentData[tKey]?.author : what === 'user_rating' ? target : eventInfo?.owner;
 			if (!recipient) continue;
 
 			if (what === 'comm_rating') iData.content = commentData[tKey]?.content || '';
@@ -106,9 +115,9 @@ async function Emitter(data, con, redis) {
 
 		// PROCESS: Comments & Replies
 		for (const { what, target, data: cData = {} } of commentsAlerts) {
-			const isComm = what === 'comment',
-				tKey = String(target);
-			const recipient = isComm ? eventData[tKey]?.owner : commentData[tKey]?.author;
+			const isComm: boolean = what === 'comment',
+				tKey: string = String(target);
+			const recipient: any = isComm ? eventData[tKey]?.owner : commentData[tKey]?.author;
 
 			// Skip if no recipient or self-reply
 			if (!recipient || recipient === cData.user) continue;
@@ -120,16 +129,16 @@ async function Emitter(data, con, redis) {
 		}
 
 		// PROCESS: User Ratings (Pre-grouped)
-		for (const [id, alerts] of userRatingsMap) alerts.forEach(({ what, target, data: rData }) => pushAlert(id, what, target, rData));
+		for (const [id, alerts] of userRatingsMap) alerts.forEach(({ what, target, data: rData }: any) => pushAlert(id, what, target, rData));
 
 		// PROCESS: Invites
 		for (const [recId, invites] of userInvitesMap) {
-			for (const { target: eId, data: iData } of invites) {
-				const sender = iData?.user;
+			for (const { target: eId, data: iData } of (invites as any[])) {
+				const sender: any = iData?.user;
 				if (!sender || !userData[String(sender)]) continue;
 
 				// Construct clean payload (remove server-only flags)
-				const payload = { ...userBrief(sender), ...iData, event: eId, title: eventData[String(eId)]?.title, dir: iData.dir || 'in', flag: iData.flag || 'ok' };
+				const payload: any = { ...userBrief(sender), ...iData, event: eId, title: eventData[String(eId)]?.title, dir: iData.dir || 'in', flag: iData.flag || 'ok' };
 				delete payload.storeAlert;
 				delete payload.user;
 				if (iData.note) payload.note = iData.note;
@@ -141,22 +150,37 @@ async function Emitter(data, con, redis) {
 
 		// 4) DELIVERY ----------------------------------------------------------------
 		// Steps: partition recipients by online status, set summary flags for offline users, emit to online users via Socket.IO.
-		const recipients = [...alertsByRecipient.keys()];
-		const { online, offline } = await getOnlineStatus(recipients);
+		const recipients: string[] = [...alertsByRecipient.keys()];
+		const { online, offline }: { online: Set<string>; offline: Set<string> } = await getOnlineStatus(recipients);
 
 		// Offline processing: Mark "Notification Dots" in Redis
 		if (offline.size) {
-			const pipe = redis.pipeline();
-			offline.forEach(id => alertsByRecipient.get(id).some(a => a.store) && pipe.hset(`${REDIS_KEYS.userSummary}:${id}`, 'alerts', 1));
+			const pipe: any = redis.pipeline();
+			offline.forEach(id => alertsByRecipient.get(id)!.some(a => a.store) && pipe.hset(`${REDIS_KEYS.userSummary}:${id}`, 'alerts', 1));
 			await pipe.exec();
 		}
 
 		// Online processing: Emit via Socket.IO
 		// SOCKET INSTANCE --------------------------------------------------------
-		const socketIO = getSocketIOInstance();
+		// BATCHED EMITS ----------------------------------------------------------
+		// Steps: group alerts by event type per user, then emit once per user with batched payloads; eliminates N emit calls per user under high traffic.
+		const socketIO: any = getSocketIOInstance();
 		if (socketIO) {
 			for (const [id, alerts] of alertsByRecipient) {
-				if (online.has(id)) alerts.forEach(alert => socketIO.to(String(id)).emit(alert.what, { target: alert.target, data: alert.data }));
+				if (!online.has(id)) continue;
+				// GROUP BY EVENT TYPE --------------------------------------------
+				// Steps: collect alerts by event type so we can emit once per type per user instead of once per alert.
+				const alertsByType: Map<string, any[]> = new Map();
+				for (const alert of alerts) {
+					if (!alertsByType.has(alert.what)) alertsByType.set(alert.what, []);
+					alertsByType.get(alert.what)!.push({ target: alert.target, data: alert.data });
+				}
+				// BATCHED EMIT ----------------------------------------------------
+				// Steps: emit once per event type with array payload; if single alert, emit as-is for backward compatibility.
+				for (const [eventType, batchedAlerts] of alertsByType) {
+					const payload: any = batchedAlerts.length === 1 ? batchedAlerts[0] : batchedAlerts;
+					socketIO.to(String(id)).emit(eventType, payload);
+				}
 			}
 		}
 
@@ -177,19 +201,19 @@ async function Emitter(data, con, redis) {
 // - backfills redis to keep subsequent alerts cheap
 // Return shape is a plain object keyed by normalized string ID.
 // Steps: hmgetBuffer all IDs, decode successful hits, collect misses, SQL fetch misses, encode+backfill redis, then return merged object map.
-async function fetchEntityData(ids, cacheKey, redis, con, table, cols, mapper) {
+async function fetchEntityData(ids: any[], cacheKey: string, redis: any, con: any, table: string, cols: string[], mapper: (r: any) => any): Promise<Record<string, any>> {
 	if (!ids?.length) return {};
-	const normIds = ids.map(String),
-		result = {},
-		missing = [];
+	const normIds: string[] = ids.map(String),
+		result: Record<string, any> = {},
+		missing: string[] = [];
 
 	try {
-		const pipe = redis.pipeline();
+		const pipe: any = redis.pipeline();
 		normIds.forEach(id => pipe.hgetBuffer(cacheKey, id));
-		(await pipe.exec()).forEach(([, buf], i) => {
+		(await pipe.exec()).forEach(([, buf]: [any, Buffer | null], i: number) => {
 			if (buf) {
 				try {
-					const decoded = decode(buf);
+					const decoded: any = decode(buf);
 					// Reconstruct object based on cacheKey type logic
 					if (cacheKey === 'eveTitleOwner') result[normIds[i]] = { id: normIds[i], title: decoded[0], owner: decoded[1] };
 					else if (cacheKey === 'commentAuthorContent') result[normIds[i]] = { author: decoded[0], content: decoded[1] || '' };
@@ -201,15 +225,15 @@ async function fetchEntityData(ids, cacheKey, redis, con, table, cols, mapper) {
 		});
 
 		if (missing.length) {
-			const [rows] = await con.execute(`SELECT ${cols.join(',')} FROM ${table} WHERE id IN (${missing.map(() => '?').join(',')})`, missing);
+			const [rows]: [any[], any] = await con.execute(`SELECT ${cols.join(',')} FROM ${table} WHERE id IN (${missing.map(() => '?').join(',')})`, missing);
 			if (rows?.length) {
-				const updatePipe = redis.pipeline();
+				const updatePipe: any = redis.pipeline();
 				for (const row of rows) {
-					const strId = String(row.id),
-						obj = mapper(row);
+					const strId: string = String(row.id),
+						obj: any = mapper(row);
 					result[strId] = obj;
 					// Encode logic mirrors the decode logic above
-					const val =
+					const val: any[] =
 						cacheKey === 'eveTitleOwner'
 							? [obj.title || '', obj.owner || '']
 							: cacheKey === 'commentAuthorContent'
@@ -228,7 +252,7 @@ async function fetchEntityData(ids, cacheKey, redis, con, table, cols, mapper) {
 
 // USER DATA FETCH (CONVENIENCE) ------------------------------------------------
 // Wrapper for the most common emitter enrichment need (user name/image payload).
-const fetchUserData = (ids, redis, con) =>
-	fetchEntityData(ids, 'userNameImage', redis, con, 'users', ['id', 'first', 'last', 'imgVers'], r => ({ id: r.id, first: r.first, last: r.last, imgVers: r.imgVers }));
+const fetchUserData = (ids: any[], redis: any, con: any): Promise<Record<string, any>> =>
+	fetchEntityData(ids, 'userNameImage', redis, con, 'users', ['id', 'first', 'last', 'imgVers'], (r: any) => ({ id: r.id, first: r.first, last: r.last, imgVers: r.imgVers }));
 
 export { Emitter, fetchUserData };

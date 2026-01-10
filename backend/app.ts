@@ -4,7 +4,7 @@
 // Startup path:
 //   1) Validate env, register metrics, then either run in MIN_MODE (single)
 //      or as a clustered primary that forks workers.
-//   2) Primary coordinates workers (HTTP + Socket.IO) and a dedicated task
+//   2) Primary coordinates workers (HTTP + SockSet.IO) and a dedicated task
 //      worker. It monitors health/overload and scales helper threads.
 //   3) Each worker initializes Express middleware in strict order: metrics →
 //      access logging → security/CORS → static → rate limit → parsers → JWT →
@@ -31,15 +31,15 @@ import client from 'prom-client';
 import { setupPrimary } from '@socket.io/cluster-adapter';
 import { setupMaster } from '@socket.io/sticky';
 
-import { Redis, Cacher } from './systems/systems';
-import { cronBackupDb, cronBackupsDel } from './systems/mysql/mysql';
-import { getLogger } from './systems/handlers/logging/index';
+import { Redis, Cacher } from './systems/systems.ts';
+import { cronBackupDb, cronBackupsDel } from './systems/mysql/mysql.ts';
+import { getLogger } from './systems/handlers/loggers.ts';
 
-import { CONFIG, MIN_MODE, validateEnv } from './startup/config';
-import { clusterWorkersTotalGauge } from './startup/metrics';
-import { primaryState, handleWorkerMessage, handleWorkerExit, checkWorkersAndScale, checkStartupCompletion } from './cluster/primary';
-import { initializeWorker, gracefulShutdown } from './cluster/worker';
-import { initReadinessTracker, reportSubsystemReady } from './cluster/readiness';
+import { CONFIG, MIN_MODE, validateEnv } from './startup/config.ts';
+import { clusterWorkersTotalGauge } from './startup/metrics.ts';
+import { primaryState, handleWorkerMessage, handleWorkerExit, checkWorkersAndScale, checkStartupCompletion } from './cluster/primary.ts';
+import { initializeWorker, gracefulShutdown } from './cluster/worker.ts';
+import { initReadinessTracker } from './cluster/readiness.ts';
 
 // TODO need to implement check if previous backup (any of the 3 types) was done on server start, and if not, do it right away.
 // TODO import all modules into one file and export a function, which accepts array of names and returns an object with all the modules
@@ -71,29 +71,35 @@ const metricsLogger = getLogger('Metrics');
 	if (process.env.SWARM_MODE) {
 		try {
 			clusterLogger.info('Starting (Swarm/Container Mode)');
-			
-			// In Swarm, every container is a "worker" but also needs to do its own 
-			// internal housekeeping if it's the *only* container, OR we rely on 
+
+			// In Swarm, every container is a "worker" but also needs to do its own
+			// internal housekeeping if it's the *only* container, OR we rely on
 			// external jobs. For simplicity, we initialize as a worker.
 			// However, we might need a dedicated "Task Runner" service in the stack
 			// or elect one via Redis locking if tasks are duplicated.
 			// For now, we assume this container handles traffic.
-			
+
 			// CACHE WARMUP (Non-blocking attempt) -------------------------------
-			// In Swarm, multiple containers might start at once. 
-			// Realistically, we should have an "init container" do this, 
+			// In Swarm, multiple containers might start at once.
+			// Realistically, we should have an "init container" do this,
 			// or use Redis locking to ensure only one does the heavy lift.
 			// For now, we'll let them all try (Redis cacher is idempotent-ish).
-			try { const redis = await Redis.getClient(); await Cacher(redis); } 
-			catch (e) { clusterLogger.error('Swarm cache warmup failed', { error: e }); }
+			try {
+				const redis = await Redis.getClient();
+				await Cacher(redis);
+			} catch (e) {
+				clusterLogger.error('Swarm cache warmup failed', { error: e });
+			}
 
 			// Identity
 			process.env.WORKER_ID = process.env.HOSTNAME || `swarm-${process.pid}`;
-			
+
 			// Run the worker initialization directly
 			await initializeWorker();
-			
-		} catch (err) { clusterLogger.error('Error in Swarm mode', { error: err }); process.exit(1); }
+		} catch (err) {
+			clusterLogger.error('Error in Swarm mode', { error: err });
+			process.exit(1);
+		}
 	}
 	// MIN_MODE: SINGLE-PROCESS ------------------------------------------------
 	else if (MIN_MODE) {
@@ -107,14 +113,22 @@ const metricsLogger = getLogger('Metrics');
 
 			// CACHE WARMUP ------------------------------------------------------
 			// Warm caches before serving work; failures must not prevent boot.
-			try { const redis = await Redis.getClient(); await Cacher(redis); cronBackupsDel(); } 
-			catch (e) { clusterLogger.error('Single-process cache warmup failed', { error: e }); }
+			try {
+				const redis = await Redis.getClient();
+				await Cacher(redis);
+				cronBackupsDel();
+			} catch (e) {
+				clusterLogger.error('Single-process cache warmup failed', { error: e });
+			}
 
 			// WORKER ROLE -------------------------------------------------------
 			// In MIN_MODE the process runs the task worker path directly.
 			process.env.WORKER_ID = CONFIG.TASK_WORKER_ID;
 			await initializeWorker();
-		} catch (err) { clusterLogger.error('Error in single-process mode', { error: err }); process.exit(1); }
+		} catch (err) {
+			clusterLogger.error('Error in single-process mode', { error: err });
+			process.exit(1);
+		}
 	}
 	// CLUSTER PRIMARY ---------------------------------------------------------
 	else if (cluster.isPrimary) {
@@ -136,7 +150,9 @@ const metricsLogger = getLogger('Metrics');
 			setupMaster(stickyServer, { loadBalancingMethod: 'least-connection' });
 			setupPrimary();
 			const stickyPort = Number(process.env.SOCKET_PORT || Number(process.env.BE_PORT || 2208) + 1);
-			stickyServer.listen(stickyPort, '0.0.0.0', () => { clusterLogger.info(`Socket.IO sticky server listening on :${stickyPort}`); });
+			stickyServer.listen(stickyPort, '0.0.0.0', () => {
+				clusterLogger.info(`Socket.IO sticky server listening on :${stickyPort}`);
+			});
 
 			// TRACK STICKY SERVER FOR SHUTDOWN ---
 			// Exporting it or assigning to a global so worker.js shutdown logic can find it.
@@ -158,20 +174,44 @@ const metricsLogger = getLogger('Metrics');
 						try {
 							const token = process.env.MONITORING_TOKEN;
 							if (token) {
-								const auth = req.headers['authorization'] || '', expected = `Bearer ${token}`;
-								if (auth !== expected) { res.statusCode = 403; res.end('forbidden'); return; }
+								const auth = req.headers['authorization'] || '',
+									expected = `Bearer ${token}`;
+								if (auth !== expected) {
+									res.statusCode = 403;
+									res.end('forbidden');
+									return;
+								}
 							}
 						} catch (err) {
 							metricsLogger.error('Metrics auth failed', { error: err.message });
-							res.statusCode = 500; res.end('Internal Server Error'); return;
+							res.statusCode = 500;
+							res.end('Internal Server Error');
+							return;
 						}
-						try { const metrics = await (aggregatorRegistry as any).clusterMetrics({ timeout: 15000 }); res.setHeader('Content-Type', client.register.contentType); res.end(metrics); } 
-						catch (e) { try { const fallback = await client.register.metrics(); res.setHeader('Content-Type', client.register.contentType); res.end(fallback); } catch (inner) { res.statusCode = 500; res.end(String(e)); } }
+						try {
+							const metrics = await (aggregatorRegistry as any).clusterMetrics({ timeout: 15000 });
+							res.setHeader('Content-Type', client.register.contentType);
+							res.end(metrics);
+						} catch (e) {
+							try {
+								const fallback = await client.register.metrics();
+								res.setHeader('Content-Type', client.register.contentType);
+								res.end(fallback);
+							} catch (inner) {
+								res.statusCode = 500;
+								res.end(String(e));
+							}
+						}
 						return;
 					}
-					res.statusCode = 404; res.end('Not Found');
-				}).listen(metricsPort, '0.0.0.0', () => { metricsLogger.info(`Aggregated metrics available at :${metricsPort}/metrics`); });
-			} catch (e) { metricsLogger.error('Failed to start aggregated metrics server', { error: e }); }
+					res.statusCode = 404;
+					res.end('Not Found');
+				}).listen(metricsPort, '0.0.0.0', () => {
+					metricsLogger.info(`Aggregated metrics available at :${metricsPort}/metrics`);
+				});
+			} catch (e) {
+				metricsLogger.error('Failed to start aggregated metrics server', { error: e });
+			}
 
 			// Fork workers ----------------------------------------------------
 			// WORKER_ID is stable so primary can correlate metrics and helper counts.
@@ -184,17 +224,28 @@ const metricsLogger = getLogger('Metrics');
 
 			// Cluster event handlers ------------------------------------------
 			// Control-plane messages drive readiness, health metrics, helper scaling.
-			cluster.on('message', (worker, message) => { handleWorkerMessage(worker, message); });
-			cluster.on('exit', (worker, code, signal) => { handleWorkerExit(worker, code, signal); });
+			cluster.on('message', (worker, message) => {
+				handleWorkerMessage(worker, message);
+			});
+			cluster.on('exit', (worker, code, signal) => {
+				handleWorkerExit(worker, code, signal);
+			});
 
 			// Monitoring and scaling ------------------------------------------
 			// Periodic scaling is rate-limited in primaryState (cooldown) to avoid thrash.
-			setInterval(() => { checkWorkersAndScale(); }, CONFIG.MONITORING_INTERVAL);
-			setTimeout(() => { checkStartupCompletion(); }, 10000);
+			setInterval(() => {
+				checkWorkersAndScale();
+			}, CONFIG.MONITORING_INTERVAL);
+			setTimeout(() => {
+				checkStartupCompletion();
+			}, 10000);
 			initReadinessTracker(numCPUs);
 
 			clusterLogger.info(`Forked ${numCPUs} workers (Worker ${CONFIG.TASK_WORKER_ID} handles background tasks)`);
-		} catch (err) { clusterLogger.error('Error in primary process', { error: err }); process.exit(1); }
+		} catch (err) {
+			clusterLogger.error('Error in primary process', { error: err });
+			process.exit(1);
+		}
 	}
 	// CLUSTER WORKER ----------------------------------------------------------
 	else {

@@ -59,8 +59,6 @@ const REDIS_KEY_NAMES = [
 	'pastEveCachedAt',
 	'commentAuthorContent',
 	'serverStarted',
-	'lastCommID',
-	'lastMessID',
 	'last100BestEventsRecalc',
 	'tasksFinishedAt',
 ] as const;
@@ -370,18 +368,24 @@ export const PROFESSIONAL_EVENTS = new Map(
 
 export const REGEXES = {
 	name: /^[\p{L}\s'-]+$/u,
-	favouriteExpertTopic: /^[\p{L}][\p{L}\s]*[\p{L}]$/u,
+	// FAVEX TOPIC REGEX ---
+	// Allow letters, numbers, spaces, and common punctuation (hyphens, apostrophes, periods, commas, colons, slashes, ampersands, plus, parentheses, quotes).
+	// Must start and end with letter or number. Single/double char topics allowed if alphanumeric.
+	// Pipe character (|) forbidden as it's used as delimiter in storage.
+	favouriteExpertTopic: /^[\p{L}\p{N}][\p{L}\p{N}\s.,;:!?'"\-\/&+()@#%*=_~]*[\p{L}\p{N}]$|^[\p{L}\p{N}]{1,2}$/u,
 	email: /^(?=.{1,254})(?=.{1,64}@)[a-zA-Z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:(?=[a-zA-Z0-9-]{1,63}\.)(xn--)?[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*\.){1,8}(?=[a-zA-Z]{2,63})(xn--[a-zA-Z0-9]{1,59})?[a-zA-Z]{2,63}$/,
 } as const;
 
 export const MAX_CHARS = {
 	favourExpertTopics: 200,
 	userShortDesc: 600,
+	name: 40,
 } as const;
 
 export const MIN_CHARS = {
 	favourExpertTopic: 3,
 	password: 8,
+	name: 2,
 } as const;
 
 export const MIN_COUNTS = {
@@ -399,7 +403,7 @@ export const FOUNDATION_LOADS = { init: 'init', fast: 'fast', auth: 'auth', citi
 
 export const REVERT_EMAIL_DAYS = 14;
 export const EXPIRATIONS = {
-	accessToken: '20m', // Access token
+	accessToken: '7d', // Access token
 	refreshToken: '7d', // Refresh token
 	authToken: '5m', // Temporary tokens (verify, reset)
 	verifyMailLink: '30m', // Unintroduced user token

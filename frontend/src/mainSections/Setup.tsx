@@ -7,7 +7,7 @@ import ProfileSetup from './ProfileSetup';
 import AdvancedSetup from './AdvancedSetup';
 import useFadeIn from '../hooks/useFadeIn';
 import { notifyGlobalError } from '../hooks/useErrorsMan';
-import { checkFavouriteExpertTopicsQuality } from '../../../shared/utilities';
+import { checkFavouriteExpertTopicsQuality } from '../../../shared/utilities.ts';
 
 // TODO Vyřešit co dělat při opakovanym failu uploadu
 // TODO send new user to all devices through socket after saving
@@ -18,7 +18,7 @@ import { checkFavouriteExpertTopicsQuality } from '../../../shared/utilities';
 // TODO instead of sending all citiesData, send back only the cityIDs and hashID
 // TODO store introAuth in Redis with TTL and check it when /location is called without userID
 
-const sections = ['Personals', 'Cities', 'Indis', 'Basics', 'Favex', 'Picture', 'Groups'];
+const sections = ['Welcome', 'Personals', 'Cities', 'Indis', 'Basics', 'Favex', 'Picture', 'Groups'];
 const allowedPayloadKeys = new Set(['first', 'last', 'birth', 'gender', 'cities', 'indis', 'basics', 'groups', 'favs', 'exps', 'shortDesc', 'priv', 'defPriv', 'askPriv', 'image']);
 const commandInputs = new Set(['bigButton', 'delFreezeUser', 'changeMail', 'changePass', 'changeBoth', 'logoutEverywhere', 'hasAccessToCurMail']);
 
@@ -186,7 +186,9 @@ const Setup = () => {
 					.filter(([key, val]) => !['locaMode', 'age'].includes(key) && !(!val && !loaderData[key]) && !areEqual(val, loaderData[key]))
 			);
 
-			splitStrgOrJoinArr(payload, 'join'), delete payload.age, delete payload.imgVers;
+			// NOTE: Don't join arrays before sending - backend expects arrays.
+			// splitStrgOrJoinArr is only used for local storage after response.
+			delete payload.age, delete payload.imgVers;
 			if (payload.cities?.length) {
 				const payloadCityIds = payload.cities.map(city => city.cityID || city).sort();
 				if (areEqual(payloadCityIds, (loaderData.cities || []).slice().sort())) delete payload.cities;
@@ -194,25 +196,30 @@ const Setup = () => {
 			}
 			if (!Object.keys(payload).length) return brain.fastLoaded ? navigate('/') : navigate(-1);
 
-			const { citiesData, auth, imgVers } = (await axios.post('/setup', Object.assign(payload, !brain.user.id && { print: getDeviceFingerprint(), useAuthToken: true }))).data;
+			const response = (await axios.post('/setup', Object.assign(payload, !brain.user.id && { print: getDeviceFingerprint(), useAuthToken: true }))).data;
+			const { citiesData, auth, authEpoch, imgVers } = response;
 			const miscel = (await forage({ mode: 'get', what: 'miscel' })) || {};
 			if (imgVers) payload.imgVers = imgVers;
 
 			if (payload.cities) {
 				if (citiesData) citiesData.forEach(city => brain.cities.push({ ...city, cityID: Number(city.cityID) }));
-				payload.cities = payload.cities.map(city => (typeof city === 'object' ? Number(brain.cities.find(c => c.hashID === city.hashID).cityID) : city));
+				// RESOLVE CITY IDS ---
+				// Match by hashID; filter out any unresolved cities.
+				payload.cities = payload.cities
+					.map(city => (typeof city === 'object' ? brain.cities.find(c => c.hashID === city.hashID)?.cityID : city))
+					.filter(id => id != null)
+					.map(Number);
 				(miscel.initLoadData = { ...(miscel.initLoadData || {}), cities: payload.cities }), await forage({ mode: 'set', what: 'miscel', val: miscel });
 			}
 
-			// SET DATA TO BRAIN AND FORAGE -----------------------------------------------------
+			// NEW USER REGISTRATION COMPLETE ---
+			// Redirect to login - user needs to enter password to derive encryption keys.
 			if (isIntroduction) {
-				const [userID, hash] = auth.split(':');
-				await forage({ mode: 'set', what: 'auth', val: hash, id: userID });
-				(brain.user.id = userID), (brain.user.cities = brain.user.curCities = payload.cities);
+				sessionStorage.removeItem('registrationData'), sessionStorage.removeItem('authToken');
+				return navigate('/entrance?mess=registrationComplete');
 			}
 
 			(payload.age = data.age), delete payload.birth, delete payload.image;
-			sessionStorage.removeItem('registrationData'), sessionStorage.removeItem('authToken'), delete brain.user.isUnintroduced;
 			Object.assign(brain.user, splitStrgOrJoinArr(payload, 'split')), await forage({ mode: 'set', what: 'user', val: brain.user });
 
 			// SUCCESS UI + DELAYED NAVIGATION ------------------------------------------------
@@ -225,8 +232,17 @@ const Setup = () => {
 			const errorCode = typeof errorData === 'string' ? errorData : errorData?.code;
 			if (['newMailSameAsCurrent', 'wrongPass', 'emailChangeActive', 'ageAlreadyChanged', 'personalsChangeTooRecent'].includes(errorCode)) return setInform(prev => [...prev, errorCode]);
 			const authErrorCode = errorCode || err.message;
-			if (['unauthorized', 'tokenExpired', 'logout'].includes(authErrorCode))
+			// AUTH ERROR HANDLING ---
+			// When unauthorized/tokenExpired/logout occurs, clear session and navigate to entrance
+			// In introduction mode, use autoLogout message and clear registration data
+			if (['unauthorized', 'tokenExpired', 'logout'].includes(authErrorCode)) {
+				if (isIntroduction) {
+					sessionStorage.removeItem('authToken');
+					sessionStorage.removeItem('registrationData');
+					return navigate('/entrance?mess=autoLogout');
+				}
 				return await forage({ mode: 'del', what: 'token' }), sessionStorage.removeItem('authToken'), navigate(`/entrance?mess=${authErrorCode}`);
+			}
 			setInform([]);
 			// ERROR UI (NO NAVIGATION) -------------------------------------------------------
 			// Show error state in the button briefly, disable it while visible.
@@ -239,7 +255,7 @@ const Setup = () => {
 
 	// RENDER SETUP COMPONENT ----------------------------------------------
 	return (
-		<setup-comp class='mihvh100 block  posRel   textAli w100 '>
+		<setup-comp class={`mihvh100 block  posRel   textAli w100 ${isIntroduction ? 'mhvh100' : ''}`}>
 			{/* MAIN SETUP CATEGORIES BUTTONS ------------------------------------------------- */}
 			{!isIntroduction && (
 				<cat-bs class={` flexCen marAuto posRel bInsetBlue thickBors  padTopXl  w100`}>
@@ -260,8 +276,8 @@ const Setup = () => {
 					)}
 				</cat-bs>
 			)}
-			<blue-divider class='hr5  zin1 block bInsetBlueTopXl borTop bgTrans w100 mw120 marAuto posRel' />
-			<sections-wrapper class={'block fPadHorXxs'}>
+			{!isIntroduction && <blue-divider class='hr5  zin1 block bInsetBlueTopXl borTop bgTrans w100 mw120 marAuto posRel' />}
+			<sections-wrapper class={'block '}>
 				{/* PROFILE SETUP CATEGORY WRAPPER  -----------------------------------------------*/}
 				{(isIntroduction || mode === 'profile') && <ProfileSetup {...{ inform, setInform, isIntroduction, superMan: man, brain, nowAt, fadedIn, visibleSections, curSection, data }} />}
 				{/* ADVANCED SETUP SECTION ------------------------------------------------------ */}

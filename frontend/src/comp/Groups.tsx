@@ -48,12 +48,18 @@ function Groups({ data = {}, superMan, nowAt, avail = {}, sherMode }: any) {
 
 	return (
 		<groups-comp class={`block marAuto mw170 w100 posRel`} ref={topEdge}>
-			{nowAt === 'setup' && data.id && (
+			{nowAt === 'setup' && (
 				<title-texts class='posRel block'>
-					<span className='xBold marBotXxs inlineBlock fs15'>{'Zájmové skupiny'}</span>
-					<p className='fs8 marBotXs mw160 lh1 marAuto'>{'Pomůže ti to lépe vyhledávat lidi a zvýší šance na seznámení.'}</p>
+					{/* SECTION DESCRIPTION (EXISTING USERS ONLY) --- */}
+					{data.id && (
+						<>
+							<span className='xBold marBotXxs inlineBlock fs15'>{'Zájmové skupiny'}</span>
+							<p className='fs8 marBotXs mw160 lh1 marAuto'>{'Pomůže ti to lépe vyhledávat lidi a zvýší šance na seznámení.'}</p>
+						</>
+					)}
+					{/* LIMIT WARNING (ALL USERS) --- */}
 					{Array.isArray(data.groups) && data.groups.length >= MAX_COUNTS.groups && (
-						<span className='fs7 tGrey inlineBlock'>
+						<span className='fs16 tRed xBold textSha marBotXs block'>
 							Dosažen limit: {MAX_COUNTS.groups}/{MAX_COUNTS.groups}
 						</span>
 					)}

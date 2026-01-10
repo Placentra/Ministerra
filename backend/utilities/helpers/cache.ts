@@ -2,30 +2,30 @@
 // Cache user relationships (links, blocks, invites, trusts) to avoid repeated SQL queries.
 // =============================================================================
 
-import { Sql } from '../../systems/mysql/mysql';
-import { getLogger } from '../../systems/handlers/logging/index';
+import { Sql } from '../../systems/mysql/mysql.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
 // ANNOTATION STRATEGY: External types -----------------------------------------
 import { Redis } from 'ioredis';
 
 const logger = getLogger('Helpers:Cache');
 
-let redis;
-export const ioRedisSetter = r => (redis = r);
+let redis: any;
+export const ioRedisSetter = (r: any): any => (redis = r);
 
 // GET OR CACHE FILTERING SETS --------------------------------------------------
 // Steps: try reading from Redis first; if missing, fall back to SQL, cache the result, and return it.
 // forceSql bypasses the initial Redis read (e.g. for re-syncing).
-export async function getOrCacheFilteringSets(con, targetSet, userID, forceSql = false) {
-	let query: string,
-		obtainedCon = false;
+export async function getOrCacheFilteringSets(con: any, targetSet: 'links' | 'blocks' | 'trusts' | 'invites', userID: string | number, forceSql: boolean = false): Promise<Set<string | number>> {
+	let query: string | undefined,
+		obtainedCon: boolean = false;
 	try {
 		// REDIS CACHE CHECK ---
 		// Steps: if not forcing SQL, check if the set exists in Redis.
-		const key = `${targetSet}:${userID}`;
+		const key: string = `${targetSet}:${userID}`;
 		if (!forceSql) {
-			const exists = await redis.exists(key);
+			const exists: number = await redis.exists(key);
 			if (exists) {
-				const members = await redis.smembers(key);
+				const members: (string | number)[] = await redis.smembers(key);
 				return new Set(members);
 			}
 		}
@@ -40,11 +40,11 @@ export async function getOrCacheFilteringSets(con, targetSet, userID, forceSql =
 			// Steps: query invited event IDs, then cache as a Redis Set so membership checks become O(1) without SQL.
 			query = /*sql*/ `SELECT event FROM eve_invites WHERE user2 = ?`;
 
-			const [rows] = await con.execute(query, [userID]);
-			const values = rows.map((row: any) => row.event);
+			const [rows]: [any[], any] = await con.execute(query, [userID]);
+			const values: (string | number)[] = rows.map((row: any) => row.event);
 
 			if (values.length) {
-				const multi = redis.multi();
+				const multi: any = redis.multi();
 				multi.sadd(`${targetSet}:${userID}`, ...values);
 				await multi.exec();
 			}
@@ -61,19 +61,19 @@ export async function getOrCacheFilteringSets(con, targetSet, userID, forceSql =
 					? /*sql*/ `SELECT user, user2 FROM user_links WHERE ((user = ? AND who IN (1, 3)) OR (user2 = ? AND who IN (2, 3))) AND link = 'tru'`
 					: /*sql*/ `SELECT user, user2 FROM user_links WHERE (user = ? OR user2 = ?) AND link = 'ok'`;
 
-			const [rows] = await con.execute(query, [userID, userID]);
-			const otherUserIds = [];
+			const [rows]: [any[], any] = await con.execute(query, [userID, userID]);
+			const otherUserIds: (string | number)[] = [];
 
 			for (const row of rows) {
 				const { user, user2 } = row;
 				// PEER EXTRACTION ---
 				// Steps: keep the non-requester side so the stored set is “IDs related to me”, not raw edge rows.
-				const otherUser = user === userID ? user2 : user;
+				const otherUser: string | number = user === userID ? user2 : user;
 				if (otherUser) otherUserIds.push(otherUser);
 			}
 
 			if (otherUserIds.length) {
-				const multi = redis.multi();
+				const multi: any = redis.multi();
 				multi.sadd(`${targetSet}:${userID}`, ...otherUserIds);
 				await multi.exec();
 			}

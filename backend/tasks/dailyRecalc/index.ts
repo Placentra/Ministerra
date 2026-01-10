@@ -1,13 +1,13 @@
 // DAILY RECALC - MAIN ORCHESTRATOR =============================================
-import { Catcher } from '../../systems/systems';
-import { processUserMetas, processRemEveMetas, getStateVariables } from '../../utilities/contentHelpers';
-import { getLogger } from '../../systems/handlers/logging/index';
-import { recalcPastEvents, recalcAffectPastEveUsers } from './pastEvents';
-import { removeInactiveUserSetsFromRedis, updateRedisUserSets } from './userCleanup';
-import { updateChatsChangedStatus, updateChatDeadStatus } from './chatCleanup';
-import { buildRecalcQueries, executeRecalcQueries, cleanupDeletedUsersRedis, cleanupRemovedEventsRedis } from './deletionQueries';
-import { refreshTop100Events, executeFinalQueries, cleanupOldRemUse, executeStatePipes } from './finalCleanup';
-import { cleanupDeletedFiles } from './fileCleanup';
+import { Catcher } from '../../systems/systems.ts';
+import { processUserMetas, processRemEveMetas, getStateVariables } from '../../utilities/contentHelpers.ts';
+import { getLogger } from '../../systems/handlers/loggers.ts';
+import { recalcPastEvents, recalcAffectPastEveUsers } from './pastEvents.ts';
+import { removeInactiveUserSetsFromRedis, updateRedisUserSets } from './userCleanup.ts';
+import { updateChatsChangedStatus, updateChatDeadStatus } from './chatCleanup.ts';
+import { buildRecalcQueries, executeRecalcQueries, cleanupDeletedUsersRedis, cleanupRemovedEventsRedis } from './deletionQueries.ts';
+import { refreshTop100Events, executeFinalQueries, cleanupOldRemUse, executeStatePipes } from './finalCleanup.ts';
+import { cleanupDeletedFiles } from './fileCleanup.ts';
 
 const logger = getLogger('Task:DailyRecalc'),
 	REDIS_USERSET_BATCH_LIMIT = Number(process.env.DAILY_RECALC_REDIS_USERSET_BATCH) || 0;
@@ -21,8 +21,10 @@ const baseTimeExpr = `DATE_ADD(starts, INTERVAL (${daysExpr}) DAY)`,
 const roundedExpr = `CASE WHEN (${daysExpr}) < 5 THEN TIMESTAMP(DATE(${baseTimeExpr})) ELSE TIMESTAMP(DATE(${baseTimeExpr}) + INTERVAL 1 DAY) END`;
 
 async function dailyRecalcWorker(con, redis) {
-	let connectionReleased = false;
 	try {
+		// CONNECTION OWNERSHIP ---------------------------------------------------
+		// The scheduler passes a per-task pooled connection that it releases in its finally block.
+		// Tasks must NOT call con.release()/destroy(); the worker handles cleanup.
 		await con.execute(`SET time_zone = '+00:00'`);
 		const state = getStateVariables(),
 			now = Date.now(),
@@ -107,14 +109,6 @@ async function dailyRecalcWorker(con, redis) {
 		logger.error('dailyRecalc.unhandled', { error });
 		Catcher({ origin: 'dailyRecalcWorker', error });
 		throw error;
-	} finally {
-		if (con && !connectionReleased)
-			try {
-				con.release();
-				connectionReleased = true;
-			} catch (e) {
-				logger.error('dailyRecalc.release_failed', { error: e });
-			}
 	}
 }
 

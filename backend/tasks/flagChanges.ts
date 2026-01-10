@@ -2,7 +2,7 @@ import { Catcher, Querer } from '../systems/systems.ts';
 import { decode } from 'cbor-x';
 import { getIDsString } from '../../shared/utilities.ts';
 import { getStateVariables, processUserMetas, processRemEveMetas, processNewEvents, processNewEveMetas, loadMetaPipes, loadBasicsDetailsPipe, clearState } from '../utilities/contentHelpers.ts';
-import { getLogger } from '../systems/handlers/logging/index.ts';
+import { getLogger } from '../systems/handlers/loggers.ts';
 import { REDIS_KEYS, EVENT_COLUMNS } from '../../shared/constants.ts';
 import { invalidateEventCache } from '../modules/event.ts';
 import { invalidateUserCache } from '../modules/user.ts';

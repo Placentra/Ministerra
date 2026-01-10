@@ -5,7 +5,7 @@ import { Resource } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { getLogger } from './systems/handlers/logging/index';
+import { getLogger } from './systems/handlers/loggers.ts';
 
 const logger = getLogger('OTEL');
 
@@ -45,7 +45,11 @@ const sdk = new NodeSDK({
 
 // STARTUP ----------------------------------------------------------------------
 // Steps: start SDK once at process boot; failures should log but should not crash the whole backend by themselves.
-try { sdk.start(); } catch (err) { logger.error('otel.start_failed', { error: err }); }
+try {
+	sdk.start();
+} catch (err) {
+	logger.error('otel.start_failed', { error: err });
+}
 
 // Do NOT call process.exit() here.
 // The backend has its own unified shutdown path; OTEL should just flush/stop.

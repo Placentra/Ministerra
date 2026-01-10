@@ -1,65 +1,71 @@
 import nodemailer from 'nodemailer';
-import * as aws from '@aws-sdk/client-sesv2';
-import { getLogger } from '../systems/handlers/logging/index';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
+import { getLogger } from '../systems/handlers/loggers.ts';
 
 // MAILING MODULE ---------------------------------------------------------------
-// Sends transactional emails via AWS SES (through nodemailer transport).
+// Sends transactional emails via AWS SES v2 (through nodemailer transport).
 // Used by entrance flows (verify/reset/change email) and account actions.
 
 const logger = getLogger('Mailing'),
-	SESClient = new aws.SESv2Client({ region: 'eu-central-1', credentials: { accessKeyId: process.env.AWS_ACCESS, secretAccessKey: process.env.AWS_SECRET } }),
-	transporter = (nodemailer.createTransport({ SES: { SESClient, aws } } as any) as any);
+	[b, f] = ['BACK_END', 'FRONT_END'];
 
-// CONFIGURATION ---------------------------------------------------------------
-
-const modes = {
-	freezeUser: { s: 'Zmrazení účtu', t: 'Pro autorizaci zmrazení účtu klikni na tento odkaz >>>', p: 1, b: 1 },
-	deleteUser: { s: 'Smazání účtu', t: 'Pro autorizaci smazání účtu klikni na tento odkaz >>>', p: 1, b: 1 },
-	passChanged: { s: 'Heslo změněno', t: 'Tvoje heslo bylo úspěšně změněno.', n: 1 },
-	bothChanged: { s: 'Email a heslo změněny', t: 'Tvoje emailová adresa a heslo k účtu bylo úspěšně změněno', n: 1 },
-	mailChanged: { s: 'Email byl změněn', t: 'Tvoje emailová adresa k tvému účtu byla úspěšně změněna', n: 1 },
-	resetPass: { s: 'Reset hesla', t: 'Pro změnu hesla klikni na tento odkaz >>>', p: 1 },
-	changePass: { s: 'Změna hesla', t: 'Pro změnu hesla klikni na tento odkaz >>>', p: 1 },
-	changeMail: { s: 'Změna emailu', t: 'Pro změnu emailu klikni na tento odkaz >>>', p: 1 },
-	changeBoth: { s: 'Změna emailu a hesla', t: 'Pro změnu emailu a hesla klikni na tento odkaz >>>', p: 1 },
-	revertEmailChange: {
-		s: 'Vrácení změny emailu',
-		t: 'Někdo změnil emailovou adresu k tvému účtu. Pokud jsi to byl ty, ignoruj tento email. Pokud ne, klikni na tento odkaz pro vrácení původního emailu >>>',
-		p: 1,
-		// No 'b' flag means it defaults to FRONT_END URL
+// SES V2 CLIENT + TRANSPORTER -------------------------------------------------
+// nodemailer 7.x expects: { SES: { sesClient, SendEmailCommand } }
+const sesClient = new SESv2Client({
+	region: process.env.AWS_SES_REGION || 'eu-central-1',
+	credentials: {
+		accessKeyId: process.env.AWS_ACCESS!,
+		secretAccessKey: process.env.AWS_SECRET!,
 	},
-	verifyMail: { s: 'Verifikace emailu >>> Nastavení profilu', t: 'Nyní tě čeká konfigurace profilu (cca 2 minuty), nejdříve však potvrď svůj email >>>', b: 1 },
-	verifyNewMail: { s: 'Verifikace nového emailu', t: 'Pro potvrzení nového emailu klikni na tento odkaz >>>', b: 1 },
+});
+
+const transporter = nodemailer.createTransport({
+	SES: { sesClient, SendEmailCommand },
+} as any);
+
+// MODE CONFIGURATION ----------------------------------------------------------
+const modes = {
+	freezeUser: { subject: 'Zmrazení účtu', content: 'Pro autorizaci zmrazení účtu klikni na tento odkaz >>>', link: b },
+	deleteUser: { subject: 'Smazání účtu', content: 'Pro autorizaci smazání účtu klikni na tento odkaz >>>', link: b },
+	passChanged: { subject: 'Heslo změněno', content: 'Tvoje heslo bylo úspěšně změněno.' },
+	bothChanged: { subject: 'Email a heslo změněny', content: 'Tvoje emailová adresa a heslo k účtu bylo úspěšně změněno' },
+	mailChanged: { subject: 'Email byl změněn', content: 'Tvoje emailová adresa k tvému účtu byla úspěšně změněna' },
+	resetPass: { subject: 'Reset hesla', content: 'Pro změnu hesla klikni na tento odkaz >>>', link: f },
+	changePass: { subject: 'Změna hesla', content: 'Pro změnu hesla klikni na tento odkaz >>>', link: f },
+	changeMail: { subject: 'Změna emailu', content: 'Pro změnu emailu klikni na tento odkaz >>>', link: f },
+	changeBoth: { subject: 'Změna emailu a hesla', content: 'Pro změnu emailu a hesla klikni na tento odkaz >>>', link: f },
+	revertEmailChange: {
+		link: f,
+		subject: 'Vrácení změny emailu',
+		content: 'Někdo změnil emailovou adresu k tvému účtu. Pokud jsi to byl ty, ignoruj tento email. Pokud ne, klikni na tento odkaz pro vrácení původního emailu >>>',
+	},
+	verifyMail: { subject: 'Verifikace emailu >>> Nastavení profilu', content: 'Nyní tě čeká konfigurace profilu (cca 2 minuty), nejdříve však potvrď svůj email >>>', link: b },
+	verifyNewMail: { subject: 'Verifikace nového emailu', content: 'Pro potvrzení nového emailu klikni na tento odkaz >>>', link: b },
 };
 
-// MAILING HANDLER -------------------------------------------------------------
-
-// SEND EMAIL ---
-// Steps: pick template by mode, then send via SES-backed nodemailer transport with bounded retries and exponential backoff for transient failures.
+// SEND EMAIL HANDLER ----------------------------------------------------------
 export default async function sendEmail({ mode, email, token = '' }: any) {
+	// Skip email when SES not configured ---
+	if (!process.env.APP_EMAIL || !process.env.AWS_ACCESS || !process.env.AWS_SECRET) return;
+
 	const m = modes[mode];
-	// RETRY LOOP ------------------------------------------------------------
-	// Steps: attempt up to 3 times; retry only on transient network/throttling errors so we don’t spam SES on permanent failures.
-	for (let i = 0; i < 3; i++) {
-		try {
-			// PAYLOAD BUILD ------------------------------------------------------
-			// Steps: compose link using BACK_END or FRONT_END based on template flags; when `n` is set, this is a notification-only email without link.
-			await transporter.sendMail({
-				from: `"ProWision network>>>" <${process.env.APP_EMAIL}>`,
-				to: email,
-				subject: m.s,
-				text: `${m.t} ${m.n ? '' : `${process.env[m.b ? 'BACK_END' : 'FRONT_END']}/entrance?${m.p ? `mode=${mode}&` : ''}auth=${token}`}`,
-				ses: { Tags: [{ Name: 'type', Value: mode }] },
-			} as any);
-			return;
-		} catch (e) {
-			// ERROR HANDLING -----------------------------------------------------
-			// Steps: fail fast on final attempt or non-transient errors; otherwise back off and retry.
-			if (i === 2 || !['Throttling', 'ServiceUnavailable', 'RequestTimeout', 'NetworkingError', 'ECONNRESET', 'ETIMEDOUT'].some(c => (e?.code || e?.name || e?.message || '').includes(c))) {
-				logger.error('sendEmail', { error: e, mode, email });
-				throw new Error('serverError');
-			}
-			await new Promise(r => setTimeout(r, 1000 * 2 ** i));
-		}
+	if (!m) {
+		logger.error('sendEmail: unknown mode', { mode });
+		return;
+	}
+
+	try {
+		const linkUrl = m.link ? `${process.env[m.link]}/entrance?mode=${mode}&auth=${token}` : '';
+		const textContent = m.link ? `${m.content} ${linkUrl}` : m.content;
+
+		await transporter.sendMail({
+			from: `"ProWision network>>>" <${process.env.APP_EMAIL}>`,
+			to: email,
+			subject: m.subject,
+			text: textContent,
+		});
+	} catch (error) {
+		logger.error('sendEmail', { error, mode });
+		throw new Error('serverError');
 	}
 }

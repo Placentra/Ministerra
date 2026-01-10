@@ -1,8 +1,9 @@
 import DateTimePicker from './DateTimePicker';
 import { useLayoutEffect, useState } from 'react';
+import { MAX_CHARS } from '../../../shared/constants';
 
 function Personals(props) {
-	const { data, superMan, inform = [], isIntroduction } = props;
+	const { data, superMan, inform = [] } = props;
 	const { first, last, birth, gender } = data || {},
 		[showDatePicker, setShowDatePicker] = useState(false);
 
@@ -22,19 +23,22 @@ function Personals(props) {
 	}, [data]);
 
 	return (
-		<personals-div class=' marTopS'>
+		<personals-div class=' mw140 marAuto  w100'>
 			{/* PERSONAL DATA INPUTS ----------------------------------------------- */}
 			<inputs-wrapper>
-				<full-name class='flexCen w100 posRel  gapXs  boRadM  marAuto wrap'>
+				<full-name class='flexCen w100 posRel  gapXs  boRadM  marAuto '>
 					{/* FIRST NAME ------------------------------------------------------ */}
-					<first-name class='flexCol miw36   w49 grow mw100 textAli'>
+					<first-name class='   w50  textAli'>
 						<input
-							className={`${['noFirstName', 'shortFirstName'].some(str => inform.includes(str)) ? 'borderRed' : 'borBotLight'} shaBlue  miw36 hr5 fs15 boldM w100`}
+							className={`${['noFirstName', 'shortFirstName'].some(str => inform.includes(str)) ? 'borderRed' : 'borBotLight'} shaBlue  miw36 hr5 fs20 boldM w100`}
 							placeholder='Jméno'
 							type='text'
 							name='first'
+							maxLength={MAX_CHARS.name}
 							onChange={e => {
-								const value = e.target.value.trim().replace(/[^\p{L}]/gu, '');
+								// ALLOW UNICODE LETTERS, SPACES, HYPHENS, APOSTROPHES ---
+								// Matches backend REGEXES.name: /^[\p{L}\s'-]+$/u
+								const value = e.target.value.replace(/[^\p{L}\s'-]/gu, '').replace(/^\s+/, '');
 								superMan('first', value);
 							}}
 							value={first || ''}
@@ -42,14 +46,17 @@ function Personals(props) {
 					</first-name>
 
 					{/* LAST NAME ------------------------------------------------------ */}
-					<last-name class='flexCol miw36   w49 grow mw100 textAli'>
+					<last-name class=' w50    textAli'>
 						<input
-							className={`${['noLastName', 'shortLastName'].some(str => inform.includes(str)) ? 'borderRed' : 'borBotLight'} miw36 shaBlue  hr5 fs15 boldM w100`}
+							className={`${['noLastName', 'shortLastName'].some(str => inform.includes(str)) ? 'borderRed' : 'borBotLight'} miw36 shaBlue  hr5 fs20 boldM w100`}
 							placeholder='Příjmení'
 							type='text'
 							name='last'
+							maxLength={MAX_CHARS.name}
 							onChange={e => {
-								const value = e.target.value.trim().replace(/[^\p{L}]/gu, '');
+								// ALLOW UNICODE LETTERS, SPACES, HYPHENS, APOSTROPHES ---
+								// Matches backend REGEXES.name: /^[\p{L}\s'-]+$/u
+								const value = e.target.value.replace(/[^\p{L}\s'-]/gu, '').replace(/^\s+/, '');
 								superMan('last', value);
 							}}
 							value={last || ''}
@@ -68,7 +75,9 @@ function Personals(props) {
 					<button
 						className={`${inform.includes('noBirthDate') ? 'borderRed' : ''} ${showDatePicker ? 'borRed posRel  arrowDown1 bDarkBlue tWhite' : ''}  w40 padVerXxs noGap`}
 						onClick={() => (superMan('birth', null), setShowDatePicker(!showDatePicker))}>
-						{!showDatePicker && <span className='fs12 lh1 block  boldS'>{birthDate instanceof Date ? `${calculateAge(birthDate)} let` : data.age ? `${data.age} let` : 'Datum narození'}</span>}
+						{!showDatePicker && (
+							<span className='fs12 lh1 block  boldS'>{birthDate instanceof Date ? `${calculateAge(birthDate)} let` : data.age ? `${data.age} let` : 'Datum narození'}</span>
+						)}
 						{showDatePicker && <span className={`tRed padHorM  bold fs12 padVerXxxxs    posRel lh1`}>Skrýt datumář</span>}
 					</button>
 					<button className={`${gender === 'f' ? 'tWhite bBlue fs12' : 'fs11'} ${inform.includes('noGender') ? 'borderRed' : ''} w30     bold  `} onClick={() => superMan('gender', 'f')}>

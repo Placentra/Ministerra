@@ -1,16 +1,48 @@
-import { delFalsy } from '../../shared/utilities';
-import { Sql, Catcher } from '../systems/systems';
-import { REDIS_KEYS } from '../../shared/constants';
-import { broadcastChatChanged, broadcastNewChat, broadcastMembersChanged, manageUsersInChatRoom, endChat as endSocket } from '../systems/socket/chatHandlers';
-import { messSeen, fetchSeenUpdates, setSeenRedisClient, writeSeenEntriesToCache } from './chat/seenSync';
-import { quickQueryHandlers } from './chat/quickQueries';
-import { messageHandlers } from './chat/messageHandlers';
-import { authorizeRole, getMembers, getMessages, setRolesAndLasts, needsAuth, setChatHelpersRedisClient } from './chat/chatHelpers';
+import { delFalsy } from '../../shared/utilities.ts';
+import { Sql, Catcher } from '../systems/systems.ts';
+import { REDIS_KEYS } from '../../shared/constants.ts';
+import { generateIDString } from '../utilities/idGenerator.ts';
+import { broadcastChatChanged, broadcastNewChat, broadcastMembersChanged, manageUsersInChatRoom, endChat as endSocket } from '../systems/socket/chatHandlers.ts';
+import { messSeen, fetchSeenUpdates, setSeenRedisClient, writeSeenEntriesToCache } from './chat/seenSync.ts';
+import { quickQueryHandlers } from './chat/quickQueries.ts';
+import { messageHandlers } from './chat/messageHandlers.ts';
+import { authorizeRole, getMembers, getMessages, setRolesAndLasts, needsAuth, setChatHelpersRedisClient } from './chat/chatHelpers.ts';
 
-let redis;
+interface ChatMemberInput {
+	id: string | number;
+	role?: string;
+	flag?: string;
+}
+
+interface ChatRequest {
+	body: {
+		mode: string;
+		members?: ChatMemberInput[];
+		type?: 'private' | 'group' | 'free' | 'VIP';
+		name?: string;
+		content?: string;
+		similarChatsDenied?: boolean;
+		userID: string | number;
+		chatID?: string | number;
+		chatIDs?: (string | number)[];
+		cursor?: string | number;
+		getNewest?: boolean;
+		firstID?: string | number;
+		lastID?: string | number;
+		last?: string | number;
+		getPunInfo?: boolean;
+		membSync?: number;
+		seenSync?: number;
+		message?: any;
+		socket?: any;
+		role?: string;
+	};
+}
+
+let redis: any;
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Injects shared redis and forwards it to chat submodules that maintain their own caches.
-export const ioRedisSetter = redisInstance => {
+export const ioRedisSetter = (redisInstance: any) => {
 	redis = redisInstance;
 	setSeenRedisClient(redisInstance);
 	setChatHelpersRedisClient(redisInstance);
@@ -20,7 +52,7 @@ export const ioRedisSetter = redisInstance => {
 const NEW_ROLES = new Set(['member', 'priv', 'guard', 'admin', 'VIP', 'spect']);
 // DISPATCH MAP -----------------------------------------------------------------
 // Steps: merge submodule handlers into one stable map so Chat can dispatch by mode without dynamic imports.
-const extHandlers = { ...messageHandlers, ...quickQueryHandlers, messSeen };
+const extHandlers: any = { ...messageHandlers, ...quickQueryHandlers, messSeen };
 
 // HELPERS ---------------------------------------------------------------------
 
@@ -29,8 +61,8 @@ const extHandlers = { ...messageHandlers, ...quickQueryHandlers, messSeen };
 // - used to validate setupChat permission and enforce VIP constraints
 // - returns arrays of user IDs for fast membership checks
 // Steps: select chat type and only leadership roles, then split into arrays for fast checks in setup/end logic.
-const getLeaders = async (connection, id) => {
-	const [result] = await connection.execute(
+const getLeaders = async (connection: any, id: string | number) => {
+	const [result]: [any[], any] = await connection.execute(
 		`SELECT c.type, cm.id, cm.role FROM chats c LEFT JOIN chat_members cm ON cm.chat = c.id AND cm.flag = 'ok' AND cm.role IN ('admin', 'VIP') WHERE c.id = ?`,
 		[id]
 	);
@@ -42,7 +74,7 @@ const getLeaders = async (connection, id) => {
 // CHAT TRANSACTION -------------------------------------------------------------
 // Ensures chat mutations are atomic and rollback on any failure.
 // Steps: beginTransaction, run transactionFunction, commit on success, rollback on error, then rethrow so caller can map to Catcher.
-export const runChatTransaction = async (connection, transactionFunction) => {
+export const runChatTransaction = async (connection: any, transactionFunction: () => Promise<any>) => {
 	try {
 		await connection.beginTransaction();
 		const result = await transactionFunction();
@@ -66,8 +98,8 @@ const chatTransaction = runChatTransaction; // Alias for internal use
  * @param {Object} members - Array of member objects {id, role}
  * @param {string} type - 'private' | 'group' | 'free' | 'VIP'
  * -------------------------------------------------------------------------- */
-async function createChat({ members: membersInput, type = 'private', name, content, similarChatsDenied, userID, con: connection }) {
-	const members = membersInput.map(member => ({
+async function createChat({ members: membersInput, type = 'private', name, content, similarChatsDenied, userID, con: connection }: any) {
+	const members: ChatMemberInput[] = membersInput.map((member: any) => ({
 		...member,
 		id: String(member.id || '').trim(),
 		role: type === 'private' ? 'priv' : type !== 'free' && String(member.id) === String(userID) && (!member.role || member.role === 'member') ? 'admin' : String(member.role || 'member').trim(),
@@ -81,7 +113,7 @@ async function createChat({ members: membersInput, type = 'private', name, conte
 	// 4. Creator must be a member.
 	if (
 		!members.length ||
-		members.some(member => !member.id || member.id.length > 20 || member.flag !== 'ok' || !NEW_ROLES.has(member.role) || (type !== 'private' && member.role === 'priv')) ||
+		members.some(member => !member.id || String(member.id).length > 20 || member.flag !== 'ok' || !NEW_ROLES.has(member.role!) || (type !== 'private' && member.role === 'priv')) ||
 		(type === 'private' && members.length > 2) ||
 		(type !== 'private' && (!name?.trim() || (type !== 'free' && !members.some(member => member.role === 'admin') && !members.some(member => member.role === 'VIP')))) ||
 		(type === 'VIP' && !members.some(member => member.role === 'VIP')) ||
@@ -104,7 +136,7 @@ async function createChat({ members: membersInput, type = 'private', name, conte
 				: `WITH dc AS (SELECT cm.chat as id FROM chat_members cm WHERE cm.id = ? AND cm.punish NOT IN ('ban','gag') AND EXISTS (SELECT 1 FROM chat_members cm2 WHERE cm2.chat = cm.chat AND cm2.id IN (${memberIDs.map(
 						() => '?'
 				  )}) GROUP BY cm2.chat HAVING COUNT(DISTINCT cm2.id) = ${members.length})) SELECT dc.id FROM dc LEFT JOIN chat_members cm ON dc.id = cm.chat AND cm.id = ? LIMIT 10`;
-		const [similarChats] = await connection.execute(query, type === 'private' ? [memberIDs.length, ...memberIDs, memberIDs.length] : [userID, ...memberIDs, userID]);
+		const [similarChats]: [any[], any] = await connection.execute(query, type === 'private' ? [memberIDs.length, ...memberIDs, memberIDs.length] : [userID, ...memberIDs, userID]);
 
 		if (similarChats.length) {
 			const { chats } = await getChats({ mode: 'getChats', userID, chatIDs: similarChats.map(chat => chat.id), con: connection });
@@ -116,7 +148,7 @@ async function createChat({ members: membersInput, type = 'private', name, conte
 			if (punish === 'block' && String(who) !== String(userID)) return { similarChats: chats };
 
 			// Post new message to existing chat.
-			const [{ messages }, { messID, didJoinRoom }] = await Promise.all([
+			const [{ messages }, { messID, didJoinRoom }]: [any, any] = await Promise.all([
 				getMessages({ chatID: id, userID, con: connection }),
 				messageHandlers.postMessage({ message: { content }, chatID: id, userID, con: connection, redis }),
 			]);
@@ -131,12 +163,13 @@ async function createChat({ members: membersInput, type = 'private', name, conte
 	}
 
 	// CREATE NEW CHAT ---
-	// Steps: insert chat row, insert members, sync redis role/member caches, post first message, set seen pointer, update last_mess, then broadcast.
+	// Steps: generate Snowflake ID, insert chat row, insert members, sync redis role/member caches, post first message, set seen pointer, update last_mess, then broadcast.
 	const now = Date.now();
-	let chatID, messID, didJoinRoom;
+	let messID: any, didJoinRoom: any;
+	const chatID = generateIDString();
 
 	await chatTransaction(connection, async () => {
-		chatID = (await connection.execute(`INSERT INTO chats (name, type) VALUES (?, ?)`, [name || null, type]))[0].insertId;
+		await connection.execute(`INSERT INTO chats (id, name, type) VALUES (?, ?, ?)`, [chatID, name || null, type]);
 		await connection.execute(
 			`INSERT INTO chat_members (chat, id, role) VALUES ${members.map(() => '(?, ?, ?)').join(', ')}`,
 			members.flatMap(member => [chatID, member.id, member.role])
@@ -160,7 +193,7 @@ async function createChat({ members: membersInput, type = 'private', name, conte
  * Adds/removes members, changes roles, updates chat name/type.
  * Validates permissions and enforces type transitions (e.g. Free -> Group).
  * -------------------------------------------------------------------------- */
-async function setupChat({ members: rawMembers, type, name, chatID, socket, role, con: connection }) {
+async function setupChat({ members: rawMembers, type, name, chatID, socket, role, con: connection }: any) {
 	// 1) VALIDATE PERMISSIONS & TYPE TRANSITIONS
 	// Steps: load current chat type/leaders, reject illegal transitions and non-leader edits (especially VIP constraints).
 	const { type: currentType, admins, vips } = await getLeaders(connection, chatID);
@@ -168,19 +201,22 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 		!currentType ||
 		currentType === 'private' ||
 		type === 'private' ||
-		(type === 'free' && currentType !== 'free' && !rawMembers.some(member => member.role === 'admin') && !admins.some(id => rawMembers.some(member => member.id === id && member.role !== 'admin'))) || // Downgrade to free must remove admins
+		(type === 'free' &&
+			currentType !== 'free' &&
+			!rawMembers.some((member: any) => member.role === 'admin') &&
+			!admins.some((id: any) => rawMembers.some((member: any) => member.id === id && member.role !== 'admin'))) || // Downgrade to free must remove admins
 		(type === 'group' && !['group', 'VIP'].includes(currentType)) ||
 		(type === 'VIP' && currentType !== 'VIP') ||
-		(currentType === 'VIP' && role !== 'VIP' && rawMembers.some(m => vips.includes(m.id))) // Non-VIPs cannot touch VIP members
+		(currentType === 'VIP' && role !== 'VIP' && rawMembers.some((m: any) => vips.includes(m.id))) // Non-VIPs cannot touch VIP members
 	)
 		throw new Error('badRequest');
 
-	const [members, deletedMembers, newMembers] = [[], [], []];
-	const currentMemberIds = await getMembers({ chatID, mode: 'getMembers', IDsOnly: true, includeArchived: true, con: connection });
+	const [members, deletedMembers, newMembers]: [any[], any[], any[]] = [[], [], []];
+	const currentMemberIds: (string | number)[] = await getMembers({ chatID, mode: 'getMembers', IDsOnly: true, includeArchived: true, con: connection });
 
 	// 2) CLASSIFY MEMBER CHANGES
 	// Steps: partition rawMembers into updated / deleted / new based on currentMemberIds.
-	rawMembers.forEach(member => {
+	rawMembers.forEach((member: any) => {
 		if (!member.id || !NEW_ROLES.has(member.role) || !['del', 'ok'].includes(member.flag) || (member.flag === 'del' && member.role !== 'spect') || member.role === 'priv')
 			throw new Error('badRequest');
 		(currentMemberIds.includes(member.id) ? (member.flag === 'del' ? deletedMembers : members) : newMembers).push(member);
@@ -188,11 +224,11 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 
 	// 3) VALIDATE CHAT LOGIC (e.g. Groups must have admin)
 	// Steps: enforce per-type invariants so DB state cannot represent an invalid chat configuration.
-	const checks = {
+	const checks: Record<string, () => boolean> = {
 		free: () => members.some(member => member.role === 'member') && !members.some(member => ['VIP', 'admin'].includes(member.role)),
 		group: () =>
 			!members.some(member => member.role === 'VIP') &&
-			(members.some(member => member.role === 'admin') || admins.some(id => members.some(member => member.id === id && member.role !== 'admin'))),
+			(members.some(member => member.role === 'admin') || admins.some((id: any) => members.some(member => member.id === id && member.role !== 'admin'))),
 		VIP: () => {
 			const vipMember = members.find(member => member.role === 'VIP' && member.id !== vips[0]);
 			return !vipMember || !vips[0] || members.some(member => member.id === vips[0] && member.role !== 'VIP');
@@ -203,7 +239,7 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 		!rawMembers.length ||
 		members.length + newMembers.length - deletedMembers.length > 20 ||
 		new Set(members.map(member => member.id)).size !== members.length ||
-		!checks[type]() ||
+		!checks[type as string]() ||
 		(!name && type !== 'private')
 	)
 		throw new Error('badRequest');
@@ -213,7 +249,7 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 	const now = Date.now(),
 		querySource = Object.entries({ name, type }).filter(([, value]) => value),
 		result = await chatTransaction(connection, async () => {
-			const output = { updated: [], deleted: [], meta: false };
+			const output: { updated: any[]; deleted: any[]; meta: boolean } = { updated: [], deleted: [], meta: false };
 
 			// UPSERT MEMBERS (Update existing or Insert new)
 			if (members.length || newMembers.length) {
@@ -233,9 +269,11 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 					`UPDATE chat_members SET changed = NOW(), flag = 'del', prev_flag = NULL, role = 'spect', last = COALESCE(last, (SELECT last_mess FROM chats WHERE id = ?)) WHERE chat = ? AND id IN (${placeholders}) AND flag != 'del'`,
 					[chatID, chatID, ...deletedMembers.map(member => member.id)]
 				);
-				output.deleted = (
-					await connection.execute(`SELECT id, last as lastMessID FROM chat_members WHERE chat = ? AND id IN (${placeholders})`, [chatID, ...deletedMembers.map(member => member.id)])
-				)[0].map(row => ({
+				const [rows]: [any[], any] = await connection.execute(`SELECT id, last as lastMessID FROM chat_members WHERE chat = ? AND id IN (${placeholders})`, [
+					chatID,
+					...deletedMembers.map(member => member.id),
+				]);
+				output.deleted = rows.map(row => ({
 					...row,
 					role: 'spect',
 				}));
@@ -252,10 +290,10 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 		await connection.execute(`UPDATE chats SET ${querySource.map(([key]) => `${key} = ?`).join(', ')}, changed = NOW() WHERE id = ?`, [...querySource.map(([, value]) => value), chatID]);
 	if (result.updated.length)
 		await setRolesAndLasts({ members: result.updated, chatID, addToMembers: true, setMembChange: now }),
-			newMembers.length && (await manageUsersInChatRoom({ chatID, userIDs: newMembers.map(member => member.id), mode: 'add' }));
+			newMembers.length && (await manageUsersInChatRoom({ chatID, userIDs: newMembers.map((member: any) => member.id), mode: 'add' }));
 	if (result.deleted.length)
 		await setRolesAndLasts({ chatID, members: result.deleted, delFromMembers: true, setMembChange: now }),
-			await manageUsersInChatRoom({ chatID, userIDs: result.deleted.map(member => member.id), mode: 'rem' });
+			await manageUsersInChatRoom({ chatID, userIDs: result.deleted.map((member: any) => member.id), mode: 'rem' });
 	broadcastChatChanged({ socket, chatObj: { id: chatID, type, name, members: [...members, ...newMembers], membSync: now } });
 }
 
@@ -270,7 +308,7 @@ async function getChats({ mode, cursor = null, getNewest = false, userID, chatID
 	if (!userID || (cursor && isNaN(parseInt(cursor)))) throw new Error('badRequest');
 
 	// BUILD QUERY CONDITIONS
-	const [flagCondition, cursorCondition, idsCondition] = [
+	const [flagCondition, cursorCondition, idsCondition]: [string, [string, any[]], [string, any[]]] = [
 		chatID || chatIDs.length
 			? "cm.flag = 'ok'"
 			: mode === 'getChats'
@@ -283,7 +321,7 @@ async function getChats({ mode, cursor = null, getNewest = false, userID, chatID
 	// EXECUTE COMPLEX JOIN
 	// 1. CTE (tempChats): Get relevant chat IDs first (optimization).
 	// 2. Main Query: Join back to messages/members to get preview content and other party details.
-	const [chats] = await connection.execute(
+	const [chats]: [any[], any] = await connection.execute(
 		`WITH tc AS (SELECT c.id, c.last_mess FROM chats c JOIN chat_members cm ON c.id = cm.chat AND cm.id = ? WHERE ${flagCondition} ${idsCondition[0]} ${
 			cursorCondition[0]
 		} ORDER BY c.last_mess DESC LIMIT ${chatID ? 1 : 20})
@@ -314,18 +352,22 @@ async function getChats({ mode, cursor = null, getNewest = false, userID, chatID
 async function openChat({ res: response, chatID, firstID, lastID, cursor, last, getPunInfo, membSync, seenSync, userID, message, con: connection }: any) {
 	// OPEN CHAT SYNC ---------------------------------------------------------
 	// Steps: validate params, optionally fetch members delta by membSync, optionally fetch seen delta by seenSync, fetch messages, optionally post message, optionally fetch punish info.
-	if (!chatID || [cursor, membSync, seenSync, firstID, lastID, last].some(value => value && isNaN(parseInt(value)))) throw new Error('badRequest');
-	const [[{ type } = {}]] = await connection.execute(`SELECT type FROM chats WHERE id = ?`, [chatID]);
+	if (!chatID || [cursor, membSync, seenSync, firstID, lastID, last].some(value => value && isNaN(parseInt(value as any)))) throw new Error('badRequest');
+	const [rows]: [any[], any] = await connection.execute(`SELECT type FROM chats WHERE id = ?`, [chatID]);
+	const type = rows[0]?.type;
 	if (!type) throw new Error('badRequest');
 
-	let membersData = {},
-		seenData = {};
+	let membersData: any = {},
+		seenData: any = {};
 
 	// SYNC MEMBERS: If timestamp changed, fetch new member list
 	if (!membSync || type !== 'private') {
-		let lastChange = membSync && (await redis.hget(REDIS_KEYS.lastMembChangeAt, chatID));
-		if (membSync && !lastChange)
-			await redis.hset(REDIS_KEYS.lastMembChangeAt, chatID, (lastChange = (await connection.execute(`SELECT changed FROM chats WHERE id=?`, [chatID]))[0][0]?.changed?.getTime() || 0));
+		let lastChange: any = membSync && (await redis.hget(REDIS_KEYS.lastMembChangeAt, chatID));
+		if (membSync && !lastChange) {
+			const [rows]: [any[], any] = await connection.execute(`SELECT changed FROM chats WHERE id=?`, [chatID]);
+			lastChange = rows[0]?.changed?.getTime() || 0;
+			await redis.hset(REDIS_KEYS.lastMembChangeAt, chatID, lastChange);
+		}
 		if (!membSync || membSync < lastChange) membersData = await getMembers({ chatID, membSync, con: connection });
 	}
 	// SYNC SEEN: If timestamp changed, fetch new read receipts
@@ -335,7 +377,7 @@ async function openChat({ res: response, chatID, firstID, lastID, cursor, last, 
 	}
 
 	// PARALLEL FETCH: Messages + New Post (optional) + Punishment Info
-	const [messagesResult, postResult, punishResult] = await Promise.all([
+	const [messagesResult, postResult, punishResult]: [any, any, any] = await Promise.all([
 		getMessages({ res: response, firstID, lastID, cursor, userID, last, chatID, con: connection }),
 		message && messageHandlers.postMessage({ message, chatID, userID, con: connection, redis }),
 		getPunInfo && connection.execute(`SELECT punish, until, mess, who FROM chat_members WHERE chat=? AND id=? AND punish IS NOT NULL`, [chatID, userID]),
@@ -348,7 +390,7 @@ async function openChat({ res: response, chatID, firstID, lastID, cursor, last, 
  * Soft-deletes user from chat (flag='del', role='spect').
  * Downgrades chat type (e.g., Group -> Free) if the last admin leaves.
  * -------------------------------------------------------------------------- */
-async function leaveChat({ chatID, role, userID, con: connection }) {
+async function leaveChat({ chatID, role, userID, con: connection }: any) {
 	// LEAVE CHAT -------------------------------------------------------------
 	// Steps: in transaction, downgrade chat type if last leader leaves, soft-delete member row, then update redis roles/members and socket room membership.
 	const result = await chatTransaction(connection, async () => {
@@ -357,14 +399,15 @@ async function leaveChat({ chatID, role, userID, con: connection }) {
 		// If leader leaves, check if chat needs downgrade
 		if (['VIP', 'admin'].includes(role) && ['VIP', 'group'].includes(type)) {
 			if (type === 'VIP' ? role !== 'VIP' : role !== 'admin') throw new Error('badRequest');
-			if (type === 'VIP' ? admins.length : !admins.filter(id => id !== userID).length) newType = type === 'VIP' ? 'group' : 'free';
+			if (type === 'VIP' ? admins.length : !admins.filter((id: any) => id !== userID).length) newType = type === 'VIP' ? 'group' : 'free';
 			if (newType)
 				await connection.execute(`UPDATE chats SET type=?, changed=NOW() WHERE id=?`, [newType, chatID]),
 					newType === 'free' && (await connection.execute(`UPDATE chat_members SET role='member' WHERE chat=?`, [chatID]));
 		}
 		// Soft delete member
 		await connection.execute(`UPDATE chat_members SET flag='del', role='spect', last=COALESCE(last, (SELECT last_mess FROM chats WHERE id=?)) WHERE chat=? AND id=?`, [chatID, chatID, userID]);
-		return { newType, last: (await connection.execute(`SELECT last FROM chat_members WHERE chat=? AND id=?`, [chatID, userID]))[0][0]?.last };
+		const [rows]: [any[], any] = await connection.execute(`SELECT last FROM chat_members WHERE chat=? AND id=?`, [chatID, userID]);
+		return { newType, last: rows[0]?.last };
 	});
 
 	const now = Date.now();
@@ -381,7 +424,7 @@ async function leaveChat({ chatID, role, userID, con: connection }) {
  * Marks chat as ended, demotes all members to spectators.
  * Cleans up Redis cache and disconnects sockets.
  * -------------------------------------------------------------------------- */
-async function endChat({ chatID, role, con: connection }) {
+async function endChat({ chatID, role, con: connection }: any) {
 	// END CHAT ---------------------------------------------------------------
 	// Steps: validate leader constraints, mark chat ended + demote members, then clear redis caches and force sockets to leave/end chat.
 	const { type, admins } = await getLeaders(connection, chatID);
@@ -398,7 +441,7 @@ async function endChat({ chatID, role, con: connection }) {
 		]);
 	});
 
-	const ids = await getMembers({ IDsOnly: true, chatID, con: connection, includeArchived: true });
+	const ids: (string | number)[] = await getMembers({ IDsOnly: true, chatID, con: connection, includeArchived: true });
 	await Promise.all([
 		redis.del(`${REDIS_KEYS.chatMembers}:${chatID}`),
 		redis.hdel(REDIS_KEYS.lastMembChangeAt, chatID),
@@ -412,18 +455,20 @@ async function endChat({ chatID, role, con: connection }) {
 
 const handlers = { getMessages, createChat, setupChat, getMembers, openChat, messSeen, leaveChat, endChat, getChats, getHiddenChats: getChats, getArchivedChats: getChats, getInactiveChats: getChats };
 
-export async function Chat(request, response = null) {
+export async function Chat(request: ChatRequest, response: any = null) {
 	// CHAT MODULE ENTRY ------------------------------------------------------
-	// Steps: authorize role for protected modes, open DB connection, dispatch to handler, return payload, and route errors through Catcher.
-	let connection;
+	// Steps: open DB connection first, then authorize role for protected modes (reusing same connection), dispatch to handler, return payload, and route errors through Catcher.
+	let connection: any;
 	try {
+		connection = await Sql.getConnection();
 		// AUTH CHECK: Ensure user has role/access to specific operations
+		// CONNECTION REUSE ----------------------------------------------------
+		// Steps: pass connection to authorizeRole to avoid opening a second connection on cache misses; eliminates connection pool exhaustion under high traffic.
 		if (needsAuth.has(request.body.mode)) {
-			const [role, last] = await authorizeRole(request.body);
+			const [role, last] = await authorizeRole({ ...request.body, con: connection });
 			if (!role) throw new Error('unauthorized');
 			Object.assign(request.body, { role, last });
 		}
-		connection = await Sql.getConnection();
 
 		// DISPATCH
 		const payload = await (
@@ -435,7 +480,7 @@ export async function Chat(request, response = null) {
 		)({ ...request.body, con: connection, redis, socket: request.body.socket });
 		return response?.status(200)[payload ? 'json' : 'end'](payload) || payload;
 	} catch (error) {
-		Catcher({ origin: 'Chat', error: error, res: response, context: request.body });
+		Catcher({ origin: 'Chat', error: error as Error, res: response, context: request.body });
 		if (!response) throw error;
 	} finally {
 		connection?.release();

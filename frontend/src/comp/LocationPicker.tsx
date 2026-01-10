@@ -254,7 +254,7 @@ function LocationPicker(props) {
 
 	// DETERMINE IF SEARCH SHOULD BE HIDDEN/DISABLED ----------------------------------
 	const hideSearch = isEditingFriendly && data.locaMode === 'city' && brain.user.cities.some(city => city === data.cityID);
-	const disableSearch = nowAt === 'editor' && data.locaMode === 'city' && isEditing && !hasUserCitySelected && (data.cityID || data.city);
+	const disableSearch = setupCitiesLimitReached || (nowAt === 'editor' && data.locaMode === 'city' && isEditing && !hasUserCitySelected && (data.cityID || data.city));
 
 	// Handle focus event
 	const handleInputFocus = () => {
@@ -287,6 +287,8 @@ function LocationPicker(props) {
 			const existingCity = brain.cities.find(c => c.hashID === item.hashID);
 			man(nowAt === 'editor' ? 'location' : nowAt === 'setup' ? 'addCity' : 'searchedCity', existingCity || item);
 		}
+		// REFOCUS SEARCH INPUT AFTER SELECTION ---
+		setTimeout(() => locaInp.current?.focus(), 50);
 	};
 
 	const suggestionsRef = useRef(null);
@@ -328,17 +330,25 @@ function LocationPicker(props) {
 	}, [processedSuggestItems, curSelCities]);
 
 	return (
-		<location-strip ref={suggestionsRef} class={`${isIntroduction && showSuggest ? 'marTopM' : ''} ${isIntroduction ? '' : ''} posRel    block w100`}>
-			{nowAt === 'setup' && data.id && (
+		<location-strip ref={suggestionsRef} class={` posRel   flexCol block w100`}>
+			{nowAt === 'setup' && (
 				<title-texts>
-					<span className='xBold marBotXxs inlineBlock fs15'>Sledované lokality</span>
-					<p className='fs8 marBotXs mw160 lh1 marAuto'>Vyber si města, do nichž jsi ochotný cestovat za událostmi a za lidmi. Z těchto měst se ti bude automaticky načítat veškerý obsah.</p>
-					{setupCitiesLimitReached && (
-						<span className='fs7 tGrey inlineBlock'>
-							Dosažen limit: {MAX_COUNTS.cities}/{MAX_COUNTS.cities}
-						</span>
+					{/* SECTION DESCRIPTION (EXISTING USERS ONLY) --- */}
+					{data.id && (
+						<>
+							<span className='xBold marBotXxs inlineBlock fs15'>Sledované lokality</span>
+							<p className='fs8 marBotXs mw160 lh1 marAuto'>
+								Vyber si města, do nichž jsi ochotný cestovat za událostmi a za lidmi. Z těchto měst se ti bude automaticky načítat veškerý obsah.
+							</p>
+						</>
 					)}
 				</title-texts>
+			)}
+			{/* LIMIT WARNING (ALL USERS) --- */}
+			{setupCitiesLimitReached && (
+				<span className='fs16 tRed xBold textSha marBotXs block'>
+					Dosažen limit: {MAX_COUNTS.cities}/{MAX_COUNTS.cities}
+				</span>
 			)}
 
 			{/* LOCATION INPUT ------------------------------------------------------------------------ */}
@@ -351,7 +361,7 @@ function LocationPicker(props) {
 					onBlur={handleInputBlur}
 					onChange={handleInputChange}
 					onFocus={handleInputFocus}
-					className={`${inform.includes('noCity') ? 'borderRed' : 'shaBlue '}  ${(inMenu && locaInput) || isIntroduction ? 'boldXs fs16 ' : 'fs16'} ${
+					className={`${inform.includes('noCity') ? 'borderRed' : 'shaBlue '}  ${(inMenu && locaInput) || isIntroduction ? 'boldXs fs16 mw160' : 'fs16'} ${
 						disableSearch ? '' : ''
 					} hvw3 mih5  textAli w100 marAuto borderBot  phLight`}
 					placeholder={inputPlaceholder()}
@@ -364,7 +374,7 @@ function LocationPicker(props) {
 
 			{/* SEARCH RESULTS --------------------------------------------------------------------------------- */}
 			{showSuggest && suggestItems.length > 0 && (
-				<suggest-items class=' padBotXs mhvh50 block overAuto bgWhite'>
+				<suggest-items class=' padBotXs mhvh33 block overAuto bgWhite'>
 					<Masonry
 						content={suggestionCards}
 						config={{
@@ -403,13 +413,15 @@ function LocationPicker(props) {
 								class={`${isDisabled && !isSelected ? 'opacityXs' : 'bHover'} ${
 									invertButton === id || isIntroduction || curSelCities.includes(id) || isSelected ? 'xBold bInsetBluTopS ' : ''
 								} ${`${
-									nowAt === 'editor' ? (isSelected ? 'bInsetBlueTop  textSha boRadS  xBold fs8' : '  fs11 xBold') : inMenu ? '  boldM fs10  padTopXxs' : '  bold fs10'
+									nowAt === 'editor' ? (isSelected ? 'bInsetBlueTop  textSha boRadS  xBold fs8' : '  fs11 xBold') : inMenu ? '  boldM fs10  padTopXxs' : '  bold fs13'
 								}  posRel miw16  `}  
 								  ${inMenu && curSelCities.includes(id) ? 'bInsetBlueTopS borTop xBold' : ''}
 								 
 								 ${nowAt === 'setup' ? 'textLeft' : ''} shaLight   flexCen bgTrans       `}>
 								{nowAt === 'setup' && (
 									<button
+										title='Domovské město'
+										type='button'
 										onClick={e => {
 											e.stopPropagation();
 											if (isIntroduction) {
