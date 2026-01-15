@@ -66,6 +66,7 @@ function CatFilter(props) {
 						{/* CATEGORY IMAGE DISPLAY --- */}
 						{/* Visual representation of the category with desaturation when inactive */}
 						<img
+							title={catsSrc.cz[i]}
 							style={{ filter: 'brightness(1)' }}
 							draggable='false'
 							src={`/covers/eventCategories/${['meet.jpg', 'public.jpg', 'proffesional.jpg', 'volunteers.jpg'][i]}`}
@@ -78,9 +79,11 @@ function CatFilter(props) {
 						{/* Contains the category name and status indicators (availability, counts) */}
 						<span-wrapper
 							style={{ bottom: '-0px' }}
-							class={` 	 posAbs   marAuto  textAli  zinMaXl   hvw10 mh1-6  flexCol aliCen justCen   bgTrans           botCen ${nowAt === 'editor' ? 'w100' : 'w50  '}`}>
+							class={` 	 posAbs   marAuto  ${nowAt === 'editor' && isSel ? 'padVerS' : 'padVerXs'} bgTrans  textAli  zinMaXl   hvw10 mh2  flexCol aliCen justCen              botCen ${
+								nowAt === 'editor' ? 'w100' : 'w50  '
+							}`}>
 							<span
-								className={`${
+								className={`inlineBlock ${
 									nowAt !== 'editor'
 										? isInTime
 											? 'fs15 xBold     tShaWhiteXl    '
@@ -89,8 +92,8 @@ function CatFilter(props) {
 											: `fs8 ${isSel ? 'opacityL' : 'opacityS'} tSha10 tWhite bRed  bgTrans      lh1 `
 										: nowAt === 'editor' && isSel
 										? 'boldM fs15 tWhite w100  posRel bBlue tWhite arrowDown1  tSha10 padVerXxs '
-										: 'fs10   tShaWhiteXl padVerXxs  xBold'
-								}        posRel    textAli        w100    marAuto  inlineBlock    zinMax      `}>
+										: 'fs12    tShaWhiteXl   xBold'
+								}        posRel    textAli        w100    marAuto      zinMax      `}>
 								{nowAt !== 'editor' && notInTimeButAvail
 									? `${timeLabel[snap.time][0].toUpperCase() + timeLabel[snap.time].slice(1)} nic`
 									: `${catsSrc.cz[i]}${nowAt !== 'editor' && !isInTime ? ' (0)' : ''}`}
@@ -116,7 +119,8 @@ function areEqualCatFilter(prevProps, nextProps) {
 		prevProps.fadedIn === nextProps.fadedIn &&
 		prevProps.avail?.cats === nextProps.avail?.cats &&
 		prevProps.avail?.catsInTime === nextProps.avail?.catsInTime &&
-		prevProps.brain?.user?.curCities === nextProps.brain?.user?.curCities
+		prevProps.brain?.user?.curCities === nextProps.brain?.user?.curCities &&
+		prevProps.nowAt === nextProps.nowAt
 	);
 }
 

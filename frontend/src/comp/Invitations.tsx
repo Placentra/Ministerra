@@ -90,7 +90,7 @@ function Invitations({
 	return (
 		<invitations-container
 			onClick={e => e.stopPropagation()}
-			class={`w100 ${tabMode ? 'mw180' : 'mw130'} marAuto zinMaXl posRel aliCen justStart flexCol mihvh33 ${downMargin ? 'marBotXxl marTopL' : ''} ${topPadding ? 'marTopS' : ''} `}
+			class={`w100 ${tabMode ? 'mw180' : 'mw170'} marAuto zinMaXl posRel aliCen justStart flexCol mihvh33 ${downMargin ? 'marBotXxl ' : ''} ${topPadding ? 'marTopS' : ''} `}
 			ref={containerRef}>
 			{!showUsersOnly && (
 				<upper-wrapper class='w100 padBotXxs '>
@@ -102,8 +102,8 @@ function Invitations({
 								Pozvání uživatele
 							</span>
 							<p className='fs7 textAli mw120 marBotXxs fPadHorXs lh1-1 '>
-								Níže vyber zdroj, ve kterém chceš události dohledat. Můžeš až 3 najednou. Zdroje lze také kombinovat = vybrané události &quot;přežijí&quot; v zásobníku i když v průběhu změníš
-								zdroj.
+								Níže vyber zdroj, ve kterém chceš události dohledat. Můžeš až 3 najednou. Zdroje lze také kombinovat = vybrané události &quot;přežijí&quot; v zásobníku i když v průběhu
+								změníš zdroj.
 							</p>
 						</>
 					)}
@@ -111,15 +111,17 @@ function Invitations({
 						{tabMode && itemLimit > selItemsSrc.length && (
 							<button
 								onClick={() => setTabMode('')}
-								className={`${tabMode ? 'tRed textSha fs10' : 'tDarkBlue fs10'} posRel  xBold  bGlassSubtle   padVerXxs   zinMaXl  w100 mw20 sideBors marBotXxxs  marAuto `}>
-								{tabMode ? 'Zpět na zdroje' : `${isUserToEvents ? 'Vyber zdroj události' : 'Vyber zdroj uživatelů'}`}
+								className={`${
+									tabMode ? 'tRed textSha fs10' : 'tDarkBlue fs10'
+								} posRel  xBold borBot2 bGlassSubtle  padHorL padVerXxs  posAbs topCen  zinMaXl    sideBors marBotXxxs  marAuto `}>
+								{tabMode ? `Zpět na zdroje ${isUserToEvents ? 'událostí' : 'uživatelů'}` : `${isUserToEvents ? 'Vyber zdroj události' : 'Vyber zdroj uživatelů'}`}
 							</button>
 						)}
-						{tabMode && !isUserToEvents && (
+						{/* {tabMode && !isUserToEvents && (
 							<span className='fs13 posRel downTiny zinMaXl xBold inlineBlock  marAuto'>
 								{tabMode === 'search' ? 'Koho chceš vyhledat?' : tabMode === 'gallery' ? 'Vyber kategorii galerie' : 'Ostatní'}
 							</span>
-						)}
+						)} */}
 
 						{!tabMode && (
 							<menu-bs class={`w100 flexCen wrap marAuto gapXxxs aliStretch  zinMax  posRel `}>
@@ -137,10 +139,10 @@ function Invitations({
 												if (m === 'search' && !isUserToEvents) setSearchCat(null);
 												setTabMode(prev => (prev === m ? '' : m));
 											}}
-											className={`   bBor  padAllXs imw6   iw25   bInsetBlueTopXs         ${
+											className={`   bBor  padAllS imw8   iw80   bInsetBlueTopXs2   borderTop      ${
 												tabMode === m
-													? 'marAuto boRadM posAbs topCen maskLowXs upTiny bgTransXs  mw40  w100 bInsetBlueTopXs fs7  imiw6  zinMaXl bgTransXs padHorM      xBold '
-													: 'grow boldXs fs7  imiw5  posRel   '
+													? 'marAuto boRadM posAbs topCen maskLowXs upTiny bgTransXs  mw40  w100 bInsetBlueTopXs fs7    zinMaXl bgTransXs padHorM      xBold '
+													: 'grow boldXs fs7    posRel   '
 											}`}>
 											<img
 												src={`/icons/${m === 'search' ? 'search' : m === 'gallery' ? (mode === 'userToEvents' ? 'event' : 'people') : 'email'}.png`}

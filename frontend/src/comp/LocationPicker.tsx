@@ -267,7 +267,7 @@ function LocationPicker(props) {
 			if (isIntroduction || inMenu) return;
 			if (!suggestClicked.current) resetSearchState();
 			else suggestClicked.current = false;
-		}, 300);
+		}, 600); // Increased timeout to prevent race condition with click event on mobile/slow devices
 	};
 
 	// Handle suggestion item click

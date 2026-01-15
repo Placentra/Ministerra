@@ -19,7 +19,7 @@ const useScrollDir = (bypass = false) => {
 
 		const onScroll = () => {
 			const currentScrollY = window.scrollY;
-			
+
 			// Force 'up' direction when at the very top
 			if (currentScrollY <= 10) {
 				if (lastDir.current !== 'up') {
@@ -32,7 +32,7 @@ const useScrollDir = (bypass = false) => {
 
 			const deltaY = currentScrollY - lastScrollY;
 			if (Math.abs(deltaY) < threshold) return;
-			
+
 			const newDir = deltaY > 0 ? 'down' : 'up';
 			lastScrollY = currentScrollY;
 

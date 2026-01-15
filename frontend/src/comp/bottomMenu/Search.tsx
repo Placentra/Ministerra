@@ -95,9 +95,7 @@ export function Search(props) {
 				...Object.values(brain.user.search[cat] || {})
 					.flat()
 					.filter((obj: any) => !pastEveSrc[obj.id] || !['basi', 'basiDeta', 'mini'].includes(pastEveSrc[obj.id].state)),
-				...(cat === 'chats' ? (chats || []) : Object.values(pastEveSrc)).filter(
-					(obj: any) => cat === 'chats' || (!obj.blocked && ['basi', 'basiDeta', 'mini'].includes(obj.state))
-				),
+				...(cat === 'chats' ? chats || [] : Object.values(pastEveSrc)).filter((obj: any) => cat === 'chats' || (!obj.blocked && ['basi', 'basiDeta', 'mini'].includes(obj.state))),
 			].filter((obj: any) => obj.id && checkIfIncludes(getStrToCompare(obj)));
 
 			if (localContent.length) {
@@ -233,23 +231,24 @@ export function Search(props) {
 
 	const catsToShow = !isInvitations ? ['users', 'events', 'pastEvents', 'links'] : isInvitations === 'userToEvents' ? ['events'] : ['links', 'users'];
 	const SearchCats = () => (
-		<search-cat class={` bgTrans fPadHorXxxs aliStretch zinMenu block posRel ${!isInvitations ? 'posAbs botCen' : ''} w100 textAli `}>
+		<search-cat class={` bgTrans  aliStretch zinMenu block posRel ${!isInvitations ? 'posAbs botCen' : 'padTopS'} w100 textAli `}>
 			{/* DIVIDER --- */}
-			{cat !== 'chats' && !isInvitations && <blue-divider style={{ filter: 'saturate(1) brightness(0.6)' }} class={` hr0-5 block bInsetBlueTopXl bgTrans w100 mw160 zin1 marAuto `} />}
+			{cat !== 'chats' && <blue-divider style={{ filter: 'saturate(1) brightness(1)' }} class={` hr0-2 block bInsetBlueTopXl bgTrans w100 mw160 zin1 marAuto `} />}
+			{isInvitations && cat && <blue-divider class={` hr1 maskLowXs    block bInsetBlueTopXs  zinMax bgTrans  w100     marAuto   `} />}
 
 			{!showCats && (
-				<input-wrapper class={` posRel aliStretch bgWhite sideBors h100 hvw3 mh5 w100 flexRow`}>
+				<input-wrapper class={` posRel aliStretch bgWhite sideBors   h100 hvw3 mh5 w100 flexRow`}>
 					{/* BACK BUTTON --- */}
 					<button
 						onClick={() => {
 							if (isInvitations === 'userToEvents') return searchInput.current.focus({ preventScroll: true });
 							cat !== 'chats' ? setShowCats(true) : setModes(prev => ({ ...prev, searchChats: !prev.searchChats }));
 						}}
-						className={` w20 posRel flexCol bHover iw70 imw4 bInsetBlueTopXs bBor padAllXs bold`}>
+						className={` w20 posRel borTop flexCol bHover iw70 imw4 bInsetBlueTopXs bBor padAllXs bold`}>
 						<img
 							className={'zinMenu posRel'}
 							src={`/icons/${
-								cat === 'users' ? 'people' : cat === 'events' ? 'event' : cat === 'pastEvents' ? 'history' : cat === 'links' ? 'indicators/0' : cat === 'trusts' ? 'types/11' : 'error'
+								cat === 'users' ? 'people' : cat === 'events' ? 'event' : cat === 'pastEvents' ? 'history' : cat === 'links' ? 'indicators/1' : cat === 'trusts' ? 'types/11' : 'error'
 							}.png`}
 							alt=''
 						/>
@@ -260,7 +259,7 @@ export function Search(props) {
 					{/* INPUT --- */}
 					{inputJSX}
 					{/* SEARCH BUTTON --- */}
-					<button onClick={() => !content && performSearch(searchQ, true)} className={` w20 miw5 posRel flexCol bHover iw70 imw4 bInsetBlueTopXs bBor padAllXxs bold`}>
+					<button onClick={() => !content && performSearch(searchQ, true)} className={` w20 miw5 borTop posRel flexCol bHover iw70 imw4 bInsetBlueTopXs bBor padAllXxs bold`}>
 						<img src='/icons/search.png' alt='' className='zinMenu posRel' />
 						<span className='fs5 bold'>Najít</span>
 					</button>
@@ -268,7 +267,7 @@ export function Search(props) {
 			)}
 			{/* CATEGORY SELECTOR MENU ----------------------------------------------------- */}
 			{showCats && searchCat !== 'chats' && (
-				<menu-bs class={` w100 flexCen wrap marAuto bInsetBlue posRel noBackground `}>
+				<menu-bs class={` w100 flexCen wrap marAuto bInsetBlueTopXs2 posRel noBackground `}>
 					{catsToShow
 						.filter(
 							b =>
@@ -285,10 +284,10 @@ export function Search(props) {
 									if (cat !== m) setContent(null), setCat(m);
 									searchInput.current && searchInput.current.focus({ preventScroll: true });
 								}}
-								className={`fs7 boldXs textSha bHover grow bgTransXs iw33 grow ${isInvitations && nowAt !== 'event' ? 'imw4 padAllS' : 'imw10 padAllS'}`}>
+								className={`fs7 boldXs textSha bHover grow bgTransXs iw33 grow ${isInvitations && nowAt !== 'event' ? 'imw8 padAllS' : 'imw10 padAllS'}`}>
 								{showCats && (
 									<img
-										src={`/icons/${m === 'users' ? 'people' : m === 'links' ? 'indicators/0' : m === 'trusts' ? 'types/11' : m === 'pastEvents' ? 'history' : 'event'}.png`}
+										src={`/icons/${m === 'users' ? 'people' : m === 'links' ? 'indicators/1' : m === 'trusts' ? 'gallery/trusts' : m === 'pastEvents' ? 'history' : 'event'}.png`}
 										alt={`${m} icon`}
 									/>
 								)}
@@ -367,7 +366,7 @@ export function Search(props) {
 
 			{/* NO RESULTS --- */}
 			{!content?.length && brain.user.noMore.search[cat]?.includes(searchQ) && (
-				<no-results className={`${!isChatSetup && !isInvitations ? 'marBotXxl' : ''} bDarkRed borTop posRel zinMaXl textAli selfEnd tWhite block padAllXs w100 xBold w100 fs8`}>
+				<no-results className={`${!isChatSetup && !isInvitations ? 'marBotXxl' : ''} bRed   posRel zinMaXl textAli selfEnd tWhite block padAllXxs w100 boldS borTopRed  w100 fs10`}>
 					Žádné výsledky
 				</no-results>
 			)}

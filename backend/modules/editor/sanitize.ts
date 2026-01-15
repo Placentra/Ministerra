@@ -99,15 +99,17 @@ function sanitizeUserOrOwnerID(value, field) {
 }
 
 // SANITIZE DATE FIELDS ---------------------------------------------------------
-function sanitizeStartsDate(value, type) {
+function sanitizeStartsDate(value, type, isEdit = false) {
 	if (value === undefined) return undefined;
 	const date = new Date(value);
 	if (isNaN(date.getTime())) throw new Error('invalid starts date');
+	if (isEdit) return value; // Allow past/current dates when editing existing events
+
 	const now = Date.now();
 	const tenMinutesFromNow = now + 10 * 60 * 1000;
 	const twoYearsFromNow = now + 2 * 365 * 24 * 60 * 60 * 1000;
 	const twoMonthsFromNow = now + 2 * 30 * 24 * 60 * 60 * 1000;
-	const maxAllowed = type.startsWith('a') ? twoMonthsFromNow : twoYearsFromNow;
+	const maxAllowed = type?.startsWith('a') ? twoMonthsFromNow : twoYearsFromNow;
 	// RANGE GUARD -------------------------------------------------------------
 	// Steps: reject starts that are too soon (anti-spam / avoids “already started”) or too far (keeps indexes stable and prevents pathological scheduling).
 	if (date.getTime() < tenMinutesFromNow || date.getTime() > maxAllowed) {
@@ -207,7 +209,7 @@ function normalizeEditorPayload(input) {
 		priv: sanitizePriv(input.priv),
 		inter: sanitizeInter(input.inter),
 		locaMode: sanitizeLocaMode(input.locaMode),
-		starts: sanitizeStartsDate(input.starts, type),
+		starts: sanitizeStartsDate(input.starts, type, !!input.id),
 		ends: sanitizeEndsDate(input.ends, input.starts),
 		meetWhen: sanitizeMTime(input.meetWhen),
 		imgVers: sanitizeVImg(input.imgVers),

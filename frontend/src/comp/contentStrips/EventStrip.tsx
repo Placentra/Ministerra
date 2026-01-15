@@ -10,6 +10,8 @@ function EventStrip(props) {
 	const { obj = {}, brain, galleryMode, isMobile, stripMenu, setStripMenu, isSearch, isPastEvent, isInvitations, superMan, isSelected, setGalleryContent, numOfCols } = props;
 	const [modes, setModes] = useState({ inter: false, share: false, menu: false, evePreview: false, protocol: false, invites: false, invitees: false, invitors: false, feedback: false });
 	const imgVers = obj.imgVers?.toString().split('_')[0] || 0;
+	// STABLE RANDOM FOR PLACEHOLDER ASSETS ---
+	const stableRandom = (parseInt(String(obj.id).slice(-4), 36) % 30) + 1;
 	const invitesUsersSrc = (() => {
 		if (!(galleryMode && galleryMode.includes('invites'))) return [];
 		const src = obj.invites;
@@ -95,7 +97,7 @@ function EventStrip(props) {
 					} ${isPastEvent ? 'opacityM' : ''} borRed shaBot boRadXxs`}
 					src={
 						obj.imgVers && !obj.type.startsWith('a')
-							? `${import.meta.env.VITE_BACK_END}/public/events/${obj.id}_${!obj.own ? `${Math.floor(Math.random() * 30) + 1}` : imgVers}S.webp`
+							? `${import.meta.env.VITE_BACK_END}/public/events/${obj.id}_${!obj.own ? stableRandom : imgVers}S.webp`
 							: obj.type.startsWith('a')
 							? `/covers/${obj.type}.png`
 							: '/icons/placeholdergood.png'
@@ -133,7 +135,6 @@ function EventStrip(props) {
 							thisIs={'event'}
 							galleryMode={galleryMode}
 							isInvitations={isInvitations}
-							s
 							isCardOrStrip={true}
 							modes={modes}
 							brain={brain}

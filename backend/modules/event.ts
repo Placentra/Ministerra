@@ -77,7 +77,8 @@ const QUERIES = {
 
 // IS EVENT PAST ----------------------------------------------------------------
 // Steps: read starts from compact meta (base36) and compare with now; avoids parsing full objects for a cheap “past vs future” branch.
-const isEventPast = (meta: any[]) => parseInt(meta[eveStartsIdx], 36) < Date.now();
+// Rationale: events are considered past only after a 2-hour grace period to ensure ongoing events remain visible in future views.
+const isEventPast = (meta: any[]) => parseInt(meta[eveStartsIdx], 36) < Date.now() - 7200000;
 // GET EVENT RATING -------------------------------------------------------------
 // Steps: read user-specific overlay (inter/priv/mark/awards) from SQL; when userID is missing, return empty overlay.
 const getEventRating = async (connection: any, userID: number | string | undefined, eventID: number | string) =>
@@ -109,7 +110,7 @@ async function cachePastEvent(eventID: number | string, connection: any) {
 		detaVers: eventData.detaVers,
 	};
 	const [meta, basicsData, detailsData, pipeline]: [any[], Record<string, any>, Record<string, any>, Pipeline] = [createEveMeta(metaInput), {}, {}, redis.pipeline()];
-	EVENT_BASICS_KEYS.forEach(col => (basicsData[col] = col === 'ends' && eventData[col] ? Number(new Date(eventData[col])) : eventData[col]));
+	EVENT_BASICS_KEYS.forEach(col => (basicsData[col] = col === 'ends' && eventData[col] ? Number(new Date(eventData[col])) : col === 'starts' ? Number(new Date(eventData[col])) : eventData[col]));
 	EVENT_DETAILS_KEYS.forEach(col => (detailsData[col] = col === 'meetWhen' && eventData[col] ? Number(new Date(eventData[col])) : eventData[col]));
 
 	// CACHE UPDATE -----------------------------------------------------------

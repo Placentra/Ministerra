@@ -837,6 +837,9 @@ action-divs::before {
 .borTop {
 	border-top: 1px solid rgba(21, 114, 180, 0.55);
 }
+.borTopRed {
+	border-top: 2px solid rgba(157, 0, 39, 0.874);
+}
 .borTopLight {
 	border-top: 1px solid rgba(136, 188, 228, 0.402);
 }

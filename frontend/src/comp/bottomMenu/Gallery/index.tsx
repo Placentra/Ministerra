@@ -82,7 +82,7 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 		clearTimeout(galleryTimers.current[k]);
 		delete galleryTimers.current[k];
 		brain.user.galleryIDs[k] = {};
-		delete brain.user.noMore.gallery[k];
+		if (brain.user.noMore.gallery) delete brain.user.noMore.gallery[k];
 		brain.user.galleryOpenCounts[k] = 0;
 	};
 
@@ -113,7 +113,7 @@ function Gallery({ brain, setMenuView, nowAt, isMobile, menuView, mode: directMo
 			return items.sort((a, b) => {
 				const [lA, lB] = [linksMap.get(a.id) as any, linksMap.get(b.id) as any];
 				if (!lA || !lB) return 0;
-				return lA.tru !== lB.tru ? lB.tru - lA.tru : sort === 'recent' ? lA.idx - lB.idx : lB.idx - lA.idx;
+				return lA.tru !== lB.tru ? lB.tru - lA.tru : sort === 'recent' ? lB.idx - lA.idx : lA.idx - lB.idx;
 			});
 		}
 		return items.sort((a, b) => a[sort].localeCompare(b[sort]));

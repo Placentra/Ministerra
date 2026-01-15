@@ -8,12 +8,11 @@ const weekDays = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
 // HELPERS ---
 const isSameDate = (date1, date2) => date1?.toDateString() === date2?.toDateString();
 
-// BUG zkontrolovat přestupné roky
 // DATE TIME PICKER COMPONENT ---
 // Provides a comprehensive interface for selecting dates, times, and ranges
 const DateTimePicker = props => {
-	const [nowDate, { mode, starts, ends, superMan, prop, maxDate, noAutoHide, meetWhen }] = [new Date(), props],
-		[dateMode, setDateMode] = useState(prop ?? starts ? null : 'starts'),
+	const [nowDate, { mode, starts, ends, superMan, prop, maxDate, noAutoHide, type }] = [new Date(), props],
+		[dateMode, setDateMode] = useState(starts ? null : prop ? null : 'starts'),
 		[hoursMode, setHoursMode] = useState(nowDate.getHours() >= 12 ? 'odpoledne' : 'dopoledne'),
 		[scrollTarget, fullDate, startOnly, noTime, noAmPm] = [useRef(), ['birth'].includes(prop), ['meetWhen'].includes(prop), ['birth'].includes(prop), ['meetWhen'].includes(prop)],
 		// INPUT NORMALIZATION ------------------------------------------------
@@ -26,7 +25,7 @@ const DateTimePicker = props => {
 	// TIME PORTIONS STATE ---
 	// Manages individual components of the date and time selection
 	const [timePortions, setTimePortions] = useState({
-			year: !fullDate && nowDate.getFullYear(),
+			year: !fullDate && (maxDateDate || nowDate).getFullYear(),
 			month: mode === 'week' ? (maxDateDate || nowDate).getMonth() : null,
 			day: mode === 'week' ? (maxDateDate || nowDate).getDate() : null,
 			...(!noTime && {
@@ -243,7 +242,8 @@ const DateTimePicker = props => {
 		// ENDS PICKER MINUTE FILTER ---
 		// Skip for meetWhen since startsDate IS the value being edited, not a range boundary
 		if (startsDate && !isStarts && !prop && isSameDate(src, startsDate) && hour === startsDate.getHours()) return m > startsDate.getMinutes();
-		return isToday && isStarts && hour === currentHour ? m >= new Date().getMinutes() : true;
+		const currentMin = nowDate.getMinutes();
+		return isToday && isStarts && hour === currentHour ? m >= currentMin : true;
 	};
 
 	// WIDTHS FOR BUTTONS ---------------------------------------------
@@ -273,8 +273,8 @@ const DateTimePicker = props => {
 		<date-time ref={scrollTarget} class={` flexCen  w100 mw180  textAli zinMaXl  posRel marAuto wrap`}>
 			{/* DATE MODE CONTROLS --- */}
 			{/* Provides toggles between selecting start and end times for events */}
-			{starts && (mode !== 'week' || (prop === 'meetWhen' && dateMode !== prop)) && !noAutoHide && (
-				<starts-ends class={`flexCen aliStretch w100 boRadXs textAli  posRel    thickBors  marAuto  `}>
+			{(starts || prop === 'meetWhen') && (mode !== 'week' || (prop === 'meetWhen' && dateMode !== prop)) && !noAutoHide && (
+				<starts-ends class={`flexCen aliStretch w100 boRadXs textAli  posRel        marAuto  `}>
 					{['starts', 'ends']
 						.filter(field => field === 'starts' || (starts && !startOnly))
 						.map(field => {
@@ -283,13 +283,13 @@ const DateTimePicker = props => {
 							return (
 								<button
 									key={field}
-									className={`${mode === 'week' ? ' mw80 borRed sideBors  ' : ''} ${
-										mode !== 'week' ? ' padTopM padBotS bw50' : 'padVerS padTopM padBotS bw100'
-									} h100  textSha posRel bHover  bInsetBlueTopXs2 posRel grow padHorS`}
+									className={`${mode === 'week' ? ' mw80 borBot2 sideBors  ' : ''} ${
+										prop === 'meetWhen' ? 'padTopS padBotS bw50' : mode !== 'week' ? ' padTopM padBotM bw50' : 'padVerS padTopM padBotS bw100'
+									} h100 ${field === dateMode ? 'arrowDown ' : ''}  textSha posRel bHover   posRel grow padHorS`}
 									onClick={() => (setDateMode(prop ? (dateMode === prop ? null : prop) : dateMode === field ? null : field), setHoursMode(hour >= 12 ? 'odpoledne' : 'dopoledne'))}>
 									{/* SELECTION STATUS LABEL --- */}
 									{/* Displays humanized date or validation warnings for the current field */}
-									{field === dateMode && <blue-divider class='hr1  zin1 block borRed bInsetBlueTopXl posAbs topCen bgTrans w100 marAuto' />}
+									{field === dateMode && <blue-divider class='hr1   block  bInsetBlueTopXl  posAbs botCen bgTrans w100 marAuto' />}
 
 									<texts-wrapper class='flexCol w100 selfCen'>
 										<span
@@ -297,23 +297,25 @@ const DateTimePicker = props => {
 												startsInPast || endsBeforeStart
 													? 'bRed fs14 bold tWhite'
 													: prop === 'meetWhen'
-													? 'fs20 tDarkBlue xBold'
+													? 'fs20 xBold'
 													: field === dateMode
-													? 'fs25   xBold '
+													? 'fs30   xBold '
 													: mode !== 'week'
-													? 'boldM fs25'
+													? 'boldM fs30'
 													: 'xBold tBlue  fs10'
 											} lh1 `}>
 											{startsInPast
 												? 'Začátek je v minulosti!'
 												: endsBeforeStart
 												? 'Začátek je před koncem!'
-												: field === 'starts' && dateMode === 'starts' && !starts
-												? 'Zvol datum a čas'
+												: field === 'starts' && !starts
+												? prop === 'meetWhen'
+													? 'Vybrat čas srazu'
+													: 'Zvol datum a čas'
 												: field === 'ends' && !ends
 												? 'Zadat konec'
 												: field === 'starts' && starts
-												? `${prop === 'meetWhen' ? `${isSameDate(new Date(starts), maxDateDate) ? 'stejný den v' : 'den předem v'} ` : ''} ${
+												? `${prop === 'meetWhen' ? `Sraz ${isSameDate(new Date(starts), maxDateDate) ? 'stejný den v' : 'den předem v'} ` : ''} ${
 														humanizeDateTime({ dateInMs: starts, timeOnly: prop === 'meetWhen' }) || ''
 												  }`
 												: field === 'ends' && ends
@@ -333,7 +335,11 @@ const DateTimePicker = props => {
 														: `potvrdit čas ${field === 'starts' ? 'začátku' : 'konce'}`
 													: field === 'starts'
 													? starts
-														? 'změnit začátek'
+														? prop === 'meetWhen'
+															? 'změnit čas'
+															: 'změnit začátek'
+														: prop === 'meetWhen'
+														? 'nepovinné'
 														: 'začátek povinný'
 													: field === 'ends'
 													? ends
@@ -353,13 +359,15 @@ const DateTimePicker = props => {
 								</button>
 							);
 						})}
-					{!startOnly && <img className={'posAbs  upEvenMore zinMax mw16 bgTrans shaCon boRadXs zin2500  padAllS w10 miw10'} src='/icons/dateTime.png' alt='' />}
+					{!startOnly && (
+						<img className={'posAbs   zinMax mw20 bgTrans shaCon boRadXs zin2500  padAllS w14 upTiny miw10'} src={type ? `/icons/types/${type}.png` : '/icons/dateTime.png'} alt='' />
+					)}
 				</starts-ends>
 			)}
 
 			{/* CALENDAR PICKER SECTION --- */}
 			{/* Renders interactive year, month, and day grids for precise date selection */}
-			{(dateMode || !starts) && (
+			{dateMode && (
 				<date-picker class={`${dateSrc && mode !== 'week' ? 'marTopS' : ''} w100`}>
 					{mode !== 'week' && (
 						<year-month class='w100 marAuto posRel aliStretch flexCol'>
@@ -391,13 +399,13 @@ const DateTimePicker = props => {
 							{/* YEAR SELECTION GRID --- */}
 							{/* Displays individual years within a decade or near future */}
 							{((selDecade && (showAllDecades || (!dateSrc && !year))) || !fullDate) && (
-								<year-picker class='flexCen marAuto posRel borderBot bPadVerM posRel   aliStretch w100'>
+								<year-picker class='flexCen marAuto posRel borderBot bPadVerM  bInsetBlueTopXs posRel    aliStretch w100'>
 									{(fullDate && selDecade ? Array.from({ length: 10 }, (_, i) => selDecade + i) : Array.from({ length: 3 }, (_, i) => nowDate.getFullYear() + i))
 										.filter(yearsFilter)
 										.map(b => (
 											<button
 												key={b}
-												className={` grow bHover ${b === year ? 'bInsetBlueTop bBor2  tSha10  fs22 boRadXxs posRel bgTrans xBold' : 'shaBlueLight fs20 boldM noBackground'}`}
+												className={` grow bHover ${b === year ? ' bBor2  tDarkBlue  fs22 boRadXxs posRel bgTrans xBold' : 'shaBlueLight fs16 boldXs noBackground'}`}
 												onClick={() => handlePickerChange('year', b)}>
 												{b}
 											</button>
@@ -414,7 +422,7 @@ const DateTimePicker = props => {
 										.map(b => (
 											<button
 												style={{ width: '100%', ...(monthsWidth && { maxWidth: `${Math.min(400, monthsWidth)}px` }) }}
-												className={`${b === month ? 'bBlue  tSha10 tWhite fs17 posRel   xBold' : 'fs12  textSha shaBlue '}  shaBlue   bHover `}
+												className={`${b === month ? 'bBlue  tSha10 tWhite fs17 posRel   xBold' : 'fs12 boldXs textSha shaBlue '}  shaBlue   bHover `}
 												key={b}
 												onClick={() => handlePickerChange('month', b)}>
 												{monthNames[b]}
@@ -448,7 +456,7 @@ const DateTimePicker = props => {
 										key={`${month}_${i}`}
 										style={{ width: '100%', maxWidth: `${daysWidth - 1}px` }}
 										className={` ${
-											b === null ? 'bGlasSubtle' : b === day ? 'tDarkBlue fs12 borRed thickBors boRadXs bInsetBlueTop posRel xBold' : 'shaBlue boldXs fs7 bgWhite'
+											b === null ? 'bGlasSubtle' : b === day ? 'tDarkBlue fs12 borRed thickBors boRadXs bInsetBlueTop posRel xBold' : 'shaBlue boldXs fs8 bgWhite'
 										} borBotLight mih3 bHover`}
 										onClick={() => b !== null && handlePickerChange('day', b)}>
 										{b ?? ''}
@@ -538,7 +546,7 @@ const DateTimePicker = props => {
 												key={b}
 												style={{ width: '100%', ...(hoursWidth && { maxWidth: `${Math.min(400, hoursWidth)}px` }) }}
 												className={`flexRow grow bHover ${
-													adjustedHour === hour ? 'tDarkBlue fs25   boRadXs  bInsetBlueTopXs bBor2 posRel xBold' : 'noBackground shaBlue fs18'
+													adjustedHour === hour ? 'tDarkBlue fs25   boRadXs  bInsetBlueTopXs bBor2 posRel xBold' : 'shaBlueLight  fs18'
 												} padVerXxs `}
 												onClick={() => handlePickerChange('hour', adjustedHour)}>
 												<div className='flexRow '>
@@ -574,12 +582,21 @@ const DateTimePicker = props => {
 					)}
 				</date-picker>
 			)}
-			{dateMode && <blue-divider class='hr2 marTopXxs  zin1 block  bInsetBlueTopXl   bgTrans w100 marAuto' />}
 		</date-time>
 	);
 };
 
 function areEqual(prev, next) {
-	return prev.starts === next.starts && prev.ends === next.ends && prev.birth === next.birth && prev.dateMode === next.dateMode && prev.mode === next.mode;
+	return (
+		prev.starts === next.starts &&
+		prev.ends === next.ends &&
+		prev.type === next.type &&
+		prev.mode === next.mode &&
+		prev.prop === next.prop &&
+		prev.maxDate === next.maxDate &&
+		prev.noAutoHide === next.noAutoHide &&
+		prev.meetWhen === next.meetWhen &&
+		prev.nowAt === next.nowAt
+	);
 }
 export default memo(DateTimePicker, areEqual);

@@ -60,7 +60,7 @@ function HeaderImage({ fadedIn, isLastVisible = false, thisIs, currentSection, i
 					className={`${!fadedIn || fadedIn.includes('Header') ? 'fadedIn' : ''} fadingIn ${
 						thisIs === 'home' ? 'hvw120 mh70' : isLastVisible ? 'hvh50  selfStart' : 'hvh25 '
 					} cover  maskLowXs  w100`}
-					src={`${import.meta.env.VITE_FRONT_END}/public/headers/${src[thisIs || currentSection].imgSrc}`}
+					src={`${import.meta.env.VITE_FRONT_END}/headers/${src[thisIs || currentSection].imgSrc}`}
 				/>
 
 				{/* PAGE BUTTONS ---------------------------------------- */}

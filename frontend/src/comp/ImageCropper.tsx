@@ -404,9 +404,9 @@ const ImageCropper = props => {
 	}, [zoom, rotation, aspect]);
 
 	return (
-		<image-cropper class={`w100 ${isIntroduction ? 'mw160 marAuto' : ''}  boRadS overHidden marAuto  block posRel`}>
+		<image-cropper class={`w100 ${isIntroduction ? 'mw160 marAuto' : ''} ${nowAt === 'editor' ? 'marBotM' : ''}  boRadS overHidden marAuto  block posRel`}>
 			{!imageSrc ? (
-				<load-image name='image' className='w100 block posRel'>
+				<load-image name='image' className='w100 block   marAuto pointer posRel'>
 					{/* TITLE TEXTS ------------------------------------------------- */}
 					{data.id && (
 						<title-texts class='posRel block'>
@@ -417,12 +417,12 @@ const ImageCropper = props => {
 
 					{/* LOAD IMAGE PLACEHOLDER -------------------------------------- */}
 					<img-load
-						className='flexCol justCen aliCen gapXs shaCon iw33 bHover imw20 fPadHorXs border w100 hvw16 shaBlue mw160 lmih14 marAuto posRel'
+						className='flexCol justCen aliCen gapXs  iw33 shaBotLongDown imw12 fPadHorXs  w100 hvw10 bInsetBlueTopXs2  bBor borBotLight  mih10 marAuto posRel'
 						onClick={() => document.querySelector('#file').click()}>
-						<img src='/icons/placeholdergood.png' alt='' />
-						<span className='fsC bold'>Klikni pro nahrání obrázku</span>
+						<img src='/icons/placeholdergood.png' alt='' className='bHover boRadXs shaCon' />
+						<span className='fs13'>Klikni pro nahrání obrázku</span>
 					</img-load>
-					<input className='hide' type='file' id='file' onChange={onFileChange} accept='image/*' />
+					<input title='Klikni pro nahrání obrázku' className='hide' type='file' id='file' onChange={onFileChange} accept='image/*' />
 
 					{/* REVERT BUTTON WHEN IMAGE IS REMOVED ------------------------- */}
 					{originalImageSrc && (
@@ -479,21 +479,21 @@ const ImageCropper = props => {
 					{!isAreaCovered && <div className='padVerXxxs borTop 	 tWhite fs11 bBlue tSha10 boldS w100 inlineBlock'>Plocha výřezu není zcela zakrytá (NEPOVINNÉ)</div>}
 
 					{/* BASICS CONTROLS BS -------------------------------------------------------------- */}
-					<div style={{ filter: 'saturate(0.8)' }} className=' 	hvw8 mh5 growAll  gapXxxs flexCen posRel bInsetBlueTopXl w100 mw120 marAuto'>
+					<div style={{ filter: 'saturate(0.8)' }} className=' 	hvw8 mh5 growAll  gapXxxs flexCen posRel bInsetBlueTop  w100 mw120 marAuto'>
 						<blue-divider style={{ filter: 'brightness(0.7)' }} class={`hr0-5 borTop block posAbs zinMaXl topCen bInsetBlueTopXl borTop bgTrans w100 marAuto`} />
 
-						<button className={'boldS fs7  textSha bgLightBlueTop  bHover  h100 bgTrans  shaBlue bInsetBlue'} onClick={() => document.querySelector('#file').click()}>
+						<button className={'xBold fs10  textSha   bHover  h100 bgTrans  shaBlue '} onClick={() => document.querySelector('#file').click()}>
 							Změnit obrázek
 						</button>
-						<button className={'boldS fs7  textSha   bHover h100 bgTrans  shaBlue bInsetBlue'} onClick={fitImageToCanvas}>
+						<button className={'xBold fs10  textSha   bHover h100 bgTrans  shaBlue '} onClick={fitImageToCanvas}>
 							Reset pozice
 						</button>
-						<button className={'boldS fs7  textSha  bHover h100 bgTrans  shaBlue bInsetBlue'} onClick={() => (setImageSrc(null), superMan('image', null))}>
+						<button className={'xBold fs10  textSha  bHover h100 bgTrans  shaBlue '} onClick={() => (setImageSrc(null), superMan('image', null))}>
 							Odstranit obrázek
 						</button>
 						{originalImageSrc && imageSrc !== originalImageSrc && (
 							<button
-								className={'boldS fs8 textSha bDarkBlue tWhite  shaBlue bInsetBlue'}
+								className={'xBold fs10 textSha bDarkBlue tWhite  shaBlue '}
 								onClick={() => {
 									setImageSrc(originalImageSrc);
 									fitImageToCanvas();
@@ -501,6 +501,7 @@ const ImageCropper = props => {
 								Vrátit obrázek
 							</button>
 						)}
+						<blue-divider style={{ filter: 'brightness(1)' }} class={`hr0-3 opacityS borTop block posAbs zinMaXl botCen bInsetBlueTopXl borTop bgTrans w100 marAuto`} />
 					</div>
 				</>
 			)}

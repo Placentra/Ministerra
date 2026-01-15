@@ -28,6 +28,8 @@ function UserStrip(props) {
 		} = props,
 		[status, setStatus] = useState({ score: obj.score, blocked: obj.blocked, linked: obj.linked, trusts: obj.trusts, reported: null, unavail: obj.unavail }),
 		[modes, setModes] = useState({ profile: false, menu: false, protocol: false, selected: false, invite: false }),
+		// STABLE RANDOM FOR PLACEHOLDER ASSETS ---
+		stableRandom = (parseInt(String(obj.id).slice(-4), 36) % 30) + 1,
 		{ role } = obj,
 		{ punish, active, until } = getPunishmentStatus?.(obj) || {},
 		// Parse until - could be Date object, timestamp, or ISO string
@@ -75,7 +77,7 @@ function UserStrip(props) {
 				<img-wrapper class='posRel marRigXs'>
 					<img
 						className={`${modes.menu ? 'bsContentGlow bDarkBlue' : ''} w18  mw10  zin100 miw7 aspect169  shaBot boRadXxs`}
-						src={obj.imgVers ? `${import.meta.env.VITE_BACK_END}/public/users/${Math.floor(Math.random() * 30) + 1}_${obj.imgVers}S.webp` : '/icons/placeholdergood.png'}
+						src={obj.imgVers ? `${import.meta.env.VITE_BACK_END}/public/users/${stableRandom}_${obj.imgVers}S.webp` : '/icons/placeholdergood.png'}
 						alt=''
 					/>
 					{!isChatSetup && !isChatMember && !isSearch && role && role !== 'member' && (
@@ -285,23 +287,25 @@ function UserStrip(props) {
 }
 
 function areEqual(prev, next) {
-	// First check if chatSetupData exists in both
-	if (!prev.brain?.chatSetupData || !next.brain?.chatSetupData) {
-		return false;
-	}
-
-	return (
+	const propsEqual =
 		prev.obj === next.obj &&
 		prev.isSelected === next.isSelected &&
-		prev.isOpened === next.isOpened &&
 		prev.stripMenu === next.stripMenu &&
 		prev.manageMode === next.manageMode &&
 		prev.chatType === next.chatType &&
+		prev.isOpened === next.isOpened;
+
+	// Only compare chatSetupData if relevant to current mode
+	const brainEqual =
+		(!prev.brain?.chatSetupData && !next.brain?.chatSetupData) ||
+		(prev.brain.chatSetupData?.type === next.brain.chatSetupData?.type && prev.brain.chatSetupData?.members?.length === next.brain.chatSetupData?.members?.length);
+
+	return (
+		propsEqual &&
+		brainEqual &&
 		prev.obj.role === next.obj.role &&
 		prev.obj.punish === next.obj.punish &&
-		prev.obj.flag === next.obj.flag &&
-		prev.brain.chatSetupData?.type === next.brain.chatSetupData?.type &&
-		prev.brain.chatSetupData?.members.length === next.brain.chatSetupData?.members.length
+		prev.obj.flag === next.obj.flag
 	);
 }
 

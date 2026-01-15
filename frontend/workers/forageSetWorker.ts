@@ -70,9 +70,9 @@ const encryptGCM = async (keyString, plaintext) => {
 		combined = new Uint8Array(iv.length + ciphertext.byteLength);
 
 	combined.set(iv), combined.set(new Uint8Array(ciphertext), iv.length);
-	let binary = '';
-	for (let i = 0; i < combined.byteLength; i++) binary += String.fromCharCode(combined[i]);
-	return btoa(binary);
+	const chunks = [];
+	for (let offset = 0; offset < combined.length; offset += 8192) chunks.push(String.fromCharCode.apply(null, combined.subarray(offset, offset + 8192)));
+	return btoa(chunks.join(''));
 };
 
 // DECRYPT WITH AES-GCM ---

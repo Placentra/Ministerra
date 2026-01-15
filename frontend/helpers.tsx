@@ -870,7 +870,7 @@ export function humanizeDateTime(inp) {
 		const sameDayAsPrev = prevDate && date.toDateString() === prevDate.toDateString();
 		const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
 		const currentDateOnly = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-		const daysDiff = Math.floor((dateOnly.getTime() - currentDateOnly.getTime()) / (1000 * 3600 * 24));
+		const daysDiff = Math.round((dateOnly.getTime() - currentDateOnly.getTime()) / (1000 * 3600 * 24));
 		if (timeOnly) return time;
 
 		const isToday = daysDiff === 0;
@@ -932,10 +932,10 @@ export function humanizeDateTime(inp) {
 	}
 }
 
-// INFLECT NAME  ---------------------------------------------------------------------------
+// INFLECT NAME (CZECH INSTRUMENTAL CASE) ----------------------------------------------------
 /**About this function:
-- It takes in a name and inflects it to the dative case in Czech language.
-- The function is used to create a natural sounding sentences containing names.
+- It takes in a name and inflects it to the instrumental case (7. pád) in Czech language.
+- The function is used to create a natural sounding sentences containing names (e.g., "s Petrem").
 */
 export function inflectName(name) {
 	const ends = {

@@ -42,7 +42,7 @@ function SortMenu(props) {
 						className={`${isSelected || (eng === '+replies' && selSort[1]) ? '  fs20  bBlue tWhite borTop   posRel  xBold' : '   textSha fs12 '} grow  h100 ${
 							mode === 'discussion' ? 'bHover padVerXxs' : 'hvw10 mh5'
 						}  grow bgTransXs borTopLight `}>
-						{isGallery && selSort === b ? 'zpátky' : b}
+						{isGallery && selSort === eng ? 'zpátky' : b}
 					</button>
 				);
 			})}
