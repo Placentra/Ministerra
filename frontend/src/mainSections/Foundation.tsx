@@ -81,8 +81,7 @@ function Foundation() {
 		disconnectSocketIO();
 		setFadedIn([]);
 		await logoutAndCleanUp(brain, emptyBrain);
-		navigate(`/entrance${searchParam ? `?${searchParam}` : ''}`);
-		if (typeof window !== 'undefined') setTimeout(() => (window.__wipeInProgress = false), 1500);
+		window.location.href = `/entrance${searchParam ? `?${searchParam}` : ''}`;
 	};
 
 	// EXPOSE LOGOUT GLOBALLY ---

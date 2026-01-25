@@ -506,7 +506,7 @@ function MapLibre(props: any) {
 			{brain.eventPopup && nowAt === 'home' && !singleEvent && (
 				<cluster-popup
 					onClick={e => e.target === e.currentTarget && (delete brain.eventPopup, (clusterEventsRef.current = []), setRecalc(prev => prev + 1))}
-					class='posAbs topCen zinMenu flexCol  aliCen  w100 {}'
+					class='posAbs topCen zinMenu flexCol aliCen w100 overHidden'
 					style={{ maxHeight: '95%' }}>
 					{/* CLUSTER EVENT THUMBNAILS ROW --- */}
 					{clusterEventsRef.current.length > 1 && brain.eventPopup && (
@@ -540,7 +540,13 @@ function MapLibre(props: any) {
 					)}
 
 					{/* EVENT PREVIEW POPUP --- */}
-					{brain.eventPopup && <EventCard isMapPopUp={true} brain={brain} nowAt={nowAt} obj={brain.eventPopup} />}
+					{brain.eventPopup && (
+						<scroll-wrapper
+							onClick={e => e.target === e.currentTarget && (delete brain.eventPopup, (clusterEventsRef.current = []), setRecalc(prev => prev + 1))}
+							class='overAuto w100 flexCol aliCen grow'>
+							<EventCard isMapPopUp={true} brain={brain} nowAt={nowAt} obj={brain.eventPopup} />
+						</scroll-wrapper>
+					)}
 				</cluster-popup>
 			)}
 

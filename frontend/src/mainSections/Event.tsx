@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useLoaderData, useOutletContext, useNavigate } from 'react-router-dom';
-import { FRIENDLY_MEETINGS } from '../../../shared/constants';
+import { FRIENDLY_MEETINGS, isEventPast } from '../../../shared/constants';
 import { humanizeDateTime } from '../../helpers';
 import Discussion from '../comp/Discussion';
 import EveMenuStrip from '../comp/menuStrips/EveMenuStrip';
@@ -27,7 +27,9 @@ function Event() {
 		[modes, setModes] = useState({ inter: false, share: false, rate: false, menu: false, protocol: false, privs: false, invites: false, feedback: false }),
 		[maximizeImg, setMaximizeImg] = useState(false),
 		[fadedIn, setFadedIn] = useFadeIn({ mode: 'event' }),
-		isPast = Date.now() > (obj.ends || obj.starts),
+		// IS PAST CHECK ---
+		// Steps: use centralized isEventPast to handle missing ends with default duration so ongoing meetings remain interactive.
+		isPast = isEventPast(obj),
 		[status, setStatus] = useState({
 			messaged: false,
 			copied: false,
@@ -65,32 +67,25 @@ function Event() {
 	const isOwner = status.own || obj.owner === brain.user.id;
 
 	return (
-		<event-page key={obj.id} class='block'>
+		<event-page key={obj.id} class="block">
 			<EventHeaderImage event={obj} nowAt={nowAt} brain={brain} fadedIn={fadedIn} maximizeImg={maximizeImg} onImageClick={() => setMaximizeImg(!maximizeImg)} isMobile={isMobile} />
 
-			<title-texts
-				class={`${fadedIn.includes('TitleTexts') ? 'fadedIn' : ''}  zinMaxl   marAuto   ${
-					!status.isMeeting && !obj.imgVers ? 'padTopXxxl' : !maximizeImg ? 'padTopXxl' : 'padTopS'
-				}   zinMax posRel  fadingIn flexCol  textAli  marAuto   w100`}>
+			<title-texts class={`${fadedIn.includes('TitleTexts') ? 'fadedIn' : ''}  zinMaxl fPadHorXs  marAuto   ${!status.isMeeting && !obj.imgVers ? 'padTopXxxl' : !maximizeImg ? 'padTopXxl' : 'padTopS'}   zinMax posRel  fadingIn flexCol  textAli  marAuto   w100`}>
 				{/*  DATE, CITY, PLACE, ADDRESS ------------------------------------------------------ */}
-				<date-time class='zinMax fitContent bgTrans maskLowXxs padTopXxs padBotXxxs borWhite tShaWhite  fPadHorXs      boRadXs    posRel   marAuto'>
-					<span className={`${new Date(obj.starts) >= new Date() ? 'tDarkBlue ' : 'tRed'} fs20   xBold inline marRigS  imw3   textSha  wrap textAli`}>
-						{`${humanizeDateTime({ dateInMs: obj.starts })}${obj.ends ? ` - ${humanizeDateTime({ dateInMs: obj.ends })}` : ''}`}
-					</span>
+				<date-time class="zinMax fitContent bgTrans maskLowXxs padTopXxs padBotXxxs borWhite tShaWhite  fPadHorXs      boRadXs    posRel   marAuto">
+					<span className={`${new Date(obj.starts) >= new Date() ? 'tDarkBlue ' : 'tRed'} fs18   xBold inline marRigS  imw3   textSha  wrap textAli`}>{`${humanizeDateTime({ dateInMs: obj.starts })}${obj.ends ? ` - ${humanizeDateTime({ dateInMs: obj.ends })}` : ''}`}</span>
 
-					{(obj.location?.startsWith('+') || (!obj.location && !obj.place)) && (
-						<span className={`bold marRigS fs20  inlineBlock tBlue bgTrans tSha10  flewRow textSha`}>{obj.location?.startsWith('+') ? 'někde v okolí ' : 'kdekoliv v'}</span>
-					)}
+					{(obj.location?.startsWith('+') || (!obj.location && !obj.place)) && <span className={`bold marRigS fs18  inlineBlock tBlue bgTrans tSha10  flexRow textSha`}>{obj.location?.startsWith('+') ? 'někde v okolí ' : 'kdekoliv v'}</span>}
 
-					{obj.place && <strong className='fs20 tBlue boldM'>{`${obj.place}`}</strong>}
+					{obj.place && <strong className="fs18 tBlue boldM">{`${obj.place}`}</strong>}
 
-					<span className={`fs20 inline  lh1    boldXs imw3  textSha flexCen wrap textAli`}>{` ${obj.location?.slice(obj.location?.startsWith('+') ? 1 : 0) || ''} ${obj.city}`}</span>
+					<span className={`fs18 inline  lh1    boldXs imw3  textSha flexCen wrap textAli`}>{` ${obj.location?.slice(obj.location?.startsWith('+') ? 1 : 0) || ''} ${obj.city}`}</span>
 				</date-time>
 
 				{/* TITLE ------------------------------------------------------------------ */}
 				{(obj.title || status.canceled) && (
-					<span className={` fs35 tShaWhiteXl textAli zin100 xBold lh1  inlineBlock marAuto marBotXxs miw30 textAli`}>
-						{obj.canceled && <strong className='xBold inlineBlock tRed borderRed marRigM'>ZRUŠENO! </strong>}
+					<span className={` fs35 tShaWhiteXl textAli zin100 xBold lh0-8  inlineBlock marAuto marBotXs miw30 textAli wordBreak`}>
+						{obj.canceled && <strong className="xBold inlineBlock tRed borderRed marRigM">ZRUŠENO! </strong>}
 						{obj.title}
 					</span>
 				)}
@@ -99,32 +94,25 @@ function Event() {
 				{obj.badges && <EventBadges obj={obj} nowAt={'event'} />}
 
 				{/* MENU BUTTON ---------------------------------------------------------------*/}
-				<menu-comp
-				
-					class={`${modes.menu ? 'marBotM' : ''} ${fadedIn.includes('Image') ? 'fadedIn' : ''} block fadingIn w100 fPadHorXs aliCen justCen    zinMaXl    block posRel  marAuto`}>
-					<menu-button
-						onClick={() => setModes(prev => ({ ...prev, menu: !prev.menu, protocol: false }))}
-						class={`${
-							modes.menu ? 'posRel borRed bgWhite' : 'shaBlue'
-						} flexInline wrap borderBot bgTransXs boRadXxs pointer miw12 fitContent marAuto justCen aliCen bHover zinMaXl padHorXxs`}>
-						{obj.starts < Date.now() && (
-							<span className='fs9 padVerXxxs boldM boRadXxs padHorXs bRed borBot8 tWhite tNoWrap'>{humanizeDateTime({ dateInMs: obj.starts, getLabel: true, endsInMs: obj.ends })}</span>
-						)}
+				<menu-comp class={`${modes.menu ? 'marBotM' : ''} ${fadedIn.includes('Image') ? 'fadedIn' : ''} block fadingIn w100 fPadHorXs aliCen justCen    zinMaXl    block posRel  marAuto`}>
+					<menu-button onClick={() => setModes(prev => ({ ...prev, menu: !prev.menu, protocol: false }))} class={`${modes.menu ? 'posRel borRed bgWhite' : 'shaBlue'} flexInline wrap borderBot bgTransXs boRadXxs pointer miw12 fitContent marAuto justCen aliCen bHover zinMaXl padHorXxs`}>
+						{obj.starts < Date.now() && <span className="fs9 padVerXxxs boldM boRadXxs padHorXs bRed borBot8 tWhite tNoWrap">{humanizeDateTime({ dateInMs: obj.starts, getLabel: true, endsInMs: obj.ends })}</span>}
 
 						{/* INDICATORS ----------------------------------------------------------------*/}
 						<ContentIndis key={`${obj.id}`} status={status} modes={modes} brain={brain} obj={obj} thisIs={'event'} isCardOrStrip={false} nowAt={nowAt} />
-						<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' className='w100 mw4 textSha bGlassSubtle borBotLight padHorXs  posRel'>
-							<path fillRule='evenodd' d='M4 5h16a1 1 0 010 2H4a1 1 0 010-2zm0 6h16a1 1 0 010 2H4a1 1 0 010-2zm0 6h16a1 1 0 010 2H4a1 1 0 010-2z' clipRule='evenodd' />
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w100 mw4 textSha bGlassSubtle borBotLight padHorXs  posRel">
+							<path fillRule="evenodd" d="M4 5h16a1 1 0 010 2H4a1 1 0 010-2zm0 6h16a1 1 0 010 2H4a1 1 0 010-2zm0 6h16a1 1 0 010 2H4a1 1 0 010-2z" clipRule="evenodd" />
 						</svg>
 					</menu-button>
 
 					{/* MENU STRIP */}
 					{modes.menu && (
 						<>
-							{modes.invites && <button className=' bHover posRel bInsetBlueTopXs shaBot padHorL padVerXxs  marAuto xBold fs8  tRed' onClick={() => setModes(prev => ({ ...prev, invites: false }))}>
-								zavřít pozvánky
-							</button>
-							}
+							{modes.invites && (
+								<button className=" bHover posRel bInsetBlueTopXs shaBot padHorL padVerXxs  marAuto xBold fs8  tRed" onClick={() => setModes(prev => ({ ...prev, invites: false }))}>
+									zavřít pozvánky
+								</button>
+							)}
 							<EveMenuStrip
 								{...{
 									modes,
@@ -144,47 +132,43 @@ function Event() {
 					<feedback-section class={'w100 textAli marBotL fPadHorXs marAuto block posRel'}>
 						{/* SHOW FEEDBACK BUTTON - HIDDEN WHEN PROTOCOL IS OPEN */}
 						{showFeedbackButton && !isOwner && !modes.feedback && (
-							<button
-								className='w100 mw120 marAuto padVerM posRel boRadS tPurple boldM fs12 bInsetBlueTopXs'
-								onClick={e => (e.stopPropagation(), setModes(prev => ({ ...prev, feedback: true, menu: false, protocol: false })))}>
-								<blue-divider style={{ filter: 'saturate(1) brightness(0.8)' }} class='hr1 posAbs botCen block bInsetBlueTopXl bgTrans w90 mw180 marAuto' />
+							<button className="w100 mw120 marAuto padVerM posRel boRadS tPurple boldM fs12 bInsetBlueTopXs" onClick={e => (e.stopPropagation(), setModes(prev => ({ ...prev, feedback: true, menu: false, protocol: false })))}>
+								<blue-divider style={{ filter: 'saturate(1) brightness(0.8)' }} class="hr1 posAbs botCen block bInsetBlueTopXl bgTrans w90 mw180 marAuto" />
 								Zúčastnil ses? Dej zpětnou vazbu!
-								<span className='fs8 textSha'>Byl jsi na události? Dej organizátorům zpětnou vazbu!</span>
+								<span className="fs8 textSha">Byl jsi na události? Dej organizátorům zpětnou vazbu!</span>
 							</button>
 						)}
 						{showFeedbackButton && isOwner && !modes.feedback && (
-							<button
-								className='shaCon marBotS w100 mw160 padVerXxs padHorM boRadS bGlassSubtle boldM fs8'
-								onClick={e => (e.stopPropagation(), setModes(prev => ({ ...prev, feedback: true, menu: false, protocol: false })))}>
+							<button className="shaCon marBotS w100 mw160 padVerXxs padHorM boRadS bGlassSubtle boldM fs8" onClick={e => (e.stopPropagation(), setModes(prev => ({ ...prev, feedback: true, menu: false, protocol: false })))}>
 								Ukázat zpětnou vazbu
 							</button>
 						)}
 						{/* PROTOCOL WITH HIDE BUTTON */}
 						{modes.feedback && showFeedbackButton && (
-							<protocol-wrapper class='posRel block marTopS w100'>
-								<button onClick={() => setModes(prev => ({ ...prev, feedback: false }))} className='posAbs bgTransXs tRed zinMenu topCen padAllXxs boldM fs9 boRadXxs w33 marAuto mw50'>
+							<protocol-wrapper class="posRel block marTopS w100">
+								<button onClick={() => setModes(prev => ({ ...prev, feedback: false }))} className="posAbs bgTransXs tRed zinMenu topCen padAllXxs boldM fs9 boRadXxs w33 marAuto mw50">
 									Skrýt protokol
 								</button>
-								<EventFeedbackProtocol obj={obj} brain={brain} onClose={() => setModes(prev => ({ ...prev, feedback: false }))} isOwner={isOwner} mode='inline' />
+								<EventFeedbackProtocol obj={obj} brain={brain} onClose={() => setModes(prev => ({ ...prev, feedback: false }))} isOwner={isOwner} mode="inline" />
 							</protocol-wrapper>
 						)}
 					</feedback-section>
 				)}
 
-				{obj.shortDesc && <span className={`${status.isMeeting ? 'marBotS' : ''} fs15 lh1-2  marTopXl marAuto textAli mw160  block fPadHorS  marAuto  `}>{obj.shortDesc}</span>}
+				{obj.shortDesc && <span className={`${status.isMeeting ? 'marBotS' : ''} fs13 lh1-2  marTopXl marAuto textAli mw160  block fPadHorS  marAuto  `}>{obj.shortDesc}</span>}
 			</title-texts>
 
 			{/* USER CARDS ---------------------------------------------------------- */}
 			{status.isMeeting && <Content key={menuView} {...{ nowAt: 'event', isMobile, snap: {}, setFadedIn, fadedIn, brain, eveInter: status.inter, event: obj }} />}
 
-			<bottom-section style={{ clear: 'both' }} class={`fadingIn ${fadedIn.includes('Texts') ? 'fadedIn' : ''} w100 marAuto   mw160  block textAli `}>
+			<bottom-section style={{ clear: 'both' }} class={`fadingIn ${fadedIn.includes('Texts') ? 'fadedIn' : ''} w100 marAuto marBotM  mw160  block textAli `}>
 				{obj.detail || obj.fee || obj.meetHow || obj.meetWhen || obj.takeWith || obj.contacts || obj.links || obj.organizer ? (
 					<detail-section class={` flexCol mw180 marBotS marAuto`}>
 						{/* DETAILED DESCRPITION ---------------------------------------------*/}
 						{obj.detail && (
-							<detailed-info class='fPadHorXs'>
+							<detailed-info class="fPadHorXs">
 								<span className={`${!status.isMeeting ? 'marTopXxl' : 'marTopS'} fs14   padBotXYXxs mw50 w80 marAuto textSha xBold block  marBotXs`}>Detailní popis / program</span>
-								<span className='fs11 lh1-3 mw180 marAuto inlineBlock marBotS'>{obj.detail}</span>
+								<span className="fs11 lh1-3 mw180 marAuto inlineBlock marBotS">{obj.detail}</span>
 							</detailed-info>
 						)}
 
@@ -192,19 +176,17 @@ function Event() {
 						{['fee', 'meetHow', 'meetWhen', 'takeWith', 'contacts', 'links', 'organizer'].some(field => obj[field]) ? (
 							<extra-fields class={`block textAli mw180 w98 marAuto fPadHorXs marBotS `}>
 								{(obj.meetHow || obj.meetWhen) && (
-									<event-meet class='inline'>
+									<event-meet class="inline">
 										<span className={spanClass}>Setkání</span>
-										<span className='fs11 lh1-3'>
-											{`${obj.meetWhen ? humanizeDateTime({ dateInMs: obj.meetWhen }) + `${obj.meetHow ? ' - ' : ''}` : ''}` + (obj.meetHow || '')}
-										</span>
+										<span className="fs11 lh1-3">{`${obj.meetWhen ? humanizeDateTime({ dateInMs: obj.meetWhen }) + `${obj.meetHow ? ' - ' : ''}` : ''}` + (obj.meetHow || '')}</span>
 									</event-meet>
 								)}
 								{Object.entries({ fee: 'Vstupné', takeWith: 'Sebou', contacts: 'Kontakt', links: 'Odkazy', organizer: 'Pořadatel' }).map(([key, val]) => {
 									const ElemName = `${key}-field`;
 									return obj[key] ? (
-										<ElemName key={key} class='inline'>
+										<ElemName key={key} class="inline">
 											<span className={spanClass}>{val}</span>
-											<span className='fs11 lh1-3 wordBreak'>{obj[key]}</span>
+											<span className="fs11 lh1-3 wordBreak">{obj[key]}</span>
 										</ElemName>
 									) : null;
 								})}
@@ -221,7 +203,7 @@ function Event() {
 				<EveActionsBs {...{ fadedIn: ['BsEvent'], brain, isPast, nowAt, obj, status, setStatus, modes, setModes, thisIs: 'event' }} />
 
 				{modes.map && (
-					<Suspense fallback={<map-placeholder class='block w100 hvh50 marTopXs shaTop boRadS bgTrans' />}>
+					<Suspense fallback={<map-placeholder class="block w100 hvh50 marTopXs shaTop boRadS bgTrans" />}>
 						<Map singleEvent={obj} brain={brain} map={true} />
 					</Suspense>
 				)}
@@ -235,13 +217,11 @@ function Event() {
 			{!isUser && (
 				<>
 					<EntranceForm fadedIn={fadedIn} setFadedIn={setFadedIn} nowAt={nowAt} />
-					<img src='/icons/home.png' className=' posFix botCen marBotL posRel zinMaXl mw14' alt='' />
-					<button
-						onClick={() => navigate('/entrance')}
-						className={`shaTop w100 mw100 bDarkBlue tWhite boRadXs borBot2  posFix botCen zinMaXl marBotXxs borderTop bor2 boRadXs padVerS marAuto`}>
-						<span className='tWhite boldM fsF'>Jít na domovskou stránku</span>
-						<span className='tWhite fs8'>
-							... jsi tu poprvé? Tak vytvoř účet a <strong className='tWhite'>běž objevit všechny funkce Ministerrau.</strong> A že jich je!
+					<img src="/icons/home.png" className=" posFix botCen marBotL posRel zinMaXl mw14" alt="" />
+					<button onClick={() => navigate('/entrance')} className={`shaTop w100 mw100 bDarkBlue tWhite boRadXs borBot2  posFix botCen zinMaXl marBotXxs borderTop bor2 boRadXs padVerS marAuto`}>
+						<span className="tWhite boldM fsF">Jít na domovskou stránku</span>
+						<span className="tWhite fs8">
+							... jsi tu poprvé? Tak vytvoř účet a <strong className="tWhite">běž objevit všechny funkce Ministerrau.</strong> A že jich je!
 						</span>
 					</button>
 				</>

@@ -1,4 +1,4 @@
-import { useEffect, useState, memo, useRef, useLayoutEffect } from 'react';
+import { useEffect, useState, memo, useRef, useLayoutEffect, useCallback } from 'react';
 import axios from 'axios';
 import useSocketIO from '../../hooks/useSocketIO';
 import AlertStrip from '../contentStrips/AlertStrip';
@@ -8,31 +8,35 @@ import { forage } from '../../../helpers';
 import { linksHandler } from '../../hooks/useLinksAndBlocks';
 import { notifyGlobalError } from '../../hooks/useErrorsMan';
 
-// INFO: Uses newest fetched alert time to rate-limit fetches (1 min cooldown)
-
 /** ----------------------------------------------------------------------------
- * ALERTS COMPONENT
- * Displays user notifications in a bottom drawer with cursor-based pagination.
- * Handles fetching, socket updates, local storage sync, and UI state.
+ * ALERTS COMPONENT (REVISED)
+ * Displays user notifications in a bottom drawer.
+ * Handles fetching with robust cursor-based pagination.
  * -------------------------------------------------------------------------- */
 function Alerts(props) {
 	// PROPS & STATE -----------------------------------------------------------
 	const { brain, setNotifDots, notifDots, menuView, setMenuView, showToast } = props;
-	const storedAlerts = brain.user.alerts || {};
-	const storedData = Array.isArray(storedAlerts.data) ? storedAlerts.data : [];
-	const [alertsData, setAlertsData] = useState(storedData);
-	const shouldFetch = !storedData.length || notifDots.alerts > 0 || !storedAlerts.lastFetch || Date.now() - storedAlerts.lastFetch > 1000 * 60;
 
-	const cursors = useRef(!shouldFetch && storedAlerts.cursors ? storedAlerts.cursors : ['new', 0]);
+	// Initialize state from brain/storage
+	const [alertsData, setAlertsData] = useState(() => {
+		const stored = brain.user.alerts;
+		return stored && Array.isArray(stored.data) ? stored.data : [];
+	});
+
+	// Separate pagination state
+	const [pagination, setPagination] = useState(() => {
+		const stored = brain.user.alerts?.pagination;
+		// Default to hasMore: true to allow initial fetch if nothing stored
+		return stored || { hasMore: true, oldCursor: null, newCursor: null };
+	});
+
 	const [ui, setUi] = useState({ loading: false, error: null });
-	const [nothingMore, setNothingMore] = useState(false);
 	const fetchInProg = useRef(false);
-	const lastFetch = useRef(0);
-	const processedAlertIds = useRef(new Set());
 	const wrapperRef = useRef(null);
-	const [stripMenu, setStripMenu] = useState(null); // AlertStrip menu state
+	const [stripMenu, setStripMenu] = useState(null);
+	const processedAlertIds = useRef(new Set());
 
-	// SOCKET IO INTEGRATION ---------------------------------------------------
+	// SOCKET IO ---------------------------------------------------------------
 	useSocketIO({
 		setAlertsData,
 		thisIs: 'alerts',
@@ -43,224 +47,279 @@ function Alerts(props) {
 		showToast,
 	});
 
-	// LOCAL DATA SYNC ---------------------------------------------------------
-	// Updates connection status (accept/link/refuse) locally based on alerts
-	async function updateLocalDataFromAlertStrip(alerts = []) {
-		try {
-			for (const a of alerts) {
-				if (!a || !a.id || processedAlertIds.current.has(a.id)) continue;
-				if (['link', 'accept', 'refuse'].includes(a.what)) {
-					const id = a?.data?.user ?? a?.target;
-					if (id != null) {
-						try {
-							await linksHandler({ mode: a.what, id, brain, isSocket: true, direct: a?.data?.dir, note: a?.data?.note, message: a?.data?.message });
-						} catch {
-							/* ignore */
+	// PERSISTENCE & SYNC ------------------------------------------------------
+	const saveToStorage = useCallback(
+		async (data, pag) => {
+			try {
+				// Limit stored alerts to 100 to prevent bloat, as requested
+				const limitedData = data.slice(0, 100);
+				const val = {
+					data: limitedData,
+					pagination: pag,
+					lastFetch: Date.now(),
+					notifDots: { ...notifDots, alerts: 0 },
+					// Maintain legacy cursor field for compatibility
+					cursors: pag.oldCursor ? ['old', pag.oldCursor] : ['new', 0],
+				};
+				brain.user.alerts = val;
+				await forage({ mode: 'set', what: 'alerts', val });
+			} catch (e) {
+				console.error('Failed to save alerts:', e);
+			}
+		},
+		[brain, notifDots]
+	);
+
+	// Sync local actions (link/accept) from alerts content
+	const updateLocalDataFromAlertStrip = useCallback(
+		async (alerts = []) => {
+			try {
+				for (const a of alerts) {
+					if (!a || !a.id || processedAlertIds.current.has(a.id)) continue;
+					if (['link', 'accept', 'refuse'].includes(a.what)) {
+						const id = a?.data?.user ?? a?.target;
+						if (id != null) {
+							linksHandler({
+								mode: a.what,
+								id,
+								brain,
+								isSocket: true,
+								direct: a?.data?.dir,
+								note: a?.data?.note,
+								message: a?.data?.message,
+							}).catch(() => {});
 						}
 					}
+					processedAlertIds.current.add(a.id);
 				}
-				processedAlertIds.current.add(a.id);
+			} catch {
+				/* ignore */
 			}
-		} catch {
-			/* ignore */
+		},
+		[brain]
+	);
+
+	// KEY BUILDER FOR DEDUPLICATION -------------------------------------------
+	const buildAlertKey = useCallback(a => {
+		// Priority 1: Use unique ID if available. This ensures we show exactly what the backend sends (20 items = 20 items).
+		if (a.id) return `id:${a.id}`;
+		
+		// Fallback (mostly for socket events before they are persisted/fetched with ID, though typically they have IDs too)
+		const userKey = a?.data?.user || `${a?.data?.first || ''}${a?.data?.last || ''}`;
+		const eveKey = a?.data?.title || '';
+		const contentKey = (a?.data?.content || '').slice(0, 20);
+		
+		// Interest alerts might still benefit from merging if they are purely count updates
+		if (a?.what === 'interest') {
+			const countsKey = a?.data?.sur || a?.data?.may || a?.data?.int ? `${a?.data?.sur || 0},${a?.data?.may || 0},${a?.data?.int || 0}` : `${Date.now()}`;
+			return `${a?.what}:${a?.target}:${countsKey}:${userKey}:${eveKey}:${contentKey}`;
 		}
-	}
+		
+		return `${a?.what}:${a?.target}:${userKey}:${eveKey}:${contentKey}`;
+	}, []);
 
-	async function storeAlertsData() {
-		try {
-			const val = { data: alertsData, cursors: cursors.current, lastFetch: Date.now(), notifDots: { ...notifDots, alerts: 0 } };
-			await forage({ mode: 'set', what: 'alerts', val });
-		} catch {
-			/* ignore */
-		}
-	}
+	// FETCHING LOGIC ----------------------------------------------------------
+	const fetchAlerts = useCallback(
+		async (mode = 'init') => {
+			if (fetchInProg.current) return;
+			fetchInProg.current = true;
+			setUi(prev => ({ ...prev, loading: true, error: null }));
 
-	// EFFECTS -----------------------------------------------------------------
+			try {
+				// Determine request params
+				const body: { mode: string; limit: number; cursor?: number; firstID?: number } = { mode: 'getAlerts', limit: 20 };
 
-	// FETCH & SEEN STATUS LOGIC ---
+				if (mode === 'older') {
+					if (pagination.oldCursor) body.cursor = pagination.oldCursor;
+				} else if (mode === 'newer') {
+					if (pagination.newCursor) body.firstID = pagination.newCursor;
+				}
+				// 'init' sends no cursor/firstID (fetches latest)
+
+				const res = await axios.post('/alerts', body);
+				const rawData = Array.isArray(res.data) ? res.data : res.data.data || [];
+				const meta = !Array.isArray(res.data) ? res.data.pagination : { hasMore: rawData.length >= 20, nextCursor: rawData.length ? rawData[rawData.length - 1].id : null };
+
+				await updateLocalDataFromAlertStrip(rawData);
+
+				// MERGE DATA SYNCHRONOUSLY ------------------------------------
+				const byKey = new Map();
+				const preserveKeys = ['flag', 'refused', 'accepted', 'linked', 'inter', 'interPriv'];
+
+				const processItem = item => {
+					const k = buildAlertKey(item);
+					const prev = byKey.get(k);
+					if (!prev) {
+						byKey.set(k, item);
+					} else {
+						// Merge logic: prefer newer ID, preserve local state flags
+						const base = item.id >= prev.id ? { ...item } : { ...prev };
+						const other = item.id >= prev.id ? prev : item;
+						for (const key of preserveKeys) {
+							if (base[key] == null && other[key] != null) base[key] = other[key];
+						}
+						byKey.set(k, base);
+					}
+				};
+
+				// 1. Add ALL existing items to map first
+				alertsData.forEach(processItem);
+
+				// 2. Add ALL new items to map
+				rawData.forEach(processItem);
+
+				// 3. Convert back to array and sort by ID DESC
+				const mergedAlerts = Array.from(byKey.values()).sort((a, b) => Number(b.id) - Number(a.id));
+
+				// CALCULATE PAGINATION SYNCHRONOUSLY --------------------------
+				const updatedPagination = { ...pagination };
+
+				if (mode === 'init') {
+					updatedPagination.hasMore = meta.hasMore;
+					updatedPagination.oldCursor = meta.nextCursor;
+					if (rawData.length > 0) {
+						const maxId = Math.max(...rawData.map(r => Number(r.id)));
+						updatedPagination.newCursor = maxId;
+					}
+				} else if (mode === 'older') {
+					updatedPagination.hasMore = meta.hasMore;
+					updatedPagination.oldCursor = meta.nextCursor;
+				} else if (mode === 'newer') {
+					if (rawData.length > 0) {
+						const maxId = Math.max(...rawData.map(r => Number(r.id)));
+						updatedPagination.newCursor = Math.max(updatedPagination.newCursor || 0, maxId);
+					}
+				}
+
+				// UPDATE STATE & STORAGE --------------------------------------
+				setAlertsData(mergedAlerts);
+				setPagination(updatedPagination);
+				saveToStorage(mergedAlerts, updatedPagination);
+
+				// Reset Notif Dots if we fetched new stuff
+				if (mode === 'init' || mode === 'newer') {
+					setNotifDots(prev => ({ ...prev, alerts: 0 }));
+				}
+			} catch (err) {
+				console.error(err);
+				notifyGlobalError(err, 'Nepodařilo se načíst upozornění.');
+				setUi(prev => ({ ...prev, error: true }));
+			} finally {
+				fetchInProg.current = false;
+				setUi(prev => ({ ...prev, loading: false }));
+			}
+		},
+		[pagination, brain, notifDots, saveToStorage, buildAlertKey, updateLocalDataFromAlertStrip, setNotifDots, alertsData]
+	);
+
+	// INITIAL LOAD ------------------------------------------------------------
 	const prevMenuView = useRef(menuView);
-	const alertsDataRef = useRef(alertsData);
-	alertsDataRef.current = alertsData;
 
 	useEffect(() => {
-		// Update last seen alert ID when closing alerts view
-		if (prevMenuView.current === 'alerts' && menuView !== 'alerts') {
-			const currentAlerts = alertsDataRef.current;
-			if (currentAlerts?.length) {
-				const validIds = currentAlerts.filter(a => a.id).map(a => Number(a.id));
-				if (validIds.length) {
-					const highestId = Math.max(...validIds);
-					if (highestId > (brain.user.lastSeenAlert || 0)) {
-						brain.user.lastSeenAlert = highestId;
+		if (menuView !== 'alerts') {
+			if (prevMenuView.current === 'alerts') {
+				// User is leaving alerts view
+				if (alertsData.length) {
+					const maxId = Math.max(...alertsData.map(a => Number(a.id)));
+					if (maxId > (brain.user.lastSeenAlert || 0)) {
+						brain.user.lastSeenAlert = maxId;
 						forage({ mode: 'set', what: 'user', val: brain.user });
 					}
 				}
 			}
+			prevMenuView.current = menuView;
+			return;
 		}
 		prevMenuView.current = menuView;
 
-		if (menuView !== 'alerts' || fetchInProg.current) return;
-		if (shouldFetch) fetchAlerts();
-	}, [menuView]);
+		// Check if we need to fetch
+		const lastFetch = brain.user.alerts?.lastFetch || 0;
+		const stale = Date.now() - lastFetch > 1000 * 60; // 1 min cache
+		const hasNew = notifDots.alerts > 0;
+		const empty = alertsData.length === 0;
 
-	// RESTORE STRIP MENU STATE ---
-	useLayoutEffect(() => {
-		if (brain.restoreStripMenu && menuView === 'alerts') setStripMenu(brain.restoreStripMenu), delete brain.restoreStripMenu;
-	}, [menuView]);
-
-	// FETCH ALERTS ------------------------------------------------------------
-	// Handles bidirectional cursor fetching (newest/oldest) and merges data
-	async function fetchAlerts() {
-		try {
-			fetchInProg.current = true;
-			setUi({ loading: true, error: null });
-			const [syncMode, cursor] = Array.isArray(cursors.current) ? cursors.current : ['new', 0];
-			const sortedCopy = [...alertsData].sort((a, b) => b.id - a.id);
-			const firstPrevStoredID = syncMode === 'new' ? sortedCopy.find(alert => alert.id < cursor)?.id : undefined;
-			const lastID = syncMode === 'old' ? sortedCopy[sortedCopy.length - 1]?.id : undefined;
-
-			// SERVER REQUEST ---
-			const newAlerts =
-				(
-					await axios.post('/alerts', {
-						mode: 'getAlerts',
-						cursor: syncMode === 'new' ? cursor : undefined,
-						lastID: syncMode === 'old' ? lastID : undefined,
-						firstID: firstPrevStoredID,
-					})
-				).data || [];
-
-			await updateLocalDataFromAlertStrip(newAlerts);
-
-			// UPDATE CURSORS ---
-			const lowestAlertId = newAlerts[newAlerts.length - 1]?.id || cursor || 0;
-			const intersected = alertsData.find(alert => alert.id >= lowestAlertId);
-			if (newAlerts.length < 20) {
-				if (syncMode === 'old') {
-					cursors.current = 'gotAll';
-					setNothingMore(true);
-					setTimeout(() => setNothingMore(false), 2000);
-				} else {
-					const nextCursor = !intersected ? lowestAlertId : Math.min(intersected.id, lastID || lowestAlertId);
-					cursors.current = ['old', nextCursor];
-				}
-			} else {
-				cursors.current = [syncMode === 'new' && intersected ? 'old' : syncMode, !intersected ? lowestAlertId : Math.min(intersected.id, lastID || lowestAlertId)];
-			}
-
-			// MERGE & DEDUPLICATE ---
-			const sourceAlerts = syncMode === 'new' ? [...newAlerts, ...alertsData] : [...alertsData, ...newAlerts];
-			const buildAlertKey = a => {
-				const userKey = a?.data?.user || `${a?.data?.first || ''}${a?.data?.last || ''}`;
-				const eveKey = a?.data?.title || '';
-				const contentKey = (a?.data?.content || '').slice(0, 20);
-				if (a?.what === 'interest') {
-					const countsKey = a?.data?.sur || a?.data?.may || a?.data?.int ? `${a?.data?.sur || 0},${a?.data?.may || 0},${a?.data?.int || 0}` : `${Date.now()}`;
-					return `${a?.what}:${a?.target}:${countsKey}:${userKey}:${eveKey}:${contentKey}`;
-				}
-				if (/(?:^|_)rating$/.test(a?.what)) {
-					const pts = a?.data?.points ?? a?.data?.counts ?? 0;
-					return `${a?.what}:${a?.target}:${pts}:${userKey}:${eveKey}:${contentKey}`;
-				}
-				return `${a?.what}:${a?.target}:${userKey}:${eveKey}:${contentKey}`;
-			};
-
-			const byContent = new Map();
-			const preserveKeys = ['flag', 'refused', 'accepted', 'linked', 'inter', 'interPriv'];
-			for (const a of sourceAlerts) {
-				const k = buildAlertKey(a);
-				const prev = byContent.get(k);
-				if (!prev) {
-					byContent.set(k, a);
-				} else {
-					const aId = Number(a?.id || 0);
-					const pId = Number(prev?.id || 0);
-					const base = aId >= pId ? { ...a } : { ...prev };
-					const other = aId >= pId ? prev : a;
-					for (const key of preserveKeys) {
-						if ((base[key] === null || base[key] === undefined) && other[key] !== null && other[key] !== undefined) base[key] = other[key];
-					}
-					byContent.set(k, base);
-				}
-			}
-			const mergedAlerts = Array.from(byContent.values()).sort((a, b) => Number(b.id) - Number(a.id));
-			await forage({ mode: 'set', what: 'alerts', val: { data: mergedAlerts, cursors: cursors.current, lastFetch: Date.now(), notifDots: { ...notifDots, alerts: 0 } } });
-			(lastFetch.current = Date.now()), setAlertsData(mergedAlerts), setNotifDots({ ...notifDots, alerts: 0 });
-		} catch (error) {
-			notifyGlobalError(error, 'Nepodařilo se načíst upozornění.');
-			setUi({ loading: false, error: true });
-		} finally {
-			fetchInProg.current = false;
-			setUi(prev => ({ ...prev, loading: false }));
+		if ((stale || hasNew || empty) && !fetchInProg.current) {
+			fetchAlerts(hasNew || !empty ? 'newer' : 'init');
 		}
-	}
+	}, [menuView, fetchAlerts, alertsData, brain, notifDots.alerts]);
 
-	// HELPERS -----------------------------------------------------------------
+	// RESTORE STRIP MENU ------------------------------------------------------
+	useLayoutEffect(() => {
+		if (brain.restoreStripMenu && menuView === 'alerts') {
+			setStripMenu(brain.restoreStripMenu);
+			delete brain.restoreStripMenu;
+		}
+	}, [menuView, brain]);
 
-	function removeAlert(alertId) {
-		try {
+	// HELPER ACTIONS ----------------------------------------------------------
+	const removeAlert = useCallback(
+		alertId => {
 			setAlertsData(prev => {
-				const next = Array.isArray(prev) ? prev.map(a => (a.id === alertId ? {} : a)) : [];
-				brain.user.alerts ??= {};
-				brain.user.alerts.data = next;
-				brain.user.alerts.cursors = brain.user.alerts.cursors || cursors.current;
-				brain.user.alerts.lastFetch = brain.user.alerts.lastFetch || Date.now();
-				forage({ mode: 'set', what: 'alerts', val: brain.user.alerts });
+				const next = prev.filter(a => a.id !== alertId);
+				saveToStorage(next, pagination);
 				return next;
 			});
-		} catch {
-			/* ignore */
-		}
-	}
+		},
+		[saveToStorage, pagination]
+	);
 
-	function onStripClick(alert) {
-		const { what, target, data = {} } = alert;
-		const actions = {
-			invite: () => ((brain.showGalleryCat = 'invites'), setMenuView('gallery')),
-			link: () => ((brain.showGalleryCat = 'links'), setMenuView('gallery')),
-			accept: () => ((brain.showGalleryCat = 'links'), setMenuView('gallery')),
-			interest: () => {
-				const title = data.title || '';
-				const slug = encodeURIComponent(title).replace(/\./g, '-').replace(/%20/g, '_');
-				window.location.href = `/event/${target}!${slug}#discussion`;
-			},
-			comm_rating: () => {
-				window.location.href = `/event/${data.event || target}#discussion`;
-			},
-			eve_rating: () => {
-				const title = data?.title || '';
-				const slug = encodeURIComponent(title).replace(/\./g, '-').replace(/%20/g, '_');
-				window.location.href = `/event/${target}!${slug}#discussion`;
-			},
-			user_rating: () => {
-				window.location.href = `/user/${brain.user.id}`;
-			},
-			comment: () => {
-				window.location.href = `/event/${data.event || target}#discussion`;
-			},
-			reply: () => {
-				window.location.href = `/event/${data.event || target}#discussion`;
-			},
-		};
-		actions[what]?.();
-	}
+	const onStripClick = useCallback(
+		alert => {
+			const { what, target, data = {} } = alert;
+			const actions = {
+				invite: () => ((brain.showGalleryCat = 'invites'), setMenuView('gallery')),
+				link: () => ((brain.showGalleryCat = 'links'), setMenuView('gallery')),
+				accept: () => ((brain.showGalleryCat = 'links'), setMenuView('gallery')),
+				interest: () => {
+					const title = data.title || '';
+					const slug = encodeURIComponent(title).replace(/\./g, '-').replace(/%20/g, '_');
+					window.location.href = `/event/${target}!${slug}#discussion`;
+				},
+				comm_rating: () => {
+					window.location.href = `/event/${data.event || target}#discussion`;
+				},
+				eve_rating: () => {
+					const title = data?.title || '';
+					const slug = encodeURIComponent(title).replace(/\./g, '-').replace(/%20/g, '_');
+					window.location.href = `/event/${target}!${slug}#discussion`;
+				},
+				user_rating: () => {
+					window.location.href = `/user/${brain.user.id}`;
+				},
+				comment: () => {
+					window.location.href = `/event/${data.event || target}#discussion`;
+				},
+				reply: () => {
+					window.location.href = `/event/${data.event || target}#discussion`;
+				},
+			};
+			actions[what]?.();
+		},
+		[brain, setMenuView]
+	);
 
 	// RENDER PREP -------------------------------------------------------------
-	const [numOfCols] = useMasonResize({ wrapper: wrapperRef, brain, contType: 'alertStrips', deps: [alertsData?.length], contLength: alertsData?.length || 0 });
+	const [numOfCols] = useMasonResize({
+		wrapper: wrapperRef,
+		brain,
+		contType: 'alertStrips',
+		deps: [alertsData.length],
+		contLength: alertsData.length,
+	});
 
 	const lastSeenAlert = brain.user.lastSeenAlert || 0;
-	const validAlerts = (alertsData || []).filter(a => a.id);
-	const newAlerts = validAlerts.filter(a => Number(a.id) > lastSeenAlert).sort((a, b) => Number(b.id) - Number(a.id));
-	const olderAlerts = validAlerts.filter(a => Number(a.id) <= lastSeenAlert).sort((a, b) => Number(b.id) - Number(a.id));
+	// Filter out invalid alerts (e.g. empty objects from removal if any)
+	const validAlerts = alertsData.filter(a => a && a.id);
+	const newAlerts = validAlerts.filter(a => Number(a.id) > lastSeenAlert);
+	const olderAlerts = validAlerts.filter(a => Number(a.id) <= lastSeenAlert);
 
-	// RENDER ------------------------------------------------------------------
 	return (
 		<alerts-wrapper ref={wrapperRef} class={`${menuView !== 'alerts' ? 'hide' : ''} block bgWhite hvh100 mhvh100 w100 overAuto bInsetBlueDark flexCol justEnd`}>
-			{/* NEW ALERTS SECTION --- */}
+			{/* NEW ALERTS */}
 			{newAlerts.length > 0 && (
 				<>
 					<section-title class={`flexCol block borBotLight textAli marTopXl`}>
-						<span className='fs22 inlineBlock tetSha marAuto xBold w100'>Nová upozornění</span>
+						<span className="fs22 inlineBlock tetSha marAuto xBold w100">Nová upozornění</span>
 						<blue-divider class={` hr0-5 borTop marTopXs  block bInsetBlueTopXl  bgTrans  w90  mw140   marAuto   `} />
 					</section-title>
 					<Masonry
@@ -273,7 +332,7 @@ function Alerts(props) {
 								onClick={() => onStripClick(a)}
 								onRemoveAlert={() => removeAlert(a.id)}
 								setMenuView={setMenuView}
-								storeAlertsData={storeAlertsData}
+								storeAlertsData={() => saveToStorage(alertsData, pagination)}
 								stripMenu={stripMenu}
 								setStripMenu={setStripMenu}
 							/>
@@ -284,11 +343,11 @@ function Alerts(props) {
 				</>
 			)}
 
-			{/* OLDER ALERTS SECTION --- */}
+			{/* OLDER ALERTS */}
 			{olderAlerts.length > 0 && (
 				<>
 					<section-title class={`flexCol block borBotLight textAli ${newAlerts.length > 0 ? 'marTopL' : 'marTopXl'}`}>
-						<span className='fs18 inlineBlock tetSha marAuto xBold w100'>Starší upozornění</span>
+						<span className="fs18 inlineBlock tetSha marAuto xBold w100">Starší upozornění</span>
 						<blue-divider class={` hr0-5 borTop marTopXs  block bInsetBlueTopXl  bgTrans  w90  mw140   marAuto   `} />
 					</section-title>
 					<Masonry
@@ -297,7 +356,7 @@ function Alerts(props) {
 								key={a.id}
 								alert={a}
 								brain={brain}
-								storeAlertsData={storeAlertsData}
+								storeAlertsData={() => saveToStorage(alertsData, pagination)}
 								menuView={menuView}
 								onClick={() => onStripClick(a)}
 								onRemoveAlert={() => removeAlert(a.id)}
@@ -312,23 +371,17 @@ function Alerts(props) {
 				</>
 			)}
 
-			{/* LOAD MORE BUTTON --- */}
-			{(nothingMore || (alertsData?.length && alertsData?.length % 20 === 0 && cursors.current !== 'gotAll')) && (
+			{/* LOAD MORE BUTTON */}
+			{/* Always show if hasMore is true, unless loading */}
+			{(pagination.hasMore || ui.loading) && (
 				<button
-					onClick={() => !nothingMore && fetchAlerts()}
-					className={` ${
-						nothingMore
-							? 'tBlue borRed fsD xBold'
-							: ui.loading
-							? 'bBlue tWhite'
-							: ui.error
-							? 'bRed tWhite'
-							: 'borRed thickBors posRel xBold bInsetBlueTop zinMaXl bDarkBlue  borBot8 tWhite'
-					} w80 marAuto  fs10 mw80 padVerXs  shaTop  textSha marBotS marTopM`}>
-					{nothingMore ? 'Nic dalšího už není' : ui.loading ? 'Načítám...' : ui.error ? 'Chyba při načítání' : 'Načíst další výsledky'}
+					onClick={() => !ui.loading && fetchAlerts('older')}
+					className={` ${!pagination.hasMore ? 'tBlue borRed fsD xBold' : ui.loading ? 'bBlue tWhite' : ui.error ? 'bRed tWhite' : ' thickBors posRel xBold  zinMaXl bInsetBlueTopXs bBor2   '} w80 marAuto  fs10 mw60 padVerXxs  shaTop  textSha marBotS marTopM`}
+				>
+					{!pagination.hasMore ? 'Nic dalšího už není' : ui.loading ? 'Načítám...' : ui.error ? 'Chyba při načítání' : 'Načíst další výsledky'}
 				</button>
 			)}
-			<empty-div class='hr16 block' />
+			<empty-div class="hr16 block" />
 		</alerts-wrapper>
 	);
 }

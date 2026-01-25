@@ -5,6 +5,8 @@ import { getLogger } from '../systems/handlers/loggers.ts';
 import { LRUCache } from 'lru-cache';
 import { EXPIRATIONS, REDIS_KEYS } from '../../shared/constants.ts';
 
+// TODO we need to thoroughly check what happens if unintroduced user tries to do any non-entrance requests. how does the app handle this? How to handle this in general (there will more limited types of users in the future)
+
 let redis: any;
 // REDIS CLIENT SETTER ----------------------------------------------------------
 // Injects the shared redis client for refresh token persistence and revocation checks.

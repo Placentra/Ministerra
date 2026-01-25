@@ -26,20 +26,20 @@ function Menu(props) {
 
 	return (
 		<main-menu class={`${menuView !== 'menu' ? 'hide' : ''} boRadM textAli       bgTransXxs    fPadHorXxs flexCol `}>
-			<span className='fs35 xBold marBotM textSha marTopXxl'>Hlavní menu</span>
+			<span className="fs35 xBold marBotM textSha marTopXxl">Hlavní menu</span>
 
 			{/* CITY SELECTION --------------------------- */}
 			<LocationPicker brain={brain} curSelCities={curSelCities} setCurSelCities={setCurSelCities} changeCities={changeCities} inMenu={true} />
 
 			{/* CORE ACTIONS --------------------------- */}
-			<bottom-row class='flexCen  growAll spaceBet marBotXs marTopL w100 mw130 imw5 hvw6 mh6  marAuto '>
+			<bottom-row class="flexCen  growAll spaceBet marBotXs  w100 mw130 imw5 hvw6 mh6  marAuto ">
 				{/* SETUP LINK --------------------------- */}
 				<button
-					className='   fs6 w20 miw8 mw14 hvw10 mh8 padVerXxs flexCol aliCen bold justCen  borderLight  bHover'
+					className="   fs6 w20 miw8 mw14 hvw10 mh8 padVerXxs flexCol aliCen bold justCen  borderLight  bHover"
 					onClick={() => {
 						nowAt !== 'setup' && navigate('setup');
 					}}>
-					<img src='/icons/settings.png' alt='' className='aspect1612 w35 mh3-5' />
+					<img src="/icons/settings.png" alt="" className="aspect1612 w35 mh3-5" />
 					Nastavit
 				</button>
 
@@ -51,17 +51,17 @@ function Menu(props) {
 							changeCities(curSelCities);
 						} else nowAt === 'editor' ? setMenuView('') : navigate('editor');
 					}}
-					className={` shaTop w100  ${citiesChanged ? 'bPurple' : 'bDarkGreen'} tWhite zinMax mw100 borderTop fs17 tSha10 xBold boRadXs hvw8 mh6 marAuto`}>
+					className={` shaTop w100  ${citiesChanged ? 'bPurple' : 'bDarkGreen'} tWhite zinMax mw100 borderTop fs22 tSha10 xBold boRadXs hvw8 mh6 marAuto`}>
 					{citiesChanged ? 'Potvrdit změnu měst' : 'Vytvořit událost'}
 				</button>
 
 				{/* LOGOUT --------------------------- */}
 				<button
-					className='   w20 mw14 hvw10 mh8 padVerXxs    flexCol fs6   justCen bold aliCen  borderLight  bHover'
+					className="   w20 mw14 hvw10 mh8 padVerXxs    flexCol fs6   justCen bold aliCen  borderLight  bHover"
 					onClick={() => {
-						setMenuView(false), logOut();
+						(setMenuView(false), logOut());
 					}}>
-					<img src='/icons/logout.png' alt='' className='aspect1610 w50 mh3-5' />
+					<img src="/icons/logout.png" alt="" className="aspect1610 w50 mh3-5" />
 					Odhlásit
 				</button>
 			</bottom-row>

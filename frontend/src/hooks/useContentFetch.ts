@@ -14,13 +14,13 @@ export function useContentFetch({ brain, snap, avail, event, show, sherData, now
 		firstBatchReady = useRef(false);
 
 	// TRIGGER FETCH / REORDER ---------------------------------------------------
-	// Steps: when snap.fetch or page context demands, reset flags and run contentMan; for event attendee lists, just reorder current content to keep “me” pinned when attending.
+	// Steps: when snap.fetch or page context demands, reset flags and run contentMan; for event attendee lists, just reorder current content to keep "me" pinned when attending.
 	useEffect(() => {
 		if (!event.id && !snap.fetch) return;
 		if (snap.fetch || (nowAt !== 'home' && !content)) {
 			(disableInfinite.current = true), (firstBatchReady.current = false), contentMan();
 			setTimeout(() => (disableInfinite.current = false), 1000);
-		} else if (nowAt === 'event' && event.type.startsWith('a')) {
+		} else if (nowAt === 'event' && event.type?.startsWith('a')) {
 			const [curContent, isAttending] = [content || [], ['sur', 'may'].includes(eveInter)];
 			let newContent =
 				isAttending && curContent[0]?.id !== brain.user.id
@@ -35,9 +35,12 @@ export function useContentFetch({ brain, snap, avail, event, show, sherData, now
 	// CONTENT MANAGER ------------------------------------------------------------
 	// Steps: build (or extend) a queue of candidate IDs, compute the next fetch slice based on usability, fetch basics (and optional SQL overlays), merge into brain caches, delete dead items, then slice usable items into UI state.
 	async function contentMan(infinite = false) {
+		// STALE GUARD ---
+		// Steps: capture current queue version at start so we can detect if view switched during async work and skip stale writes.
+		const startVersion = brain.contQueueVersion || 0;
 		try {
 			// USABILITY RULE --------------------------------------------------
-			// Steps: treat basi-ish items as usable; for users view, allow self even when partially hydrated so UI can still render “me” card.
+			// Steps: treat basi-ish items as usable; for users view, allow self even when partially hydrated so UI can still render "me" card.
 			const usable = item => item.state?.includes('basi') || (contView === 'users' && item.id == brain.user.id && item.first);
 			let [gotSQLset, storeUser, unstableObj, actualyReceivedIDs, IDsToRemove, numOfUsable, IDsToFetch, interrupted] = [
 				new Set(brain.user.unstableObj?.gotSQL[contView] || []),
@@ -56,7 +59,9 @@ export function useContentFetch({ brain, snap, avail, event, show, sherData, now
 				if (nowAt === 'event' && event.pastUsers?.length) return setCardsToContent(event.pastUsers);
 				contQueue.current = getFilteredContent({ what: show.view === 'topEvents' ? 'topEvents' : 'content', brain, snap, avail, event, sherData, show });
 				if (contQueue.current[0]?.id == brain.user.id && !brain.user.first) await fetchOwnProfile(brain);
-				if (nowAt === 'home') brain.contQueueIDs = contQueue.current.map(item => item.id || item);
+				// VERSION CHECK ---
+				// Steps: only update contQueueIDs if version hasn't changed during async work to prevent stale writes from old view.
+				if (nowAt === 'home' && brain.contQueueVersion === startVersion) brain.contQueueIDs = contQueue.current.map(item => item.id || item);
 			}
 
 			// WINDOW SELECT ----------------------------------------------------
@@ -122,7 +127,7 @@ export function useContentFetch({ brain, snap, avail, event, show, sherData, now
 			setCardsToContent([infinite ? content || [] : [], usableItems].flat());
 
 			// SNAP FINALIZATION + HISTORY -------------------------------------
-			// Steps: update map snapshot ids, update history only when snap is not “exact”, clear snap.fetch flag, and persist user when we mutated unstable SQL or history.
+			// Steps: update map snapshot ids, update history only when snap is not "exact", clear snap.fetch flag, and persist user when we mutated unstable SQL or history.
 			if (nowAt !== 'event' && show.view !== 'topEvents') {
 				if (map === true) brain.lastFetchMapIDs = (brain.itemsOnMap || contQueue.current).map(item => item.id || item).sort((a, b) => a - b);
 				else ['lastFetchMapIDs', 'snapChangedWhileMapHidden', 'stillShowingMapContent'].forEach(key => delete brain[key]);

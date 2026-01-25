@@ -136,7 +136,7 @@ async function Setup(req, res) {
 		// SQL UPDATE ----------------------------------------------------------
 		// Steps: update only provided columns, set status=newUser during introduction, or bump basiVers for existing users.
 		const [columns, values] = Object.entries(restData).reduce((acc, [key, value]) => (acc[0].push(key), acc[1].push(value), acc), [[], []]);
-		const sqlQuery = `UPDATE users SET ${columns.map(f => `${f} = ?`).join(', ')}${restData.priv ? ', flag = "pri"' : ''} ${
+		const sqlQuery = `UPDATE users SET ${columns.map(f => `${f} = ?`).join(', ')}${restData.priv ? ', flag = "pri", nextTask = "flagChanges"' : ''} ${
 			is === 'unintroduced' ? ', status = "newUser"' : USER_BASI_KEYS.some(col => columns.includes(col)) ? ', basiVers = basiVers + 1' : ''
 		} WHERE id = ?`;
 		await con.execute(sqlQuery, [...values, userID]);

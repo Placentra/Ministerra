@@ -8,7 +8,7 @@ import { REVERT_EMAIL_DAYS } from '../../../shared/constants';
 
 const attenVisibSrc = {
 	ind: { title: 'Individuálně', descrip: 'Aktivuje nabídku soukromí. Každou událost můžeš nastavit zvlášt.' },
-	pub: { title: 'Celá komunita', descrip: 'maximální šancE na nová přátelství, pozvání a konverzace.' },
+	pub: { title: 'všichni', descrip: 'maximální šancE na nová přátelství, pozvání a konverzace.' },
 	lin: { title: 'Spojenci + autor', descrip: 'Tvou účast uvidí jen tvoji spojenci + autor události.' },
 	own: { title: 'Pouze autor', descrip: 'Tvou účast uvidí jen autor dané události a nikdo jiný.' },
 };

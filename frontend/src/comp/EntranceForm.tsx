@@ -24,7 +24,6 @@ const imgMessagesMap = {
 		detail: 'Kvůli delší nečinnosti a nebo nestandardní aktivitě jsme Tě z bezpečnostních důvodů raději odhlásili. Pro pokračování se prosím znovu přihlaš.',
 		image: `/icons/log out.png`,
 	},
-	sessionExpired: { header: 'Relace vypršela', detail: 'Otevřel jsi nový panel nebo zavřel prohlížeč. Pro pokračování se znovu přihlaš.', image: `/icons/surely.png` },
 	mailSent: {
 		header: 'Skvělé! Přijde ti e-mail.',
 		detail: 'Do tvé schránky přijde každou chvilku email s ověřovacím odkazem, který ti otevře cestu k dalšímu kroku. Klikni na něj :-)',
@@ -105,9 +104,9 @@ function EntranceForm(props: any) {
 		const progress = (score / 7) * 100,
 			baseColor = score < 3 ? '#e53935' : score < 5 ? '#fb8c00' : score < 7 ? '#1e88e5' : '#43a047';
 		return (
-			<strength-indicators class='posRel w80 marAuto marBoS zinMaXl' style={{ height: '10px' }}>
+			<strength-indicators class="posRel w80 marAuto marBoS zinMaXl" style={{ height: '10px' }}>
 				<div
-					className='posAbs w100'
+					className="posAbs w100"
 					style={{
 						top: '50%',
 						transform: 'translateY(-50%)',
@@ -117,7 +116,7 @@ function EntranceForm(props: any) {
 					}}
 				/>
 				<div
-					className='posAbs w100'
+					className="posAbs w100"
 					style={{
 						top: '50%',
 						transform: 'translateY(-50%)',
@@ -128,7 +127,7 @@ function EntranceForm(props: any) {
 					}}
 				/>
 				<div
-					className='posAbs w100'
+					className="posAbs w100"
 					style={{
 						top: '50%',
 						transform: 'translateY(-50%)',
@@ -146,7 +145,6 @@ function EntranceForm(props: any) {
 		{ brain, nowAt } = (props || {}) as any,
 		urlParams = new URLSearchParams(window.location.search),
 		returnTo = useRef(urlParams.get('returnTo') ? decodeURIComponent(urlParams.get('returnTo')) : null).current,
-		isContinueMode = useRef(Boolean(returnTo && urlParams.get('mess') === 'sessionExpired')).current,
 		[axiosInProg, setAxiosInProg] = useState(false),
 		[isInitializing, setIsInitializing] = useState(false),
 		[showSubmitBtn, setShowSubmitBtn] = useState(false),
@@ -160,16 +158,7 @@ function EntranceForm(props: any) {
 		infoMessagesRef = useRef<any>(null),
 		scrollTarget = useRef<any>(null),
 		refs = { emailRef, passRef, repassRef, passStrength: passStrengthRef, repassStrength: repassStrengthRef, bSubmitRef, infoMessagesRef, scrollTarget },
-		[isLogin, isRegister, isChangePass, isChangeMail, isChangeBoth, isForgotPass, isResetPass, isRevertEmail] = [
-			'login',
-			'register',
-			'changePass',
-			'changeMail',
-			'changeBoth',
-			'forgotPass',
-			'resetPass',
-			'revertEmailChange',
-		].map(mode => formMode === mode),
+		[isLogin, isRegister, isChangePass, isChangeMail, isChangeBoth, isForgotPass, isResetPass, isRevertEmail] = ['login', 'register', 'changePass', 'changeMail', 'changeBoth', 'forgotPass', 'resetPass', 'revertEmailChange'].map(mode => formMode === mode),
 		[data, setData] = useState({
 			email: environment === 'dev' ? import.meta.env.VITE_LOGIN_MAIL || '' : '',
 			pass: environment === 'dev' ? import.meta.env.VITE_LOGIN_PASS || '' : '',
@@ -204,41 +193,12 @@ function EntranceForm(props: any) {
 		passDismatchTimeout = useRef(null),
 		emailFormatTimeout = useRef(null),
 		passFormatTimeout = useRef(null),
-		infoMessageShown = [
-			'serverError',
-			'mailSent',
-			'mailNotSent',
-			'confChange',
-			'mailResent',
-			'changeSuccess',
-			'userDeleted',
-			'userFrozen',
-			'unfreezing',
-			'verifyMail',
-			'unauthorized',
-			'networkError',
-			'tokenExpired',
-			'emailChangeActive',
-			'emailReverted',
-			'newMailVerified',
-			'registerLimited',
-		].some(what => inform[what]),
+		infoMessageShown = ['serverError', 'mailSent', 'mailNotSent', 'confChange', 'mailResent', 'changeSuccess', 'userDeleted', 'userFrozen', 'unfreezing', 'verifyMail', 'unauthorized', 'networkError', 'tokenExpired', 'emailChangeActive', 'emailReverted', 'newMailVerified', 'registerLimited'].some(what => inform[what]),
 		askIfResendMail = ['verifyMail', 'mailSent', 'mailResent'].some(what => inform[what]),
 		isChange = ['changeMail', 'changePass', 'changeBoth'].includes(formMode),
 		{ email, pass, rePass, curPass, agreed } = data,
 		[capsActive, setCapsActive] = useState(false),
-		showBackToLoginBtn = [
-			'unauthorized',
-			'changeSuccess',
-			'emailReverted',
-			'newMailVerified',
-			'userFrozen',
-			'emailChangeActive',
-			'mailTaken',
-			() => inform.mailSent && !isRegister,
-			'mailResent',
-			'registerLimited',
-		].some(what => (typeof what === 'function' ? what() : inform[what])),
+		showBackToLoginBtn = ['unauthorized', 'changeSuccess', 'emailReverted', 'newMailVerified', 'userFrozen', 'emailChangeActive', 'mailTaken', () => inform.mailSent && !isRegister, 'mailResent', 'registerLimited'].some(what => (typeof what === 'function' ? what() : inform[what])),
 		[mounted, setMounted] = useState(false),
 		[emailValidated, setEmailValidated] = useState(false),
 		emailValidationTimeout = useRef(null),
@@ -257,8 +217,7 @@ function EntranceForm(props: any) {
 				if (blur) {
 					if (what === 'email') return val && !emailCheck.test(val) && (setInform(prev => ({ ...prev, emailFormat: true })), refs.emailRef.current?.focus({ preventScroll: true }));
 					// PASSWORD FORMAT BLUR VALIDATION FOR LOGIN ---
-					else if (what === 'pass' && isLogin)
-						return val && getPasswordStrengthScore(false, val) < 7 && (setInform(prev => ({ ...prev, passFormat: true })), refs.passRef.current?.focus({ preventScroll: true }));
+					else if (what === 'pass' && isLogin) return val && getPasswordStrengthScore(false, val) < 7 && (setInform(prev => ({ ...prev, passFormat: true })), refs.passRef.current?.focus({ preventScroll: true }));
 					else if (what === 'rePass') return pass !== val && (setInform(prev => ({ ...prev, passDismatch: true })), refs.repassRef.current?.focus({ preventScroll: true }));
 				} else {
 					if (what === 'email') {
@@ -281,7 +240,7 @@ function EntranceForm(props: any) {
 					}
 					if (what === 'rePass') {
 						refs.repassStrength.current = (getPasswordStrengthScore as any)(false, val);
-						clearTimeout(passDismatchTimeout.current), val && pass !== val && (passDismatchTimeout.current = setTimeout(() => setInform(prev => ({ ...prev, passDismatch: true })), 1000));
+						(clearTimeout(passDismatchTimeout.current), val && pass !== val && (passDismatchTimeout.current = setTimeout(() => setInform(prev => ({ ...prev, passDismatch: true })), 1000)));
 					}
 					return setData(prev => ({ ...prev, [what]: val }));
 				}
@@ -333,13 +292,7 @@ function EntranceForm(props: any) {
 					informs: ['emailFormat', 'passStrength'],
 				},
 				changePassMail: {
-					conditions: [
-						() => !email.length && !pass.length,
-						() => email.length && correctEmail,
-						() => pass.length && strongPass,
-						() => !rePass.length,
-						() => strongPass && rePass.length && rePass === pass,
-					],
+					conditions: [() => !email.length && !pass.length, () => email.length && correctEmail, () => pass.length && strongPass, () => !rePass.length, () => strongPass && rePass.length && rePass === pass],
 					informs: ['nothingToChange', 'emailFormat', 'passStrength', 'missingRepass', 'passDismatch'],
 				},
 				forgotPass: { conditions: [() => correctEmail], informs: ['emailFormat'] },
@@ -365,7 +318,7 @@ function EntranceForm(props: any) {
 				// PASSWORD RESET AND EMAIL REVERT FLOWS ---
 				if (isForgotPass) {
 					await axios.post('/entrance', { mode: formMode, email }, { __skipGlobalErrorBanner: true } as any);
-					return setResendRetryCount(0), setInform(prev => ({ ...prev, mailSent: true }));
+					return (setResendRetryCount(0), setInform(prev => ({ ...prev, mailSent: true })));
 				}
 				if (isResetPass) {
 					const { data: payload } = await axios.post('/entrance', { mode: formMode, newPass: pass, useAuthToken: true }, { __skipGlobalErrorBanner: true } as any);
@@ -382,11 +335,7 @@ function EntranceForm(props: any) {
 
 				// CREDENTIAL CHANGE FLOWS ---
 				if (isChange) {
-					const { data: payload } = await axios.post(
-						'/entrance',
-						delUndef({ mode: formMode, newEmail: formMode === 'changePass' ? undefined : email, newPass: pass, pass: curPass, useAuthToken: true }),
-						{ __skipGlobalErrorBanner: true } as any
-					);
+					const { data: payload } = await axios.post('/entrance', delUndef({ mode: formMode, newEmail: formMode === 'changePass' ? undefined : email, newPass: pass, pass: curPass, useAuthToken: true }), { __skipGlobalErrorBanner: true } as any);
 					if (typeof payload === 'string' && Object.prototype.hasOwnProperty.call(imgMessagesMap, payload)) {
 						if (formMode !== 'changeMail') {
 							clearPDK();
@@ -436,9 +385,9 @@ function EntranceForm(props: any) {
 					Object.assign(brain.user, { ...((await forage({ mode: 'get', what: 'user' })) || {}), id: userID, cities: cities.split(',').map(Number) });
 
 					const miscel = (await forage({ mode: 'get', what: 'miscel' })) || { initLoadData: {} };
-					(miscel.initLoadData.cities = brain.user.cities), await forage({ mode: 'set', what: 'miscel', val: miscel });
+					((miscel.initLoadData.cities = brain.user.cities), await forage({ mode: 'set', what: 'miscel', val: miscel }));
 					const targetUrl = returnTo || '/';
-					return (brain.isAfterLoginInit = true), window.history.pushState({}, '', targetUrl), navigate(targetUrl);
+					return ((brain.isAfterLoginInit = true), window.history.pushState({}, '', targetUrl), navigate(targetUrl));
 
 					// STRING RESPONSE HANDLING ---
 					// Backend sends status codes like 'mailSent', 'verifyMail', 'mailNotSent' as plain strings
@@ -453,41 +402,13 @@ function EntranceForm(props: any) {
 			if (err.message === 'Request throttled') return setTimeout(() => man({ what, submit: true }), 2100);
 			const errorData = err.response?.data;
 			const errorCode = typeof errorData === 'string' ? errorData : errorData?.code;
-			if (errorCode === 'tokenExpired') return sessionStorage.removeItem('authToken'), navigate('/entrance?mess=tokenExpired');
+			if (errorCode === 'tokenExpired') return (sessionStorage.removeItem('authToken'), navigate('/entrance?mess=tokenExpired'));
 			// EXPECTED AUTH ERRORS ---
 			// These have inline UI feedback via submitWarnTexts/imgMessagesMap; don't trigger global error banner.
-			const expectedAuthErrors = [
-				'wrongLogin',
-				'wrongPass',
-				'userNotFound',
-				'mailTaken',
-				'notAgreed',
-				'noActiveEmailChange',
-				'newMailSameAsCurrent',
-				'emailMismatch',
-				'registerLimited',
-				'weakPass',
-			];
+			const expectedAuthErrors = ['wrongLogin', 'wrongPass', 'userNotFound', 'mailTaken', 'notAgreed', 'noActiveEmailChange', 'newMailSameAsCurrent', 'emailMismatch', 'registerLimited', 'weakPass'];
 			if (errorCode) {
 				setInform({ [errorCode]: true });
-				const stayVisible = [
-					'mailSent',
-					'mailNotSent',
-					'confChange',
-					'mailResent',
-					'changeSuccess',
-					'userDeleted',
-					'userFrozen',
-					'unfreezing',
-					'verifyMail',
-					'unauthorized',
-					'networkError',
-					'tokenExpired',
-					'emailChangeActive',
-					'emailReverted',
-					'newMailVerified',
-					'registerLimited',
-				];
+				const stayVisible = ['mailSent', 'mailNotSent', 'confChange', 'mailResent', 'changeSuccess', 'userDeleted', 'userFrozen', 'unfreezing', 'verifyMail', 'unauthorized', 'networkError', 'tokenExpired', 'emailChangeActive', 'emailReverted', 'newMailVerified', 'registerLimited'];
 				if (!stayVisible.includes(errorCode)) setTimeout(() => setInform(prev => ({ ...prev, [errorCode]: false })), 3000);
 				// SKIP GLOBAL ERROR FOR EXPECTED CODES ---
 				if (expectedAuthErrors.includes(errorCode)) return;
@@ -511,7 +432,7 @@ function EntranceForm(props: any) {
 					if (urlParams.get('mode') === 'introduction') {
 						const introEmail = urlParams.get('email');
 						if (introEmail) sessionStorage.setItem('introEmail', decodeURIComponent(introEmail));
-						return (brain.user.isUnintroduced = true), navigate('/setup');
+						return ((brain.user.isUnintroduced = true), navigate('/setup'));
 					}
 				} else if (authToken) setInform(prev => ({ ...prev, tokenExpired: true }));
 				if (urlParams.get('mess')) setInform(prev => ({ ...prev, [urlParams.get('mess')]: true }));
@@ -532,9 +453,7 @@ function EntranceForm(props: any) {
 		if (formMode === 'login') return setShowSubmitBtn(emailCheck.test(email) && refs.passStrength.current === 7);
 		if (pass.length && !refs.passStrength.current) refs.passStrength.current = getPasswordStrengthScore(false, pass);
 		if (!isChange || infoMessageShown) return setShowSubmitBtn(true);
-		const condition =
-			(isChangeMail && emailCheck.test(email) && (isChangeMail ? getPasswordStrengthScore(false, curPass) : refs.passStrength.current) >= 7) ||
-			((isChangeBoth || isChangePass) && refs.passStrength.current >= 7 && pass === rePass && curPass && getPasswordStrengthScore(false, curPass) >= 7);
+		const condition = (isChangeMail && emailCheck.test(email) && (isChangeMail ? getPasswordStrengthScore(false, curPass) : refs.passStrength.current) >= 7) || ((isChangeBoth || isChangePass) && refs.passStrength.current >= 7 && pass === rePass && curPass && getPasswordStrengthScore(false, curPass) >= 7);
 		showSubmitTimeout.current = setTimeout(() => setShowSubmitBtn(condition), !condition ? 0 : 1000);
 	}, [email, pass, rePass, inform, curPass]);
 
@@ -549,7 +468,7 @@ function EntranceForm(props: any) {
 			}
 		};
 		const handleKeyUp = e => e instanceof KeyboardEvent && !e.getModifierState('CapsLock') && setCapsActive(false);
-		document.addEventListener('keydown', handleKeyDown), document.addEventListener('keyup', handleKeyUp);
+		(document.addEventListener('keydown', handleKeyDown), document.addEventListener('keyup', handleKeyUp));
 		return () => (document.removeEventListener('keydown', handleKeyDown), document.removeEventListener('keyup', handleKeyUp));
 	}, [formMode]);
 
@@ -584,62 +503,35 @@ function EntranceForm(props: any) {
 	return (
 		<entrance-comp ref={refs.scrollTarget} class={`textAli boRadM marAuto h100 flexCol    justCen aliCen zinMaXl posRel   w100`}>
 			{/* BACKGROUND IMAGE ------------------------------------------ */}
-			<img title='Background image' className='posAbs topCen hvw80 mh60 cover  	maskLow w100' src={`${import.meta.env.VITE_FRONT_END}/headers/namestiSvobody.jpg`} />
+			<img title="Background image" className="posAbs topCen hvw80 mh60 cover  	maskLow w100" src={`${import.meta.env.VITE_FRONT_END}/headers/namestiSvobody.jpg`} />
 			<inner-wrapper class={'w100 mw160 fPadHorS padBotM   block marAuto  selfCen'}>
 				{/* BRANDING HEADER --- */}
-				<entrance-header class='flexCol moveUpMore marBotS  aliCen textAli '>
-					<img
-						alt='Ministerra logo'
-						className='marAuto maskLow cover bor2White bgTrans  downEvenMore posRel mw24 padHorS w40 boRadS '
-						src='https://png.pngtree.com/png-clipart/20211009/original/pngtree-letter-m-logo-png-design-vector-png-image_6841484.png'
-					/>
-					<strong className='fs42 tShaWhiteXl zinMaXl xBold textAli miw60 inlineBlock '>Ministerra</strong>
+				<entrance-header class="flexCol moveUpMore marBotS  aliCen textAli ">
+					<img alt="Ministerra logo" className="marAuto maskLow cover bor2White bgTrans  downEvenMore posRel mw24 padHorS w40 boRadS " src="https://png.pngtree.com/png-clipart/20211009/original/pngtree-letter-m-logo-png-design-vector-png-image_6841484.png" />
+					<strong className="fs42 tShaWhiteXl zinMaXl xBold textAli miw60 inlineBlock ">Ministerra</strong>
 				</entrance-header>
 
-				{/* SESSION EXPIRED BANNER --- */}
-				{isContinueMode && !infoMessageShown && (
-					<session-expired-banner class='marBotM block mw110 marAuto'>
-						<div className='padBotS posRel w100 shaBotLongDown marAuto flexCol aliCen imw12 textAli'>
-							<img src={imgMessagesMap.sessionExpired.image} alt='' className='marAuto marTopM cover w100 zin1' />
-							<span className='textAli xBold marTopS marBotXs mw80 fs20 aliCen'>{imgMessagesMap.sessionExpired.header}</span>
-							<span className='textAli mw80 fs9 lh1 aliCen'>
-								{imgMessagesMap.sessionExpired.detail}
-								{returnTo && (
-									<return-address class='flexCol marTopS w100 textAli'>
-										<span className='fs10 boldXs block opacityL'>Po přihlášení budeš přesměrován na:</span>
-										<span className='fs14 xBold block tYellow'>{returnTo}</span>
-									</return-address>
-								)}
-							</span>
-						</div>
-					</session-expired-banner>
-				)}
-
 				{/* SOCIAL LOGINS AND MODE SWITCHER --- */}
-				{!infoMessageShown && !isChange && !isResetPass && !isRevertEmail && !isContinueMode && (
+				{!infoMessageShown && !isChange && !isResetPass && !isRevertEmail && (
 					<mode-socials style={{ filter: 'saturate(0.8)' }} class={'marBotM bgTransXs padAllXxxs thickBors  boRadS w100 mw110 marAuto  block'}>
-						{nowAt === 'event' && <span className='fsH shaComment borderBot  block textAli borderBot shaComment marBotS padBotS marAuto mw60 w100 boldM'>Registruj se ZDARMA!</span>}
+						{nowAt === 'event' && <span className="fsH shaComment borderBot  block textAli borderBot shaComment marBotS padBotS marAuto mw60 w100 boldM">Registruj se ZDARMA!</span>}
 
-						<social-bs class='flexCen gapXxxs bw33     shaComment    borderBot bInsetBlueTopXs  posRel    imw6'>
+						<social-bs class="flexCen gapXxxs bw33     shaComment    borderBot bInsetBlueTopXs  posRel    imw6">
 							{Object.keys(src).map(button => {
 								return (
-									<button type='button' key={button} className=' bHover hvw14 mh9 iw33 posRel bgTransXs    '>
-										<img className='' src={src[button]} alt='' />
-										<span className='fs8  tLightGrey lh1 '>{button}</span>
+									<button type="button" key={button} className=" bHover hvw14 mh9 iw33 posRel bgTransXs    ">
+										<img className="" src={src[button]} alt="" />
+										<span className="fs8  tLightGrey lh1 ">{button}</span>
 									</button>
 								);
 							})}
 						</social-bs>
-						<blue-divider class='hvw3 mh2  zin1 block  bInsetBlueTopXl  posRel   w80 marAuto' />
+						<blue-divider class="hvw3 mh2  zin1 block  bInsetBlueTopXl  posRel   w80 marAuto" />
 
-						<login-register class='flexCen bw50 w100 aliStretch shaBlue   marAuto'>
+						<login-register class="flexCen bw50 w100 aliStretch shaBlue   marAuto">
 							{['login', 'register'].map(mode => {
 								return (
-									<button
-										type='button'
-										key={mode}
-										className={`${formMode === mode ? 'bDarkBlue   borderBot arrowDown1 posRel tWhite fs14' : 'fs12'} bold hvw14 mh5    `}
-										onClick={() => (setFormMode(mode), setInform({}))}>
+									<button type="button" key={mode} className={`${formMode === mode ? 'bDarkBlue   borderBot arrowDown1 posRel tWhite fs14' : 'fs12'} bold hvw14 mh5    `} onClick={() => (setFormMode(mode), setInform({}))}>
 										{mode === 'login' ? 'Přihlášení' : 'Registrace'}
 										{formMode === mode && <blue-divider class={` hr0-5  block bInsetBlueTopXl borTop bgTrans  posAbs botCen w100     marAuto   `} />}
 									</button>
@@ -655,82 +547,47 @@ function EntranceForm(props: any) {
 						{/* WORKFLOW-SPECIFIC INSTRUCTIONS --- */}
 						{(isForgotPass || isRevertEmail) && (
 							<pass-reset class={`flexCol ${isResetPass ? 'marTopS' : 'marBotXs'}`}>
-								<span className={`marBotXxs lh1 boldM ${isForgotPass || isRevertEmail ? 'tRed fs20 marTopXs' : 'fs22 '}`}>
-									{isForgotPass ? 'Zapomenuté heslo' : isRevertEmail ? 'Vrácení emailu' : 'Nastavení nového hesla'}
-								</span>
-								{!isResetPass && (
-									<span className='fs8 lh1'>
-										{isForgotPass
-											? 'Zadej e-mailovou adresu k účtu k němuž jsi nejsi jiný heslem. Pro nastavení nového hesla stačí kliknout na odkaz, který ti následně dorazí.'
-											: 'Zadej heslo ke svému účtu pro potvrzení vrácení emailu na původní adresu. Pokud jsi email neměnil, ignoruj tuto stránku.'}
-									</span>
-								)}
-								{isRevertEmail && (
-									<span className='fs8 lh1 marTopS tRed xBold'>⚠️ DŮLEŽITÉ: Pokud tvůj email změnil někdo jiný, OKAMŽITĚ si změň také heslo! Tvůj účet mohl být kompromitován.</span>
-								)}
+								<span className={`marBotXxs lh1 xBold ${isForgotPass || isRevertEmail ? 'tRed fs22 marTopXs' : 'fs22 '}`}>{isForgotPass ? 'Zapomenuté heslo' : isRevertEmail ? 'Vrácení emailu' : 'Nastavení nového hesla'}</span>
+								{!isResetPass && <span className="fs10 lh1">{isForgotPass ? 'Zadej e-mailovou adresu k účtu k němuž jsi nejsi jiný heslem. Pro nastavení nového hesla stačí kliknout na odkaz, který ti následně dorazí.' : 'Zadej heslo ke svému účtu pro potvrzení vrácení emailu na původní adresu. Pokud jsi email neměnil, ignoruj tuto stránku.'}</span>}
+								{isRevertEmail && <span className="fs8 lh1 marTopS tRed xBold">⚠️ DŮLEŽITÉ: Pokud tvůj email změnil někdo jiný, OKAMŽITĚ si změň také heslo! Tvůj účet mohl být kompromitován.</span>}
 							</pass-reset>
 						)}
 
 						{/* EMAIL ADDRESS INPUT --- */}
 						{(isLogin || isRegister || isChangeBoth || isChangeMail || isForgotPass) && (
-							<e-mail class='flexCol marTopXs'>
-								<span className='fs14 xBold tDarkBlue lh1 marBotXxxs'>{`${isChangeMail || isChangeBoth ? 'nová ' : ''}e-mailová adresa`}</span>
-								{inform.emailFormat && <span className='bRed tWhite xBold fs8 padVerXxxs padHorM marTopXxs  aliCen'>neplatný formát e-mailové adresy</span>}
-								<input
-									title='E-mailová adresa'
-									ref={refs.emailRef}
-									maxLength={100}
-									autoFocus={true}
-									className='w100 hvh4 mih4 shaSubtleLong fs12'
-									onChange={e => man({ what: 'email', val: e.target.value.toLowerCase() })}
-									onBlur={e => man({ what: 'email', val: e.target.value.toLowerCase(), blur: true })}
-									value={email}
-									type='email'
-								/>
-								<blue-divider style={{ filter: 'brightness(0.5)' }} class='hr0-1  zin1 block  bInsetBlueTopXl posRel w60 opacityM marAuto' />
+							<e-mail class="flexCol marTopXs">
+								<span className="fs14 xBold tDarkBlue lh1 marBotXxxs">{`${isChangeMail || isChangeBoth ? 'nová ' : ''}e-mailová adresa`}</span>
+								{inform.emailFormat && <span className="bRed tWhite xBold fs8 padVerXxxs padHorM marTopXxs  aliCen">neplatný formát e-mailové adresy</span>}
+								<input title="E-mailová adresa" ref={refs.emailRef} maxLength={100} autoFocus={true} className="w100 hvh4 mih4 shaSubtleLong fs12" onChange={e => man({ what: 'email', val: e.target.value.toLowerCase() })} onBlur={e => man({ what: 'email', val: e.target.value.toLowerCase(), blur: true })} value={email} type="email" />
+								<blue-divider style={{ filter: 'brightness(0.5)' }} class="hr0-1  zin1 block  bInsetBlueTopXl posRel w60 opacityM marAuto" />
 							</e-mail>
 						)}
 
 						{/* PASSWORD INPUT BLOCK --- */}
 						{((!isForgotPass && emailValidated) || isRevertEmail) && (
-							<pass-words class=' flexCol '>
+							<pass-words class=" flexCol ">
 								{((!isChangeMail && (isRegister || isLogin || isResetPass || isChangePass || isChangeBoth)) || isRevertEmail) && (
 									<pass-word class={'flexCol '}>
-										{!isResetPass && (
-											<span className='fs14 xBold tDarkBlue lh1  inlineBlock marBotXxxs  xBold'>
-												{isRevertEmail ? 'zadej heslo k potvrzení vrácení' : `${isChangePass || isChangeBoth ? 'zadej nové ' : ''}heslo`}
-											</span>
-										)}
+										{!isResetPass && <span className="fs14 xBold tDarkBlue lh1  inlineBlock marBotXxxs  xBold">{isRevertEmail ? 'zadej heslo k potvrzení vrácení' : `${isChangePass || isChangeBoth ? 'zadej nové ' : ''}heslo`}</span>}
 
-										{inform.passStrength && <span className='tRed xBold marTopXxxs fs12  aliCen'>{pass.length > 0 ? 'Příliš slabé heslo!' : 'Prosím, vyplň heslo'} </span>}
+										{inform.passStrength && <span className="tRed xBold marTopXxxs fs12  aliCen">{pass.length > 0 ? 'Příliš slabé heslo!' : 'Prosím, vyplň heslo'} </span>}
 
 										{/* PASSWORD FORMAT WARNING FOR LOGIN --- */}
-										{isLogin && inform.passFormat && (
-											<span className='bRed tWhite xBold fs8 padVerXxxs padHorM marTopXxs aliCen'>alespoň 8 znaků, velké písmeno, symbol a číslo</span>
-										)}
+										{isLogin && inform.passFormat && <span className="bRed tWhite xBold fs8 padVerXxxs padHorM marTopXxs aliCen">alespoň 8 znaků, velké písmeno, symbol a číslo</span>}
 
 										{!isLogin && !isRevertEmail && refs.passStrength.current < 7 && (
-											<pass-instructions class=' lh1-3 marAuto marBotS posRel    flexCol '>
-												<span className='fs9'>
-													<strong className=' marBotXxxs tRed fs9 boldM lh1-2 marRigS '>DŮRAZNĚ doporučujeme jiné heslo,</strong>
+											<pass-instructions class=" lh1-3 marAuto marBotS posRel    flexCol ">
+												<span className="fs9">
+													<strong className=" marBotXxxs tRed fs9 boldM lh1-2 marRigS ">DŮRAZNĚ doporučujeme jiné heslo,</strong>
 													než jaké používáš ke svému e-mailu!
 												</span>
 												<span className={'fs9 '}>
-													Heslo musí mít <strong className='tRed boldM'>alespoň 8 znaků, velké písmeno, symbol a číslo.</strong>
+													Heslo musí mít <strong className="tRed boldM">alespoň 8 znaků, velké písmeno, symbol a číslo.</strong>
 												</span>
 											</pass-instructions>
 										)}
-										<input
-											title='Heslo'
-											ref={refs.passRef}
-											className='w100 hvh4  shaSubtleLong fs12 phBold'
-											value={pass}
-											maxLength={30}
-											onChange={e => man({ what: 'pass', val: e.target.value })}
-											onBlur={e => isLogin && man({ what: 'pass', val: e.target.value, blur: true })}
-											type='password'
-										/>
-										{!pass.length && <blue-divider style={{ filter: 'brightness(0.5)' }} class='hr0-1  zin1 block  bInsetBlueTopXl posRel  bgTrans w60 opacityL marAuto' />}
+										<input title="Heslo" ref={refs.passRef} className="w100 hvh4  shaSubtleLong fs12 phBold" value={pass} maxLength={30} onChange={e => man({ what: 'pass', val: e.target.value })} onBlur={e => isLogin && man({ what: 'pass', val: e.target.value, blur: true })} type="password" />
+										{!pass.length && <blue-divider style={{ filter: 'brightness(0.5)' }} class="hr0-1  zin1 block  bInsetBlueTopXl posRel  bgTrans w60 opacityL marAuto" />}
 									</pass-word>
 								)}
 
@@ -738,47 +595,26 @@ function EntranceForm(props: any) {
 								{(isRegister || isChangePass || isChangeBoth || isRevertEmail || isResetPass || isLogin) && <StrengthIndicator score={refs.passStrength.current} val={pass} />}
 
 								{isLogin && (
-									<button onClick={() => setFormMode('forgotPass')} className=' marBotS fs10 marAuto bold padAllXxs  bgTrans borBot  w40 tRed mw25 boRadXxs '>
+									<button onClick={() => setFormMode('forgotPass')} className=" marBotS fs10 marAuto bold padAllXxs  bgTrans borBot  w40 tRed mw25 boRadXxs ">
 										zapomenuté heslo
 									</button>
 								)}
 
 								{/* PASSWORD CONFIRMATION --- */}
 								{(isRegister || isResetPass || isChangePass || isChangeBoth) && refs.passStrength.current === 7 && (
-									<repeat-password class='flexCol marTopM  textAli '>
-										<span className='fs14 lh1 tDarkBlue marBotXxs xBold'>{`zopakuj heslo`}</span>
-										<input
-											title='Zopakuj heslo'
-											className='w100 hvh5    fs10'
-											value={rePass}
-											maxLength={30}
-											onChange={e => man({ what: 'rePass', val: e.target.value })}
-											onBlur={e => e.target.value.length > 0 && man({ what: 'rePass', val: e.target.value, blur: true })}
-											type='password'
-										/>
-										<blue-divider
-											style={{ filter: inform.passDismatch ? 'brightness(1.5)' : 'brightness(1)' }}
-											class={`  zin1 block  bInsetBlueTopXl posRel  bgTrans   marAuto ${inform.passDismatch ? 'hr0-5 bRed w50' : 'hr0-2 w60'}`}
-										/>
-										{inform.passDismatch && (
-											<span className='bRed tWhite boldXs fs8  padBotXxs mw20 posRel upLittle zinMax marAuto padHorM   aliCen'>
-												{!rePass.length ? 'Zopakuj pro jistotu heslo' : 'hesla se neshodují'}
-											</span>
-										)}
+									<repeat-password class="flexCol marTopM  textAli ">
+										<span className="fs14 lh1 tDarkBlue marBotXxs xBold">{`zopakuj heslo`}</span>
+										<input title="Zopakuj heslo" className="w100 hvh5    fs10" value={rePass} maxLength={30} onChange={e => man({ what: 'rePass', val: e.target.value })} onBlur={e => e.target.value.length > 0 && man({ what: 'rePass', val: e.target.value, blur: true })} type="password" />
+										<blue-divider style={{ filter: inform.passDismatch ? 'brightness(1.5)' : 'brightness(1)' }} class={`  zin1 block  bInsetBlueTopXl posRel  bgTrans   marAuto ${inform.passDismatch ? 'hr0-5 bRed w50' : 'hr0-2 w60'}`} />
+										{inform.passDismatch && <span className="bRed tWhite boldXs fs8  padBotXxs mw20 posRel upLittle zinMax marAuto padHorM   aliCen">{!rePass.length ? 'Zopakuj pro jistotu heslo' : 'hesla se neshodují'}</span>}
 									</repeat-password>
 								)}
 
 								{/* CURRENT PASSWORD VERIFICATION --- */}
 								{isChange && (isChangeMail || (refs.passStrength.current >= 7 && pass === rePass)) && (
-									<current-password class='flexCol marBotS textAli '>
-										<span className='fs12 tDarkBlue lh1 marBotXxs  xBold'>aktuální heslo</span>
-										<input
-											className={`w100 hvh4 mih4  shaBlue borderBot fs12`}
-											value={curPass}
-											placeholder='min. 8 znaků, číslo, symbol a velké písmeno'
-											onChange={e => man({ what: 'curPass', val: e.target.value })}
-											type='password'
-										/>
+									<current-password class="flexCol marBotS textAli ">
+										<span className="fs12 tDarkBlue lh1 marBotXxs  xBold">aktuální heslo</span>
+										<input className={`w100 hvh4 mih4  shaBlue borderBot fs12`} value={curPass} placeholder="min. 8 znaků, číslo, symbol a velké písmeno" onChange={e => man({ what: 'curPass', val: e.target.value })} type="password" />
 									</current-password>
 								)}
 							</pass-words>
@@ -786,19 +622,19 @@ function EntranceForm(props: any) {
 
 						{/* TERMS AND CONDITIONS AGREEMENT --- */}
 						{isRegister && emailValidated && rePass && pass === rePass && (
-							<user-agree class='flexCen marBotS justCen gapXxs  '>
-								<span className='lh1 fs7'>Přečetl jsem si</span>
-								<button className='shaBlue borRed borBotLight padAllXxs'>
-									<span className='fs7 xBold'> podmínky</span>
+							<user-agree class="flexCen marBotS justCen gapXxs  ">
+								<span className="lh1 fs7">Přečetl jsem si</span>
+								<button className="shaBlue borRed borBotLight padAllXxs">
+									<span className="fs7 xBold"> podmínky</span>
 								</button>
-								<label className='custom-checkbox'>
-									<input type='checkbox' title='Souhlas s podmínkami' checked={agreed} onChange={() => man({ what: 'agreed', val: !agreed })} className='hidden-checkbox' />
-									<span className='custom-checkbox-box'></span>
+								<label className="custom-checkbox">
+									<input type="checkbox" title="Souhlas s podmínkami" checked={agreed} onChange={() => man({ what: 'agreed', val: !agreed })} className="hidden-checkbox" />
+									<span className="custom-checkbox-box"></span>
 								</label>
 								<button onClick={() => man({ what: 'agreed', val: !agreed })}>
-									<span className='xBold fs7'>a souhlasím</span>
+									<span className="xBold fs7">a souhlasím</span>
 								</button>{' '}
-								<span className='lh1 fs7'>s jejich zněním.</span>
+								<span className="lh1 fs7">s jejich zněním.</span>
 							</user-agree>
 						)}
 					</inputs-div>
@@ -810,17 +646,17 @@ function EntranceForm(props: any) {
 						const activeWarn = Object.keys(imgMessagesMap).find(key => inform[key] || urlParams.has(key));
 						const { header, detail, image } = imgMessagesMap[activeWarn] || {};
 						return (
-							<info-message ref={refs.infoMessagesRef} class=' padBotXxl  posRel w100 shaBotLongDown  marAuto flexCol aliCen imw12 textAli'>
-								<img src={image} alt='' className='marAuto marTopM cover w100 zin1' />
-								<span className='textAli xBold marTopS marBotXs mw80 fs20  aliCen'>{header}</span>
-								<span className='textAli mw80 fs9 lh1  aliCen'>{detail}</span>
+							<info-message ref={refs.infoMessagesRef} class=" padBotXxl  posRel w100 shaBotLongDown  marAuto flexCol aliCen imw12 textAli">
+								<img src={image} alt="" className="marAuto marTopM cover w100 zin1" />
+								<span className="textAli xBold marTopS marBotXs mw80 fs20  aliCen">{header}</span>
+								<span className="textAli mw80 fs9 lh1  aliCen">{detail}</span>
 
 								{askIfResendMail && (
 									<>
 										{resendRetryCount >= 2 ? (
-											<span className='tRed xBold fsC posRel  marTopS lh1 inlineBlock aliCen'>Maximum pokusů (3). Zkontroluj si také složku SPAM a kdyžtak nás kontaktuj.</span>
+											<span className="tRed xBold fsC posRel  marTopS lh1 inlineBlock aliCen">Maximum pokusů (3). Zkontroluj si také složku SPAM a kdyžtak nás kontaktuj.</span>
 										) : (
-											<div className='flexCol aliCen marTopS gapS'>
+											<div className="flexCol aliCen marTopS gapS">
 												<button
 													onClick={() => man({ what: 'resendMail', submit: true })}
 													disabled={axiosInProg}
@@ -839,19 +675,13 @@ function EntranceForm(props: any) {
 															e.currentTarget.style.transform = 'scale(1)';
 														}
 													}}>
-													{resendJustSuccess ? (
-														<span className='xBold fs8 tGreen'>Znovu odesláno!</span>
-													) : (
-														<span className='xBold fs10 tRed'>{`${
-															resendRetryCount === 0 ? 'Nic mi nepřišlo' : resendRetryCount === 1 ? 'Zase nic nepřišlo.' : 'Ani do třetice ne.'
-														} ${resendRetryCount < 2 ? 'Poslat znovu' : 'Zkusit naposledy'}`}</span>
-													)}
+													{resendJustSuccess ? <span className="xBold fs8 tGreen">Znovu odesláno!</span> : <span className="xBold fs10 tRed">{`${resendRetryCount === 0 ? 'Nic mi nepřišlo' : resendRetryCount === 1 ? 'Zase nic nepřišlo.' : 'Ani do třetice ne.'} ${resendRetryCount < 2 ? 'Poslat znovu' : 'Zkusit naposledy'}`}</span>}
 												</button>
 											</div>
 										)}
 									</>
 								)}
-								{formMode === 'changeBoth' && inform.mailSent && <span className='tGreen xBold fsF posRel moveDown marTopS lh1 inlineBlock aliCen'>Heslo úspěšně změněno</span>}
+								{formMode === 'changeBoth' && inform.mailSent && <span className="tGreen xBold fsF posRel moveDown marTopS lh1 inlineBlock aliCen">Heslo úspěšně změněno</span>}
 							</info-message>
 						);
 					})()}
@@ -861,7 +691,7 @@ function EntranceForm(props: any) {
 					return Object.keys(submitWarnTexts).map(what => {
 						if (inform[what]) {
 							return (
-								<span key={what} className='tRed xBold fsC   marVerXs lh1 inlineBlock aliCen'>
+								<span key={what} className="tRed xBold fsC   marVerXs lh1 inlineBlock aliCen">
 									{submitWarnTexts[what] || 'Oooops, něco se pokazilo.'}
 								</span>
 							);
@@ -869,7 +699,7 @@ function EntranceForm(props: any) {
 					});
 				})()}
 
-				{capsActive && <span className='tRed xBold fsC  marVerXs lh1 inlineBlock aliCen'>Caps Lock je zapnutý</span>}
+				{capsActive && <span className="tRed xBold fsC  marVerXs lh1 inlineBlock aliCen">Caps Lock je zapnutý</span>}
 
 				{/* PRIMARY FORM ACTION BUTTONS --- */}
 				{(showSubmitBtn || showBackToLoginBtn) && (
@@ -880,66 +710,51 @@ function EntranceForm(props: any) {
 								ref={refs.bSubmitRef}
 								onClick={() => {
 									setInform({});
-									if (infoMessageShown) return setFormMode('login'), setInform({});
+									if (infoMessageShown) return (setFormMode('login'), setInform({}));
 									else man({ what: formMode, submit: true });
 								}}
-								className={` ${
-									isInitializing
-										? 'bDarkGreen'
-										: showBackToLoginBtn
-										? 'bRed'
-										: isChange || inform.mailSent
-										? 'bInsetBlueBotXl   '
-										: inform.changeSuccess || inform.emailReverted
-										? 'bGreen'
-										: isResetPass || isRevertEmail || inform.mailTaken || inform.verifyMail || inform.wrongPass || inform.wrongLogin
-										? 'bRed'
-										: 'bBlue borBot2'
-								} tWhite marAuto posRel  hvw8 mh4  w50 tSha10  boRadXxs xBold fs12`}>
+								className={` ${isInitializing ? 'bDarkGreen' : showBackToLoginBtn ? 'bRed' : isChange || inform.mailSent ? 'bInsetBlueBotXl   ' : inform.changeSuccess || inform.emailReverted ? 'bGreen' : isResetPass || isRevertEmail || inform.mailTaken || inform.verifyMail || inform.wrongPass || inform.wrongLogin ? 'bRed' : 'bBlue borBot2'} tWhite marAuto posRel  hvw8 mh4  w50 tSha10  boRadXxs xBold fs12`}>
 								{isInitializing
 									? 'Probíhá inicializace ...'
 									: inform.changeSuccess || (inform.mailSent && !isRegister) || inform.emailReverted
-									? 'Přihlásit se'
-									: inform.tokenExpired || inform.verifyMail || inform.mailNotSent
-									? 'Na domovskou stránku'
-									: inform.unfreezing
-									? 'O.K. rozumím'
-									: inform.wrongPass
-									? 'Nesprávné heslo'
-									: inform.wrongLogin
-									? 'Neplatné přihlášovací údaje'
-									: isForgotPass && !inform.mailSent && !inform.mailResent
-									? 'Poslat na zadaný e-mail'
-									: isResetPass
-									? 'Potvrdit nové heslo!'
-									: isRevertEmail
-									? 'Vrátit email na původní adresu'
-									: ['userDeleted', 'userFrozen', 'unauthorized', 'mailResent', 'serverError', 'networkError', 'registerLimited'].some(what => inform[what]) ||
-									  (inform.mailSent && isRegister)
-									? 'Na domovskou stránku'
-									: axiosInProg
-									? isLogin
-										? 'Přihlašuji ...'
-										: isRegister
-										? 'Vytvářím profil'
-										: isRevertEmail
-										? 'Vracím email...'
-										: isChange
-										? 'Provádím změnu'
-										: ''
-									: isLogin && isContinueMode
-									? 'Pokračovat →'
-									: isLogin
-									? 'Přihlásit se'
-									: isChange && !email
-									? 'Aplikovat změnu'
-									: isChange && email
-									? 'Odeslat verifikační link'
-									: isRevertEmail
-									? 'Potvrdit vrácení emailu'
-									: inform.mailTaken
-									? 'Přepnout na přihlášení'
-									: 'Pokračovat k nastavení'}
+										? 'Přihlásit se'
+										: inform.tokenExpired || inform.verifyMail || inform.mailNotSent
+											? 'Na domovskou stránku'
+											: inform.unfreezing
+												? 'O.K. rozumím'
+												: inform.wrongPass
+													? 'Nesprávné heslo'
+													: inform.wrongLogin
+														? 'Neplatné přihlášovací údaje'
+														: isForgotPass && !inform.mailSent && !inform.mailResent
+															? 'Poslat na zadaný e-mail'
+															: isResetPass
+																? 'Potvrdit nové heslo!'
+																: isRevertEmail
+																	? 'Vrátit email na původní adresu'
+																	: ['userDeleted', 'userFrozen', 'unauthorized', 'mailResent', 'serverError', 'networkError', 'registerLimited'].some(what => inform[what]) || (inform.mailSent && isRegister)
+																		? 'Na domovskou stránku'
+																		: axiosInProg
+																			? isLogin
+																				? 'Přihlašuji ...'
+																				: isRegister
+																					? 'Vytvářím profil'
+																					: isRevertEmail
+																						? 'Vracím email...'
+																						: isChange
+																							? 'Provádím změnu'
+																							: ''
+																			: isLogin
+																				? 'Přihlásit se'
+																				: isChange && !email
+																					? 'Aplikovat změnu'
+																					: isChange && email
+																						? 'Odeslat verifikační link'
+																						: isRevertEmail
+																							? 'Potvrdit vrácení emailu'
+																							: inform.mailTaken
+																								? 'Přepnout na přihlášení'
+																								: 'Pokračovat k nastavení'}
 							</button>
 						)}
 					</action-buttons>

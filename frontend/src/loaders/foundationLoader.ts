@@ -4,7 +4,7 @@ import localforage from 'localforage';
 import { forage, updateInteractions, delUndef, setPropsToContent, processMetas, splitStrgOrJoinArr, getDeviceFingerprint, getPDK } from '../../helpers';
 import { emptyBrain } from '../../sources';
 import { notifyGlobalError } from '../hooks/useErrorsMan';
-import { FOUNDATION_LOADS } from '../../../shared/constants';
+import { FOUNDATION_LOADS, INTERVALS } from '../../../shared/constants.ts';
 
 // TODO could probably implement filter for non-user-cities events/users with sync thats not recent enough, to free up some space in the handleStaleContent
 // TODO store citiesContSync individualy for each user
@@ -21,7 +21,7 @@ const ensureBrainRef = brainParam => ((brain = brainParam || brain || { ...empty
 	pruneCitySync = miscel => {
 		if (miscel.citiesContSync) {
 			const stamp = Date.now();
-			for (const city of Object.keys(miscel.citiesContSync)) if (stamp - miscel.citiesContSync[city] > 300000) delete miscel.citiesContSync[city];
+			for (const city of Object.keys(miscel.citiesContSync)) if (stamp - miscel.citiesContSync[city] > INTERVALS.cityContentRefresh) delete miscel.citiesContSync[city];
 		}
 		return miscel;
 	};
@@ -33,7 +33,7 @@ const hydrateFromDevice = async (brainRef, flags) => {
 	// Steps: prune citiesContSync on every load to ensure stale timestamps don't prevent re-fetching content after extended idle periods.
 	if (brainRef.citiesContSync) pruneCitySync(brainRef);
 
-	if (brainRef.initLoadData) return;
+	if (brainRef.initLoadData && !flags.isInitOrRefreshLoad) return;
 	flags.gotAuth = Boolean(brainRef.user.cities.length);
 	try {
 		const rawMiscel = await forage({ mode: 'get', what: 'miscel' });
@@ -57,12 +57,11 @@ const buildAxiosPlan = ({ brainRef, path, meta, flags, findCity }) => {
 	const plan: any = { citiesGetCityData: undefined, citiesGetContentMetas: [], axiosPayload: { load: FOUNDATION_LOADS.auth } };
 	const { homeView, newCities, cities, lastDevSync, lastLinksSync, clientEpoch } = meta;
 	if (homeView) brainRef.homeView = homeView;
-	if (homeView === 'topEvents') (plan.axiosPayload = { load: FOUNDATION_LOADS.topEvents, clientEpoch }), (plan.citiesGetContentMetas = ['topEvents']);
-	else if (path.startsWith('/event'))
-		plan.axiosPayload = { load: Date.now() - brainRef.user.initedAt > 60000 ? FOUNDATION_LOADS.fast : FOUNDATION_LOADS.auth, lastDevSync, lastLinksSync, clientEpoch };
+	if (homeView === 'topEvents') ((plan.axiosPayload = { load: FOUNDATION_LOADS.topEvents, clientEpoch }), (plan.citiesGetContentMetas = ['topEvents']));
+	else if (path.startsWith('/event')) plan.axiosPayload = { load: Date.now() - brainRef.user.initedAt > 60000 ? FOUNDATION_LOADS.fast : FOUNDATION_LOADS.auth, lastDevSync, lastLinksSync, clientEpoch };
 	else if (path !== '/') plan.axiosPayload = { load: FOUNDATION_LOADS.auth, clientEpoch };
 	else {
-		delete brainRef.fastLoaded, delete brainRef.isAfterLoginInit;
+		(delete brainRef.fastLoaded, delete brainRef.isAfterLoginInit);
 		plan.citiesGetCityData = cities?.filter(city => !findCity(city));
 		plan.citiesGetContentMetas = cities?.filter(city => !brainRef.citiesContSync[city.cityID || city]).map(city => city.cityID || city) || [];
 		plan.axiosPayload = plan.citiesGetContentMetas.length
@@ -74,7 +73,7 @@ const buildAxiosPlan = ({ brainRef, path, meta, flags, findCity }) => {
 					load: newCities ? FOUNDATION_LOADS.cities : FOUNDATION_LOADS.init,
 					gotAuth: flags.gotAuth,
 					clientEpoch,
-			  })
+				})
 			: { load: FOUNDATION_LOADS.auth, clientEpoch };
 	}
 	return plan;
@@ -88,9 +87,7 @@ const fetchFoundationData = async (payload: any): Promise<any> => ((await axios.
 // Steps: clear per-mode “noMore” throttles after a cool-down so the user can fetch more items without manually reloading.
 const resetGalleryNoMore = (brainRef, now) => {
 	if (!(brainRef.user?.noMore?.gallery && brainRef.user?.galleryIDs)) return;
-	for (const [mode, ts] of Object.entries(brainRef.user.noMore.gallery))
-		if (typeof ts === 'number' && now - ts > 600000)
-			(brainRef.user.galleryIDs[mode] = {}), delete brainRef.user.noMore.gallery[mode], brainRef.user.galleryOpenCounts && delete brainRef.user.galleryOpenCounts[mode];
+	for (const [mode, ts] of Object.entries(brainRef.user.noMore.gallery)) if (typeof ts === 'number' && now - ts > 600000) ((brainRef.user.galleryIDs[mode] = {}), delete brainRef.user.noMore.gallery[mode], brainRef.user.galleryOpenCounts && delete brainRef.user.galleryOpenCounts[mode]);
 };
 
 // RESET CHATS “NO MORE” --------------------------------------------------------
@@ -123,7 +120,7 @@ const handleUnstableDev = (brainRef, { unstableDev, devSync, linksSync }) => {
 	else if (unstableDev) {
 		const unstable = (brainRef.user.unstableObj ??= { gotSQL: { events: [], users: [] } });
 		if (typeof linksSync === 'number') unstable.linksSync = linksSync;
-	} else if (!unstableDev && brainRef.user.unstableObj) delete brainRef.user.unstableObj, (brainRef.user.devSync = brainRef.initLoadData.lastDevSync), delete brainRef.initLoadData.lastLinksSync;
+	} else if (!unstableDev && brainRef.user.unstableObj) (delete brainRef.user.unstableObj, (brainRef.user.devSync = brainRef.initLoadData.lastDevSync), delete brainRef.initLoadData.lastLinksSync);
 };
 
 // APPLY AUTH + USER ------------------------------------------------------------
@@ -159,11 +156,7 @@ const applyAuthAndUser = async (ctx, data) => {
 		// DEK now available - reload miscel if it wasn't loaded before (refresh flow) ---------------------------
 		if (!brainRef.initLoadData?.cities) {
 			const miscel = pruneCitySync((await forage({ mode: 'get', what: 'miscel' })) || {});
-			if (miscel.initLoadData)
-				Object.assign(brainRef, miscel),
-					(meta.cities = miscel.initLoadData.cities),
-					(meta.lastDevSync = miscel.initLoadData.lastDevSync),
-					(meta.lastLinksSync = miscel.initLoadData.lastLinksSync);
+			if (miscel.initLoadData) (Object.assign(brainRef, miscel), (meta.cities = miscel.initLoadData.cities), (meta.lastDevSync = miscel.initLoadData.lastDevSync), (meta.lastLinksSync = miscel.initLoadData.lastLinksSync));
 		}
 
 		if (authExpiry) brainRef.authExpiry = authExpiry;
@@ -185,7 +178,7 @@ const applyAuthAndUser = async (ctx, data) => {
 	});
 
 	// RESET THROTTLES AND INTERACTION DELTAS ---
-	resetGalleryNoMore(brainRef, meta.now), resetChatsNoMore(brainRef, meta.now), await resetTempData(brainRef, meta.now), handleUnstableDev(brainRef, { unstableDev, devSync, linksSync });
+	(resetGalleryNoMore(brainRef, meta.now), resetChatsNoMore(brainRef, meta.now), await resetTempData(brainRef, meta.now), handleUnstableDev(brainRef, { unstableDev, devSync, linksSync }));
 	updateInteractions({ brain: brainRef, add: interactions, del: delInteractions });
 	return true;
 };
@@ -199,21 +192,21 @@ const hydratePrevContent = async (ctx, data) => {
 	if (isFastLoad || !brainRef.user.prevLoadedContIDs || (contentMetas && meta.cities?.length === plan.citiesGetContentMetas?.length)) return;
 	if (contentMetas && plan.citiesGetContentMetas.length) plan.citiesGetContentMetas.forEach(city => delete brainRef.user.prevLoadedContIDs[city]);
 
+	// GUARD AGAINST MISSING PREVLOADEDCONTIDS ---
+	// Steps: ensure prevLoadedContIDs exists before accessing keys to prevent undefined access errors on new/corrupted storage.
+	const prevLoadedContIDs = brainRef.user.prevLoadedContIDs || {};
 	// If contentMetas is undefined (auth-only response), load ALL stored cities; otherwise load only unfetched ones ---------------------------
 	const citiesToLoad = !contentMetas
-		? Object.keys(brainRef.user.prevLoadedContIDs).filter(k => k !== 'topEvents') // Load all stored cities when no content from backend
+		? Object.keys(prevLoadedContIDs).filter(k => k !== 'topEvents') // Load all stored cities when no content from backend
 		: meta.cities?.filter(city => !plan.citiesGetContentMetas?.includes(city)) || []; // Load only cities not fetched this request
-		
-	const freshAndNotFetched = [...citiesToLoad, ...(meta.homeView !== 'topEvents' && brainRef.user.prevLoadedContIDs.topEvents ? ['topEvents'] : [])];
-	for (const city of freshAndNotFetched.filter(city => Boolean(brainRef.user.prevLoadedContIDs[city]))) {
-		const prevIDs = brainRef.user.prevLoadedContIDs[city];
+
+	const freshAndNotFetched = [...citiesToLoad, ...(meta.homeView !== 'topEvents' && prevLoadedContIDs.topEvents ? ['topEvents'] : [])];
+	for (const city of freshAndNotFetched.filter(city => Boolean(prevLoadedContIDs[city]))) {
+		const prevIDs = prevLoadedContIDs[city];
 		const eveIDs = Array.isArray(prevIDs.events) ? prevIDs.events : [...(prevIDs.events || [])];
 		const useIDs = Array.isArray(prevIDs.users) ? prevIDs.users : [...(prevIDs.users || [])];
 		if (!eveIDs.length && !useIDs.length) continue;
-		const [eventsToLoad, usersToLoad = []] = await Promise.all([
-			eveIDs.length ? forage({ mode: 'get', what: 'events', id: eveIDs }) : [],
-			...(meta.homeView !== 'topEvents' && useIDs.length ? [forage({ mode: 'get', what: 'users', id: useIDs })] : []),
-		]);
+		const [eventsToLoad, usersToLoad = []] = await Promise.all([eveIDs.length ? forage({ mode: 'get', what: 'events', id: eveIDs }) : [], ...(meta.homeView !== 'topEvents' && useIDs.length ? [forage({ mode: 'get', what: 'users', id: useIDs })] : [])]);
 
 		for (const event of eventsToLoad || []) brainRef.events[event.id] = Object.assign(brainRef.events[event.id] || {}, event);
 		for (const user of usersToLoad || []) brainRef.users[user.id] = Object.assign(brainRef.users[user.id] || {}, user);
@@ -227,7 +220,7 @@ const ensureLocation = async brainRef => {
 		if (!('geolocation' in navigator)) return;
 		const position: any = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000, maximumAge: 60000 }));
 		const { latitude, longitude } = position?.coords || {};
-		if (typeof latitude === 'number' && typeof longitude === 'number') (brainRef.user.location = [latitude, longitude]), await forage({ mode: 'set', what: 'user', val: brainRef.user });
+		if (typeof latitude === 'number' && typeof longitude === 'number') ((brainRef.user.location = [latitude, longitude]), await forage({ mode: 'set', what: 'user', val: brainRef.user }));
 	} catch {
 		brainRef.user.locationDenied = true;
 	}
@@ -252,7 +245,7 @@ const storeCitiesAndContent = async (ctx, data) => {
 	const receivedUserIDs = new Set();
 	if (meta.homeView !== 'topEvents') {
 		const contentCityIDs = plan.citiesGetContentMetas.map(city => findCity(city)?.cityID);
-		for (const city of contentCityIDs) delete brainRef.meetStats[city], delete brainRef.citiesEveTypesInTimes[city], delete brainRef.user.prevLoadedContIDs[city];
+		for (const city of contentCityIDs) (delete brainRef.meetStats[city], delete brainRef.citiesEveTypesInTimes[city], delete brainRef.user.prevLoadedContIDs[city]);
 		await Promise.allSettled(
 			(contentMetas || []).map(async city => {
 				const eveMetas = { cityID: city.cityID };
@@ -260,16 +253,12 @@ const storeCitiesAndContent = async (ctx, data) => {
 				brainRef.citiesContSync[city.cityID] = meta.now;
 				if (!city.error) ['cityID', 'error'].forEach(key => delete city[key]);
 				if (Object.keys(city).length === 0 || city.error) return;
-				for (const [id, metaVal] of Object.entries(city as any) as any)
-					(Array.isArray((metaVal as any)?.[(metaVal as any)?.length - 1]) ? (receivedUserIDs.add(id), userMetas) : (receivedEventIDs.add(id), eveMetas))[id] = metaVal;
+				for (const [id, metaVal] of Object.entries(city as any) as any) (Array.isArray((metaVal as any)?.[(metaVal as any)?.length - 1]) ? (receivedUserIDs.add(id), userMetas) : (receivedEventIDs.add(id), eveMetas))[id] = metaVal;
 				await processMetas({ eveMetas, userMetas, brain: brainRef, contSync, isNewContent: true });
 			})
 		);
-	} else await processMetas({ eveMetas: contentMetas[0], brain: brainRef, contSync, isNewContent: true }), Object.keys(contentMetas[0]).forEach(id => receivedEventIDs.add(id));
-	await Promise.all([
-		forage({ mode: 'set', what: 'events', val: (Object.values(brainRef.events) as any[]).filter(event => receivedEventIDs.has(event.id)) }),
-		forage({ mode: 'set', what: 'users', val: (Object.values(brainRef.users) as any[]).filter(user => receivedUserIDs.has(user.id)) }),
-	]);
+	} else (await processMetas({ eveMetas: contentMetas[0], brain: brainRef, contSync, isNewContent: true }), Object.keys(contentMetas[0]).forEach(id => receivedEventIDs.add(id)));
+	await Promise.all([forage({ mode: 'set', what: 'events', val: (Object.values(brainRef.events) as any[]).filter(event => receivedEventIDs.has(event.id)) }), forage({ mode: 'set', what: 'users', val: (Object.values(brainRef.users) as any[]).filter(user => receivedUserIDs.has(user.id)) })]);
 };
 
 // HYDRATE FOCUSED EVENT (FAST LOAD) -------------------------------------------
@@ -301,7 +290,7 @@ const handleStaleContent = async (ctx, data) => {
 			if (sync === contSync) {
 				if (sync >= (ends || starts) && (ends || starts) < Date.now() && allowedStates.has(state) && (own || ['sur', 'may'].includes(inter))) {
 					const attendees = (Object.values(brainRef.users) as any[]).filter(user => (user as any)?.eveInters?.some?.(([eveID]) => eveID === id));
-					deletionIDs.add(id), delete brainRef.user.eveUserIDs?.[id];
+					(deletionIDs.add(id), delete brainRef.user.eveUserIDs?.[id]);
 					await forage({ mode: 'set', what: 'past', id, val: Object.assign(obj, { ...(type.startsWith('a') && { pastUsers: attendees }) }) });
 				}
 			} else if (allowedStates.has(state)) {
@@ -323,7 +312,7 @@ const handleStaleContent = async (ctx, data) => {
 		}
 
 		if (!deletionIDs.size) continue;
-		delete brainRef.scrollTo, delete brainRef.citiesLoadData;
+		(delete brainRef.scrollTo, delete brainRef.citiesLoadData);
 		await forage({ mode: 'del', what: arrKey, id: [...deletionIDs] as any });
 		const commentsToDel = new Set();
 		const nowStamp = Date.now();
@@ -338,7 +327,7 @@ const handleStaleContent = async (ctx, data) => {
 					commentsToDel.add(comment.id);
 				}
 				await forage({ mode: 'del', what: 'comms', id: id as any });
-				bestOfIDsSet.delete(id), delete brainRef.user.eveUserIDs?.[id], delete brainRef.user.invites?.[id];
+				(bestOfIDsSet.delete(id), delete brainRef.user.eveUserIDs?.[id], delete brainRef.user.invites?.[id]);
 				delete brainRef[arrKey][id];
 			}
 		} else for (const id of [...deletionIDs] as any[]) delete brainRef[arrKey][id];
@@ -389,8 +378,7 @@ const persistToDevice = async (ctx, data) => {
 	if (flags.isInitOrRefreshLoad) brainRef.user.initedAt = meta.now;
 	const miscelVal = {};
 	if (interactions || delInteractions || user || contentMetas) keys.push('user');
-	if (flags.isInitOrRefreshLoad || meta.homeView === 'topEvents' || citiesData)
-		keys.push('miscel'), ['cities', 'initLoadData', 'bestOfIDs', 'meetStats', 'citiesEveTypesInTimes', 'citiesContSync'].forEach(key => brainRef[key] && (miscelVal[key] = brainRef[key]));
+	if (flags.isInitOrRefreshLoad || meta.homeView === 'topEvents' || citiesData) (keys.push('miscel'), ['cities', 'initLoadData', 'bestOfIDs', 'meetStats', 'citiesEveTypesInTimes', 'citiesContSync'].forEach(key => brainRef[key] && (miscelVal[key] = brainRef[key])));
 	await Promise.all(keys.map(async key => forage({ mode: 'set', what: key, val: key === 'miscel' ? miscelVal : brainRef[key] })));
 };
 
@@ -424,11 +412,11 @@ export async function foundationLoader({ url, isFastLoad = false, brain: brainPa
 		await storeCitiesAndContent(ctx, foundationData);
 		await hydrateFocusedEvent(ctx);
 		await handleStaleContent(ctx, foundationData);
-		setPropsToContent('events', brainRef.events, brainRef, true), setPropsToContent('users', brainRef.users, brainRef, true);
+		(setPropsToContent('events', brainRef.events, brainRef, true), setPropsToContent('users', brainRef.users, brainRef, true));
 		await persistToDevice(ctx, foundationData);
 		return brainRef;
-		} catch (error: any) {
-			notifyGlobalError(error, 'Nepodařilo se načíst data aplikace.');
-			return brainRef;
-		}
+	} catch (error: any) {
+		notifyGlobalError(error, 'Nepodařilo se načíst data aplikace.');
+		return brainRef;
+	}
 }

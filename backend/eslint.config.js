@@ -30,6 +30,7 @@ export default [
 			},
 		},
 		rules: {
+			'no-inline-styles': 'off',
 			'no-unused-vars': 'warn',
 			'no-console': 'off',
 			// Codebase uses empty catch blocks intentionally in a few places (catch-and-ignore)

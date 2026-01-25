@@ -90,8 +90,24 @@ function UserStrip(props) {
 				<middle-section class='h100 flexCol gapXxxs justCen padTopXxs	 h100'>
 					{/* TITLE AND AFTER TITLE ------------------------------------------------------ */}
 					<title-aftertitle class={'textLeft'}>
-						<span className={`${modes.menu || modes.profile ? 'xBold fs10' : 'bold fs10'}  marRigXxs`}>{`${obj.first} ${obj.last}`}</span>
-						<span>{obj.age ? `(${obj.age} let)` : null}</span>
+						<span className={`${modes.menu || modes.profile ? 'xBold fs10' : 'bold fs10'}  marRigXxs wordBreak`}>{`${obj.first} ${obj.last}`}</span>
+						<span className='marRigXs'>{obj.age ? `(${obj.age} let)` : null}</span>
+						<ContentIndis
+							menuView={menuView}
+							status={status}
+							isChats={isChatSetup || isChatMember}
+							getPunishmentStatus={getPunishmentStatus}
+							manageMode={manageMode}
+							galleryMode={galleryMode}
+							isSearch={isSearch}
+							thisIs='user'
+							isCardOrStrip={true}
+							modes={modes}
+							brain={brain}
+							obj={obj}
+							isNewUser={isNewUser}
+						/>
+						{isChatMember && punishRemainingLabel && <span className={`fs8 bGlassSubtle marLefXs tRed bold`}>{punishRemainingLabel}</span>}
 					</title-aftertitle>
 
 					{/* SECOND ROW -------------------------------------------------------------- */}
@@ -117,25 +133,6 @@ function UserStrip(props) {
 						</second-row>
 					)}
 
-					{/* INDICATORS -------------------------------------------------------------- */}
-					<third-row class='flexRow aliStart marBotXxxs wrap textLeft'>
-						<ContentIndis
-							menuView={menuView}
-							status={status}
-							isChats={isChatSetup || isChatMember}
-							getPunishmentStatus={getPunishmentStatus}
-							manageMode={manageMode}
-							galleryMode={galleryMode}
-							isSearch={isSearch}
-							thisIs='user'
-							isCardOrStrip={true}
-							modes={modes}
-							brain={brain}
-							obj={obj}
-							isNewUser={isNewUser}
-						/>
-						{isChatMember && punishRemainingLabel && <span className={`fs8 bGlassSubtle marLefXs tRed bold`}>{punishRemainingLabel}</span>}
-					</third-row>
 				</middle-section>
 
 				{/* CHAT REQUEST ACTION BUTTONS (Accept / Refuse) ------------------------------------------------------ */}

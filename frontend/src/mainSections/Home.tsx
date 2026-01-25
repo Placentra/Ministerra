@@ -39,17 +39,11 @@ const timeLabel = {
 // TODO when there is no content, completely replace home with a "marketing and motivating landing page" include last events, if there are any.
 // TODO umožnit při vytvoáření událostí výběr až 3 podtypů. Ve chvíli, kdy se bude událost
 // TODO stopovat jak dlouho je uživatel na daném snapu a zobrazit to v historii, podle toho může poznat, kde se zdržel nejdéle.
-// TODO put the scroll-targets into the components?
 // TODO for the initial guide, record video for each component. Give use options to skip them (but present it in such a way that they will want to watch it)
 // TODO for the discussion friendlyMeetings, give list of possible topics. POSSIBLY provide a seamless way to start a group chat only
 // TODO add masonry above the quicksSel showing next events that the user is inter. Possibly add a button to show all events and go to gallery
 // TODO create turl paths for each view, possibly, give options to copy a link for an exact snap (or just create url as snap changes)
-// TODO decide whether on filter close, all types should be selected, so that filter works only when opened
-// TODO implement frontend limiting for requests frequency
 // IDEA helper function which console logs something only once no matter how many renders the component has
-
-// BUG selected kritiq in sherlock, search did not show anything in users
-// BUG changing from none prague user to pragu doesnt fetch any events. WTF
 
 function Home(props) {
 	// OUTLET PROPS, VARIABLES, REFS ------------------------------------------------------
@@ -57,11 +51,7 @@ function Home(props) {
 		[snap, setSnap] = useState<any>(null),
 		snapAvail = useRef<any>({}),
 		[show, setShow] = useState(showObj),
-		modify = useCallback(
-			(prop, val) =>
-				setShow(prev => (typeof val === 'object' ? { ...prev, ...val } : { ...prev, [prop]: val === prev[prop] ? null : val ?? (typeof prev[prop] === 'boolean' ? !prev[prop] : val) })),
-			[]
-		),
+		modify = useCallback((prop, val) => setShow(prev => (typeof val === 'object' ? { ...prev, ...val } : { ...prev, [prop]: val === prev[prop] ? null : (val ?? (typeof prev[prop] === 'boolean' ? !prev[prop] : val)) })), []),
 		[avail, { cats, types = [], time, sort }, { quick, filter, map, tools, times, sorts, sherlock, history }] = [snapAvail.current, snap || {}, show],
 		// AVAILABLE EVENTS FLAG ------------------------------------------------------
 		// Used to disable time/sort toggles when no events are available.
@@ -92,9 +82,11 @@ function Home(props) {
 	useEffect(() => {
 		if (!brain.user.id || (initialize === null && snap)) return;
 		const initView = initialize || brain.homeView || 'cityEvents';
-		setFadedIn([]), setMenuView(''), setInform([]), snap && showMan('resetView');
+		(setFadedIn([]), setMenuView(''), setInform([]), snap && showMan('resetView'));
 		// Store homeView reference without direct mutation
-		(brain.homeView = initView), (brain.contQueueIDs = []);
+		// VERSION BUMP ---
+		// Steps: increment contQueueVersion so in-flight async fetches can detect stale writes and skip updating contQueueIDs.
+		((brain.homeView = initView), (brain.contQueueIDs = []), (brain.contQueueVersion = (brain.contQueueVersion || 0) + 1));
 		if (initView === 'cityEvents') setSnap(setAvailOrGetAvaTypes(provideSnap('newInitSnap'), false, true));
 		else if (initView === 'topEvents') setSnap({ fetch: true, contView: 'events' });
 		if (initialize) setInitialize(null);
@@ -189,28 +181,25 @@ function Home(props) {
 			const isSnapProp = !Object.keys(sherlockObj).includes(inp);
 			let [lastSnap, newSnap, newSherlock, snapChanged, sherChanged, sherActive] = [provideSnap('last'), null, null, false, false, false];
 			const lastSnapSafe = lastSnap || {};
-			if (inp === 'quicks')
-				(newSnap = { ...snap, types: [val.type], cats: ['Přátelské'], time: 'anytime', sort: 'earliest' }), setAvailOrGetAvaTypes(newSnap), (val = val.contView), (inp = 'fetch');
+			if (inp === 'quicks') ((newSnap = { ...snap, types: [val.type], cats: ['Přátelské'], time: 'anytime', sort: 'earliest' }), setAvailOrGetAvaTypes(newSnap), (val = val.contView), (inp = 'fetch'));
 			if ((inp === 'cats' && sherlock && !val.includes('Přátelské')) || (inform.includes('noMeetSel') && val.includes('Přátelské'))) modify('sherlock', false);
 
 			if (inp === 'fetch') {
-				if (typeof val === 'object') (newSnap = val), setAvailOrGetAvaTypes(newSnap), reset && (newSherlock = { ...sherlockObj });
+				if (typeof val === 'object') ((newSnap = val), setAvailOrGetAvaTypes(newSnap), reset && (newSherlock = { ...sherlockObj }));
 				else brain.canScroll = true;
 			} else {
 				// SETTING NEW SNAP PROPERTIES ------------------------------
 				if (isSnapProp) {
-					if (brain.stillShowingMapContent) delete brain.stillShowingMapContent, (brain.snapChangedWhileMapHidden = true);
+					if (brain.stillShowingMapContent) (delete brain.stillShowingMapContent, (brain.snapChangedWhileMapHidden = true));
 					const lastAvailTypes = setAvailOrGetAvaTypes(lastSnap, 'returnTypes');
 					setAvailOrGetAvaTypes((newSnap = { ...snap, [inp]: val }));
 					const newTypes = newSnap.types.filter(type => avail.types.includes(type));
 					const lastTypes = lastSnapSafe.types.filter(type => lastAvailTypes.includes(type));
-					snapChanged = brain.snapChangedWhileMapHidden
-						? true
-						: !areEqual({ types: newTypes, time: newSnap.time, sort: newSnap.sort }, { types: lastTypes, time: lastSnapSafe.time, sort: lastSnapSafe.sort });
+					snapChanged = brain.snapChangedWhileMapHidden ? true : !areEqual({ types: newTypes, time: newSnap.time, sort: newSnap.sort }, { types: lastTypes, time: lastSnapSafe.time, sort: lastSnapSafe.sort });
 				} else {
 					// SETTING NEW SHERLOCK OBJECT --------------------------
 					if (val === 'strict') newSherlock = { ...sherlockObj, mode: val };
-					else (newSherlock = { ...sherData, [inp]: !Array.isArray(val) ? (sherData[inp] === val ? null : val) : val.sort((a, b) => a - b) }), (sherActive = isSherActive(newSherlock));
+					else ((newSherlock = { ...sherData, [inp]: !Array.isArray(val) ? (sherData[inp] === val ? null : val) : val.sort((a, b) => a - b) }), (sherActive = isSherActive(newSherlock)));
 					sherChanged = newSherlock ? !areEqual(newSherlock, snap.sherData) && (isSherActive(snap.sherData || newSherlock) ? true : sherActive) : false;
 				}
 			}
@@ -219,9 +208,7 @@ function Home(props) {
 
 			setSnap({
 				...trim(newSnap || snap),
-				...(inp === 'fetch'
-					? { fetch: reset ? !areEqual(trim(provideSnap('last')), trim(newSnap)) : true, contView: typeof val === 'object' ? val.contView : val }
-					: { contView: snap.contView }),
+				...(inp === 'fetch' ? { fetch: reset ? !areEqual(trim(provideSnap('last')), trim(newSnap)) : true, contView: typeof val === 'object' ? val.contView : val } : { contView: snap.contView }),
 				cities: [...(typeof val === 'object' && val?.cities ? val.cities : brain.user.curCities)],
 				...(show.sherlock && isSherActive() && val === 'users' && { sherData }),
 				...(snapChanged && { changed: true }),
@@ -259,18 +246,17 @@ function Home(props) {
 					else setInitialize(val);
 				},
 				sherlock: () => {
-					if (sherlock) setSherData({ ...sherlockObj }), setSnap({ ...snap, sherData: null, sherChanged: false });
+					if (sherlock) (setSherData({ ...sherlockObj }), setSnap({ ...snap, sherData: null, sherChanged: false }));
 					if (!sherlock && inform.includes('noMeetSel')) return modify('sherlock', true);
-					if (!inform.includes('noMeetSel') && (!cats.includes('Přátelské') || noMeetSel))
-						setInform(prev => [...prev, 'noMeetSel']), setTimeout(() => setInform(prev => prev.filter(inform => inform !== 'noMeetSel')), 2000);
+					if (!inform.includes('noMeetSel') && (!cats.includes('Přátelské') || noMeetSel)) (setInform(prev => [...prev, 'noMeetSel']), setTimeout(() => setInform(prev => prev.filter(inform => inform !== 'noMeetSel')), 2000));
 					else actions.default();
 				},
 				history: () => {
-					if (brain.user.history.length === 1) setInform(prev => [...prev, 'noHistory']), setTimeout(() => setInform(prev => prev.filter(inform => inform !== 'noHistory')), 2000);
+					if (brain.user.history.length === 1) (setInform(prev => [...prev, 'noHistory']), setTimeout(() => setInform(prev => prev.filter(inform => inform !== 'noHistory')), 2000));
 					else modify('history', history === true ? false : true);
 				},
 				map: () => {
-					if (!hasEffectiveTypeSelection) return setInform(prev => [...prev, 'noSelEvents']), setTimeout(() => setInform(prev => prev.filter(inform => inform !== 'noSelEvents')), 2000);
+					if (!hasEffectiveTypeSelection) return (setInform(prev => [...prev, 'noSelEvents']), setTimeout(() => setInform(prev => prev.filter(inform => inform !== 'noSelEvents')), 2000));
 					if (map === true) return modify('map', 'hide');
 
 					// Keep track that map was loaded so we don't unmount it
@@ -287,13 +273,8 @@ function Home(props) {
 				scrollToCenter = ['times', 'sorts', 'resetView'].includes(inp) || (comps.includes(inp) && show[inp] === true),
 				scrollToQuick = inp === 'quick' && val === false;
 
-			(actions[inp] || actions.default)(),
-				(scrollToQuick || !isMobile) &&
-					(scrollToTop
-						? requestAnimationFrame(() => window.scrollTo({ top: catsWrapperRef.current.offsetTop - 170, behavior: 'smooth' }))
-						: scrollToCenter
-						? requestAnimationFrame(() => setTimeout(() => toolsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50))
-						: scrollToQuick && requestAnimationFrame(() => setTimeout(() => quickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)));
+			((actions[inp] || actions.default)(),
+				(scrollToQuick || !isMobile) && (scrollToTop ? requestAnimationFrame(() => window.scrollTo({ top: catsWrapperRef.current.offsetTop - 170, behavior: 'smooth' })) : scrollToCenter ? requestAnimationFrame(() => setTimeout(() => toolsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)) : scrollToQuick && requestAnimationFrame(() => setTimeout(() => quickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50))));
 		},
 		[snap, show, tools, map, initialize, sherlock, inform, cats, noMeetSel, history, types, hasEffectiveTypeSelection, brain, modify, loader, setSnap, setInitialize, isMobile]
 	);
@@ -336,38 +317,7 @@ function Home(props) {
 			setAvailOrGetAvaTypes,
 			setMenuView,
 		}),
-		[
-			fadedIn,
-			show,
-			brain,
-			snap,
-			avail,
-			nowAt,
-			provideSnap,
-			snapMan,
-			showMan,
-			setSnap,
-			setShow,
-			isMobile,
-			sherData,
-			setSherData,
-			sherAvail,
-			isSherActive,
-			inform,
-			initialize,
-			quick,
-			cats,
-			time,
-			types,
-			tools,
-			history,
-			filter,
-			sort,
-			noMeetSel,
-			setFadedIn,
-			setAvailOrGetAvaTypes,
-			setMenuView,
-		]
+		[fadedIn, show, brain, snap, avail, nowAt, provideSnap, snapMan, showMan, setSnap, setShow, isMobile, sherData, setSherData, sherAvail, isSherActive, inform, initialize, quick, cats, time, types, tools, history, filter, sort, noMeetSel, setFadedIn, setAvailOrGetAvaTypes, setMenuView]
 	);
 
 	console.log(show, snap, brain, initialize, 'SHOW, SNAP, BRAIN, INITIALIZE');
@@ -380,29 +330,20 @@ function Home(props) {
 			<BsChangeHomeView {...jsxProps} />
 
 			{show.view === 'cityEvents' && snap && (
-				<cities-view class={`fPadHorXxs textAli marAuto  block w100 posRel `}>
+				<cities-view class={`fPadHorXpxs textAli marAuto  block w100 posRel `}>
 					{/* QUICK FRIENDLY ------------------------------------------------- */}
 
 					<QuickFriendly {...jsxProps} ref={quickRef} />
 					<empty-div class={`block ${quick === false ? 'hvh2' : 'hvh11'}`} />
 
 					{/* CAT FILTER --------------------------------------------- */}
-					<img src={`/icons/search.png`} className='aspect1610 w20 miw3 mw8 maskLowXs  downTinyBit posRel' alt='' />
-					<span className='boldM fs13 tDarkBlue textSha marBotXxxxs block lh1'>Hlavní vyhledávač</span>
-					<span className='fs8 w90 marAuto  posRel inlineBlock marBotXs '>
-						Zvol si kategorie , časové období a způsob řazení. Použij pokročilé nástroje (Filter, Mapa, Sherlock) pro precizní vyvledání událostí a účastníků
-					</span>
-					<filtering-system ref={catsWrapperRef} class='block   w100 posRel'>
+					<img src={`/icons/search.png`} className="aspect1610 w20 miw3 mw8 maskLowXs  downTinyBit posRel" alt="" />
+					<span className="boldM fs13 tDarkBlue textSha marBotXxxxs block lh1">Hlavní vyhledávač</span>
+					<span className="fs8 w90 marAuto  posRel inlineBlock marBotXs ">Zvol si kategorie , časové období a způsob řazení. Použij pokročilé nástroje (Filter, Mapa, Sherlock) pro precizní vyvledání událostí a účastníků</span>
+					<filtering-system ref={catsWrapperRef} class="block   w100 posRel">
 						{/* RESET BUTTON --------------------------------------------------- */}
-						{(provideSnap('init')?.types.length !== types.length ||
-							snap.contView !== 'events' ||
-							cats.length !== catsSrc.en.length ||
-							comps.some(comp => show[comp] === true) ||
-							snap.sort !== 'popular' ||
-							snap.time !== 'anytime') && (
-							<button
-								onClick={() => (snapMan('fetch', provideSnap('init'), true), showMan('resetView'))}
-								className='posAbs bgTrans tShaWhiteXl  tRed opacityL  zin2500 topCen  padBotXxs xBold fs13 xBold zinMenu w33 marAuto mw20'>
+						{(provideSnap('init')?.types.length !== types.length || snap.contView !== 'events' || cats.length !== catsSrc.en.length || comps.some(comp => show[comp] === true) || snap.sort !== 'popular' || snap.time !== 'anytime') && (
+							<button onClick={() => (snapMan('fetch', provideSnap('init'), true), showMan('resetView'))} className="posAbs bgTrans tShaWhiteXl  tRed opacityL  zin2500 topCen  padBotXxs xBold fs13 xBold zinMenu w33 marAuto mw20">
 								Reset
 							</button>
 						)}
@@ -411,71 +352,57 @@ function Home(props) {
 						<CatFilter {...jsxProps} />
 
 						{/* TOOLS STRIP------------------------------------------------- */}
-						<tools-strip
-							ref={toolsRef}
-							id='switches'
-							class={`fadingIn ${fadedIn.includes('Tools') ? 'fadedIn' : ''} ${!hasEffectiveTypeSelection ? 'borderRed' : ''} flexCol    posRel  marAuto `}>
+						<tools-strip ref={toolsRef} id="switches" class={`fadingIn ${fadedIn.includes('Tools') ? 'fadedIn' : ''} ${!hasEffectiveTypeSelection ? 'borderRed' : ''} flexCol    posRel  marAuto `}>
 							{!times && !sorts && (
-								<toggle-buttons className='flexCen alicen spaceBet   aliStretch  bPadVerM       w100   posRel   '>
+								<toggle-buttons className="flexCen alicen spaceBet   aliStretch  bPadVerM       w100   posRel   ">
 									{/* TOGGLE TIME FRAMES ---------------------------------------- */}
 									{(() => {
 										const noEventsInTime = !avail.times?.includes(time);
 										return (
-											<button
-												className={`   grow  allOff  mw45   bHover h100     textSha ${noEventsAvailable || (noEventsInTime && avail.types.length) ? 'bRed tWhite xBold' : ''}`}
-												onClick={() => showMan('times')}
-												disabled={noEventsAvailable}>
-												<img src={`/icons/gallery/pastSurMay.png`} className='aspect1612  w20 miw3 mw4' alt='' />
-												<span className='fs12 bold '>{noEventsAvailable ? 'období' : timeLabel[time]}</span>
+											<button className={`   grow  allOff  mw45   bHover h100     textSha ${noEventsAvailable || (noEventsInTime && avail.types.length) ? 'bRed tWhite xBold' : ''}`} onClick={() => showMan('times')} disabled={noEventsAvailable}>
+												<img src={`/icons/gallery/pastSurMay.png`} className="aspect1612  w20 miw3 mw4" alt="" />
+												<span className="fs12 bold ">{noEventsAvailable ? 'období' : timeLabel[time]}</span>
 											</button>
 										);
 									})()}
 
 									{/* EXPERT TOOLS TOGGLES ------------------------------------------------- */}
-									<expert-toggles class='flexCen     aliStretch gapXxxs      w60 mw65 grow   zinMaXl posRel   marAuto h100  '>
+									<expert-toggles class="flexCen     aliStretch gapXxxs  padTopXxs    w60 mw65 grow   zinMaXl posRel   marAuto h100  ">
 										{comps
-											.filter(comp => comp === 'filter' || show[comp] && avail.types?.some(type => types.includes(type)) || (hasEffectiveTypeSelection && (comp !== 'sherlock' || snap.cats.includes('Přátelské'))))
+											.filter(comp => comp === 'filter' || (show[comp] && avail.types?.some(type => types.includes(type))) || (hasEffectiveTypeSelection && (comp !== 'sherlock' || snap.cats.includes('Přátelské'))))
 											.map(key => {
 												const availCount = avail.types.length;
 												const numOfAvailNotSel = avail.types?.filter(type => !types.includes(type)).length;
-												const notAllTypesSelected = availCount - numOfAvailNotSel !== availCount;
-												const isSel = show[key] === true || (notAllTypesSelected && key === 'filter');
+												const notAllTypesSelected = availCount - numOfAvailNotSel !== availCount && key === 'filter';
+												const isSel = show[key] === true;
 
 												return (
 													<button
 														key={key}
 														onClick={() => {
-															if (!avail.types.length) setInform(['noEvents']), setTimeout(() => setInform(prev => prev.filter(inform => inform !== 'noEvents')), 3000);
+															if (!avail.types.length) (setInform(['noEvents']), setTimeout(() => setInform(prev => prev.filter(inform => inform !== 'noEvents')), 3000));
 															else if (key !== 'sherlock' || !inform.includes('noMeetSel')) showMan(key);
 														}}
-														className={`${!types.length && availCount > 0 ? 'fs12 bsContentGlow tRed' : ''} ${isSel && !inform.length && hasEffectiveTypeSelection ? 'fs12 arrowDown1 posRel xBold   ' : ' fs8   bHover  '}
-													${!hasEffectiveTypeSelection ? 'tRed xBold fs15' : ''}
-											          grow     bgTransXs posRel   lh1         `}>
-														<img src={`/icons/${key}.png`} className={`aspect1612 mw7 w50  miw4  `} alt='' />
-														{key === 'filter' ? (notAllTypesSelected ? `${availCount - numOfAvailNotSel}/${availCount}` : 'filter') : key}
-														{isSel && !inform.length && hasEffectiveTypeSelection && (
-															<blue-divider
-																style={{ bottom: '0px', filter: 'saturate(1.5) brightness(0.5)' }}
-																class='hvw1 hr0-5 block posAbs botCen  zinMaXl     bInsetBlueTopXl   w100  marAuto'
-															/>
+														className={`${!types.length && availCount > 0 ? 'fs12 bsContentGlow tRed' : ''} ${isSel && !inform.length && hasEffectiveTypeSelection ? 'fs18  arrowDown1 posRel xBold   ' : ' fs8   bHover  '}
+													${!hasEffectiveTypeSelection ? 'tRed xBold fs15' : notAllTypesSelected ? 'shaBotLongDown' : ''}
+											          grow  bInsetBlueTopXs bBor    bgTransXs posRel   lh1         `}>
+														<img src={`/icons/${key}.png`} className={`aspect1612 ${isSel || notAllTypesSelected ? 'mw8 ' : 'mw6'}  w50  miw4  `} alt="" />
+														{notAllTypesSelected && (
+															<span className="fs10 botCen posAbs  xBold tDarkBlue shaBlue borBotLight posRel block marBotS boRadXxs bgTransXs padAllXxxs">
+																({availCount - numOfAvailNotSel}/{availCount})
+															</span>
 														)}
+														{(notAllTypesSelected || (isSel && !inform.length && hasEffectiveTypeSelection)) && <blue-divider style={{ bottom: notAllTypesSelected ? '-2px' : '0px', filter: 'saturate(1.5) brightness(0.5)' }} class={`hvw1 ${notAllTypesSelected ? 'hr1 borRed' : 'hr0-5'}  block posAbs botCen  zinMaXl     bInsetBlueTopXl   w100  marAuto`} />}
 													</button>
 												);
 											})}
 									</expert-toggles>
 
 									{/* TOGGLE SORTING --------------------------------------- */}
-									<button
-										className={`  posRel allOff  bHover grow mw45 h100  textSha ${noEventsAvailable ? 'bRed tWhite xBold' : ''}`}
-										onClick={() => showMan('sorts')}
-										disabled={noEventsAvailable}>
-										<img src={`/icons/sort.png`} className='aspect1610 w20 miw3 mw4' alt='' />
-										<span className='fs12 bold '>
-											{noEventsAvailable ? 'řazení' : sort === 'popular' ? 'oblíbené' : sort === 'earliest' ? 'brzké' : sort === 'nearest' ? 'blízké' : sort === 'intimate' ? 'intimní' : 'rušné'}
-										</span>
+									<button className={`  posRel allOff  bHover grow mw45 h100  textSha ${noEventsAvailable ? 'bRed tWhite xBold' : ''}`} onClick={() => showMan('sorts')} disabled={noEventsAvailable}>
+										<img src={`/icons/sort.png`} className="aspect1610 w20 miw3 mw4" alt="" />
+										<span className="fs12 bold ">{noEventsAvailable ? 'řazení' : sort === 'popular' ? 'oblíbené' : sort === 'earliest' ? 'brzké' : sort === 'nearest' ? 'blízké' : sort === 'intimate' ? 'intimní' : 'rušné'}</span>
 									</button>
-
-									<blue-divider style={{ filter: 'saturate(1)' }} class='h100 posAbs botCen   downLittle zinMax    bInsetBlueTop opacityM    w75 mw95  marAuto' />
 								</toggle-buttons>
 							)}
 
@@ -487,52 +414,44 @@ function Home(props) {
 
 							{/* NO FRIENDLY SELECTED WARN ---------------------*/}
 							{(inform.includes('noEvents') || (!sherlock && inform.includes('noMeetSel')) || (map !== true && inform.includes('noSelEvents')) || inform.includes('noHistory')) && (
-								<span className=' tRed borderRed shaBot  textAli inlineBlock pointer marAuto marBotS  zin2500  selfEnd bInsetRedTop padAllXxs w100 mw50 boRadXxs xBold fs12'>
-									{inform.includes('noEvents')
-										? 'Nejsou založeny žádné události, bohužel.'
-										: inform.includes('noSelEvents')
-										? 'Nemáš zvolen ani jeden typ události'
-										: !cats.includes('Přátelské')
-										? 'Přiznač kategorii přátelských událostí'
-										: inform.includes('noHistory')
-										? 'Zatím jsi nepotvdil žádný filtr'
-										: 'Vyber nějaké přátelské události'}
+								<span className=" tRed borderRed shaBot  textAli inlineBlock pointer marAuto marBotS  zin2500  selfEnd bInsetRedTop padAllXxs w100 mw50 boRadXxs xBold fs12">
+									{inform.includes('noEvents') ? 'Nejsou založeny žádné události, bohužel.' : inform.includes('noSelEvents') ? 'Nemáš zvolen ani jeden typ události' : !cats.includes('Přátelské') ? 'Přiznač kategorii přátelských událostí' : inform.includes('noHistory') ? 'Zatím jsi nepotvdil žádný filtr' : 'Vyber nějaké přátelské události'}
 								</span>
 							)}
 						</tools-strip>
 						{!hasEffectiveTypeSelection && (
-						<red-warning class={`  block  w100 block  posAbs botCen ${filter ? 'arrowDownRed' : ''} downLittle zin2500 posRel  boldS`}>
-							<span className={`tWhite padAllXxs fs7 w100 mw45 inlineBlock bInsetBlueTopXl bDarkRed  
+							<red-warning class={`  block  w100 block  posAbs botCen ${filter ? 'arrowDownRed' : ''} downLittle zin2500 posRel  boldS`}>
+								<span
+									className={`tWhite padAllXxs fs7 w100 mw45 inlineBlock bInsetBlueTopXl bDarkRed  
 							  boldS`}>{`${!filter ? 'Není zvolen žádný typ událostí v aktuálním filtru.' : 'Vyber alespoň jeden typ událostí z aktuálního filtru.'}`}</span>
-						</red-warning>
-
+							</red-warning>
 						)}
 					</filtering-system>
 
 					{/* SNAPS HISTORY ------------------------- */}
 					{history && (
-						<Suspense fallback={<div className='fadingIn'>Načítám historii ...</div>}>
+						<Suspense fallback={<div className="fadingIn">Načítám historii ...</div>}>
 							<History {...jsxProps} />
 						</Suspense>
 					)}
 					{/* EVENT TYPES FILTER ------------------------------------------ */}
 					{filter && (
-						<Suspense fallback={<div className='fadingIn'>Načítám filtr ...</div>}>
+						<Suspense fallback={<div className="fadingIn">Načítám filtr ...</div>}>
 							<Filter {...jsxProps} />
 						</Suspense>
 					)}
 
 					{/* MAP ----------------- */}
 					{(show.map !== false || mapLoaded) && (
-						<Suspense fallback={<map-placeholder ref={mapWrapperRef} class='block w100 hvh70 marTopM shaTop boRadS bgTrans' />}>
-							<map-wrapper ref={mapWrapperRef} class='block w100' style={{ display: show.map === true ? 'block' : 'none' }}>
+						<Suspense fallback={<map-placeholder ref={mapWrapperRef} class="block w100 hvh70 marTopM shaTop boRadS bgTrans" />}>
+							<map-wrapper ref={mapWrapperRef} class="block w100" style={{ display: show.map === true ? 'block' : 'none' }}>
 								<Map {...jsxProps} />
 							</map-wrapper>
 						</Suspense>
 					)}
 					{/* SHERLOCK ----------------- */}
 					{sherlock && sherAvail && sherData && (
-						<Suspense fallback={<div className='fadingIn'>Načítám Sherlocka ...</div>}>
+						<Suspense fallback={<div className="fadingIn">Načítám Sherlocka ...</div>}>
 							<Sherlock {...jsxProps} />
 						</Suspense>
 					)}

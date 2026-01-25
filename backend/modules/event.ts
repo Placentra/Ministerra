@@ -74,7 +74,7 @@ const getEventRating = async (connection: any, userID: number | string | undefin
 // CACHE PAST EVENT ------------------------------------------------------------
 // Steps: read event row from SQL, build meta + basi + deta payloads, write them into redis, and clear future caches so past representation becomes the source of truth.
 async function cachePastEvent(eventID: number | string, connection: any) {
-	const [[eventData]]: [any[], any] = await connection.execute(`SELECT ${EVENT_COLUMNS} FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.id = ? AND e.flag != 'del'`, [eventID]);
+	const [[eventData]]: [any[], any] = await connection.execute(`SELECT ${EVENT_COLUMNS} FROM events e LEFT JOIN cities c ON e.cityID = c.id WHERE e.id = ? AND e.flag != 'del'`, [eventID]);
 	if (!eventData) throw new Error('notFound');
 
 	geohash ??= getGeohash();
@@ -103,7 +103,7 @@ async function cachePastEvent(eventID: number | string, connection: any) {
 	pipeline
 		.hset(`pastEve:${eventID}`, 'meta', encode(meta), 'basi', encode(basicsData), 'deta', encode(detailsData))
 		.zadd(`pastEveCachedAt`, Date.now() + 604800000, eventID as any)
-		.del(`${REDIS_KEYS.eveBasics}:${eventID}`, `${REDIS_KEYS.eveDetails}:${eventID}`);
+		.del(`${REDIS_KEYS.eveBasics}:${eventID}`, `${REDIS_KEYS.eveDetails}:${eventID}`, `${REDIS_KEYS.eveMetas}:${eventID}`);
 
 	// USER LIST CACHING ------------------------------------------------------
 	// Steps: for friend-type events, cache an attendee snapshot so past event pages can render without recomputing user lists each request.

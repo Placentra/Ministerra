@@ -1,3 +1,4 @@
+
 import { Sql } from '../systems.ts';
 import dailyRecalc from '../../tasks/dailyRecalc/index.ts';
 import { encode } from 'cbor-x';
@@ -151,7 +152,7 @@ export async function Cacher(redis: any): Promise<void> {
 
 				await streamAndProcess({
 					con: Sql,
-					sql: `SELECT ${EVENT_COLUMNS} FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.flag NOT IN ('pas', 'del') ORDER BY 3 * e.surely + e.maybe + 0.2 * e.score DESC`,
+					sql: `SELECT ${EVENT_COLUMNS} FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.flag NOT IN ('pas', 'del', 'new') ORDER BY 3 * e.surely + e.maybe + 0.2 * e.score DESC`,
 					batchSize: EVENTS_BATCH_SIZE,
 					processor: async (batch: any[]) => {
 						eventsCount += batch.length;
@@ -168,7 +169,7 @@ export async function Cacher(redis: any): Promise<void> {
 								await pipe.exec();
 								// STATE TRIM ---
 								// Steps: drop per-batch maps immediately; keep cross-batch indexes that are needed for user attendance partitioning.
-								clearState(state, ['eveCityIDs', 'best100EveIDs']);
+								clearState(state, ['eveCityIDs', 'best100EveIDs', 'best100EveMetas']);
 							},
 						});
 					},
@@ -198,7 +199,7 @@ export async function Cacher(redis: any): Promise<void> {
 								loadMetaPipes(state, pipe, pipe, 'streaming');
 								loadBasicsDetailsPipe(state, pipe);
 								await pipe.exec();
-								clearState(state, ['eveCityIDs', 'best100EveIDs']);
+								clearState(state, ['eveCityIDs', 'best100EveIDs', 'best100EveMetas']);
 							},
 						});
 					},
@@ -383,7 +384,7 @@ export async function Cacher(redis: any): Promise<void> {
 				if (chatChanges.length) await redis.hset(REDIS_KEYS.lastMembChangeAt, ...chatChanges.flatMap(x => [x.id, new Date(x.changed).getTime()]));
 
 				const [eveUserChanges]: [any[], any] = await Sql.execute(
-					`SELECT ei.event, MAX(ei.changed) as c FROM eve_inters ei JOIN events e ON ei.event = e.id AND e.type LIKE 'a%' AND e.flag != 'del' WHERE ei.changed > NOW() - INTERVAL 1 MONTH GROUP BY ei.event`
+					`SELECT ei.event, MAX(ei.changed) as c FROM eve_inters ei JOIN events e ON ei.event = e.id AND e.type LIKE 'a%' AND e.flag NOT IN ('del', 'pas', 'new') WHERE ei.changed > NOW() - INTERVAL 1 MONTH GROUP BY ei.event`
 				);
 				if (eveUserChanges.length) await redis.hset(REDIS_KEYS.eveLastAttendChangeAt, ...eveUserChanges.flatMap(x => [x.event, new Date(x.c).getTime()]));
 

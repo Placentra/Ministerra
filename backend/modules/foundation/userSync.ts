@@ -124,7 +124,6 @@ async function syncUserData(req: any, con: any, { userID, load, devID, devSync, 
 		}
 	}
 
-	console.log('lastDevSummary', oldUserUnstableDev);
 	// 3. DETERMINE TABLES TO FETCH -------------------------------------------
 	// Steps: choose between (a) unstable-device fallback, (b) full snapshot for devSync=0, (c) throttled delta reads when enough time has passed.
 	if (oldUserUnstableDev) {
@@ -150,7 +149,6 @@ async function syncUserData(req: any, con: any, { userID, load, devID, devSync, 
 			if (!linksChange || Number(linksChange) > linksSync) tablesToFetch.push('user_links'), !linksChange && hasNoTimestamp.push('user_links');
 		}
 	} else if (!devSync) {
-		console.log('devSync', devSync);
 		// CLEAN STATE FULL SNAPSHOT -------------------------------------------
 		// Steps: first-time device fetch pulls all tracked tables so client can bootstrap without deltas.
 		tablesToFetch.push(...tableNames,'users');
@@ -175,8 +173,6 @@ async function syncUserData(req: any, con: any, { userID, load, devID, devSync, 
 			logger.error('Foundation', { error, userID, step: 'checkForUpdates' });
 		}
 	}
-
-	console.log('tablesToFetch', tablesToFetch);
 
 	// 4. EXECUTE SQL FETCHES -------------------------------------------------
 	// Steps: open a connection once, then run per-table execQuery in parallel; update the correct watermark (linksSync vs devSync) based on which path executed.

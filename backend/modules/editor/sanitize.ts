@@ -1,4 +1,4 @@
-import { ALLOWED_IDS } from '../../../shared/constants.ts';
+import { ALLOWED_IDS, MAX_EVENT_DURATIONS } from '../../../shared/constants.ts';
 
 // VALIDATION CONSTANTS ---------------------------------------------------------
 const ALLOWED_MODES = new Set(['delete', 'cancel', 'create', 'edit', undefined]);
@@ -123,12 +123,18 @@ function sanitizeStartsDate(value, type, isEdit = false) {
 	return value;
 }
 
-function sanitizeEndsDate(value, starts) {
+function sanitizeEndsDate(value, starts, type) {
 	if (value === undefined) return undefined;
 	const date = new Date(value);
 	if (isNaN(date.getTime())) throw new Error('invalid ends date');
 	if (starts && date.getTime() < new Date(starts).getTime()) {
 		throw new Error('end date cannot be before start date');
+	}
+	if (starts) {
+		const limit = type?.startsWith('a') ? MAX_EVENT_DURATIONS.friendly : MAX_EVENT_DURATIONS.regular;
+		if (date.getTime() > new Date(starts).getTime() + limit) {
+			throw new Error('event duration exceeds allowed limit');
+		}
 	}
 	return value;
 }
@@ -167,8 +173,9 @@ function sanitizeLocaMode(value) {
 // SANITIZE V_IMG ---------------------------------------------------------------
 function sanitizeVImg(value) {
 	if (value === undefined) return undefined;
-	if (value !== 0 && typeof value !== 'string') throw new Error('invalid imgVers');
-	return value;
+	const num = Number(value);
+	if (isNaN(num)) throw new Error('invalid imgVers');
+	return num;
 }
 
 // SANITIZE EVENT ID ------------------------------------------------------------
@@ -212,9 +219,10 @@ function normalizeEditorPayload(input) {
 		cityID: sanitizeCityID(input.cityID),
 		priv: sanitizePriv(input.priv),
 		inter: sanitizeInter(input.inter),
+		interPriv: sanitizePriv(input.interPriv),
 		locaMode: sanitizeLocaMode(input.locaMode),
 		starts: sanitizeStartsDate(input.starts, type, !!input.id),
-		ends: sanitizeEndsDate(input.ends, input.starts),
+		ends: sanitizeEndsDate(input.ends, input.starts, type),
 		meetWhen: sanitizeMeetWhen(input.meetWhen),
 		imgVers: sanitizeVImg(input.imgVers),
 	};

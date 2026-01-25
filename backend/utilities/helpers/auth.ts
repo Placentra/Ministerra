@@ -49,9 +49,24 @@ interface VerifyAuthResult {
 	needsRotation?: boolean;
 }
 
+// CONSTANT-TIME HASH COMPARE ---------------------------------------------------
+// Steps: pad both buffers to fixed 64 bytes (SHA256 hex output length) so length check doesn't leak timing info, then use timingSafeEqual.
+const HASH_LENGTH = 64; // SHA256 hex output is always 64 chars
+function constantTimeHashCompare(provided: string, expected: string): boolean {
+	// PAD TO FIXED LENGTH ---
+	// Steps: normalize to fixed length so timing is uniform regardless of input length.
+	const providedPadded: Buffer = Buffer.alloc(HASH_LENGTH);
+	const expectedPadded: Buffer = Buffer.alloc(HASH_LENGTH);
+	Buffer.from(provided).copy(providedPadded);
+	Buffer.from(expected).copy(expectedPadded);
+	// LENGTH MUST MATCH FOR VALID COMPARISON ---
+	// Steps: if provided length differs from expected, the padded comparison will fail but timing is constant.
+	return provided.length === expected.length && crypto.timingSafeEqual(providedPadded, expectedPadded);
+}
+
 // VERIFY AUTH TOKEN ------------------------------------------------------------
 // Steps: validate against current epoch first (fast success), then allow previous epoch during grace window so in-flight clients
-// can rotate safely; use timingSafeEqual to avoid leaking correctness via timing.
+// can rotate safely; use constantTimeHashCompare to avoid leaking correctness via timing.
 export function verifyAuth(userID: string | number, providedHash: string, providedEpoch: number): VerifyAuthResult {
 	const now: number = Date.now();
 
@@ -61,11 +76,7 @@ export function verifyAuth(userID: string | number, providedHash: string, provid
 	// Check current epoch first ---------------------------
 	if (providedEpoch === currentEpoch) {
 		const expectedHash: string = generateHash(userID, currentEpoch);
-		// timingSafeEqual requires Buffers of equal length
-		const providedBuffer: Buffer = Buffer.from(providedHash);
-		const expectedBuffer: Buffer = Buffer.from(expectedHash);
-
-		if (providedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(providedBuffer, expectedBuffer)) {
+		if (constantTimeHashCompare(providedHash, expectedHash)) {
 			return { valid: true, expired: false, epoch: currentEpoch };
 		}
 	}
@@ -74,10 +85,7 @@ export function verifyAuth(userID: string | number, providedHash: string, provid
 	const prevEpoch: number = currentEpoch - 1;
 	if (providedEpoch === prevEpoch) {
 		const expectedHash: string = generateHash(userID, prevEpoch);
-		const providedBuffer: Buffer = Buffer.from(providedHash);
-		const expectedBuffer: Buffer = Buffer.from(expectedHash);
-
-		if (providedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(providedBuffer, expectedBuffer)) {
+		if (constantTimeHashCompare(providedHash, expectedHash)) {
 			return { valid: true, expired: true, epoch: prevEpoch, needsRotation: true };
 		}
 	}

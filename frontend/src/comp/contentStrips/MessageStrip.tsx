@@ -66,7 +66,7 @@ function MessageStrip(props) {
 						{/* TITLE AND AFTER TITLE ---------------------------------------------- */}
 						{isFirst && obj.content !== null && (
 							<title-after-title class={''}>
-								<span className={`${isFirst ? 'fs9 boldS' : ''} marRigXxs`}>{modes.menu || chatObj.type !== 'private' ? userName : userName?.split(' ')[0]}</span>
+								<span className={`${isFirst ? 'fs9 boldS' : ''} marRigXxs wordBreak`}>{modes.menu || chatObj.type !== 'private' ? userName : userName?.split(' ')[0]}</span>
 							</title-after-title>
 						)}
 						{/* SECOND ROW --------------------------------------------------------------- */}

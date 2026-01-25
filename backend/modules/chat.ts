@@ -6,7 +6,9 @@ import { broadcastChatChanged, broadcastNewChat, broadcastMembersChanged, manage
 import { messSeen, fetchSeenUpdates, setSeenRedisClient, writeSeenEntriesToCache } from './chat/seenSync.ts';
 import { quickQueryHandlers } from './chat/quickQueries.ts';
 import { messageHandlers } from './chat/messageHandlers.ts';
-import { authorizeRole, getMembers, getMessages, setRolesAndLasts, needsAuth, setChatHelpersRedisClient } from './chat/chatHelpers.ts';
+import { authorizeRole, AuthorizeRoleProps, getMembers, getMessages, setRolesAndLasts, needsAuth, setChatHelpersRedisClient } from './chat/chatHelpers.ts';
+
+// TODO will probably need to add new role, for users who are not members anymore. (spect allows for example fetching members, which shouldnt be allowed for non-members)
 
 interface ChatMemberInput {
 	id: string | number;
@@ -54,7 +56,6 @@ const NEW_ROLES = new Set(['member', 'priv', 'guard', 'admin', 'VIP', 'spect']);
 // Steps: merge submodule handlers into one stable map so Chat can dispatch by mode without dynamic imports.
 const extHandlers: any = { ...messageHandlers, ...quickQueryHandlers, messSeen };
 
-// HELPERS ---------------------------------------------------------------------
 
 // GET LEADERS ------------------------------------------------------------------
 // Loads chat type and leadership roles (admin/VIP) from SQL:
@@ -66,13 +67,12 @@ const getLeaders = async (connection: any, id: string | number) => {
 		`SELECT c.type, cm.id, cm.role FROM chats c LEFT JOIN chat_members cm ON cm.chat = c.id AND cm.flag = 'ok' AND cm.role IN ('admin', 'VIP') WHERE c.id = ?`,
 		[id]
 	);
-	return { type: result[0]?.type, admins: result.filter(member => member.role === 'admin').map(member => member.id), vips: result.filter(member => member.role === 'VIP').map(member => member.id) };
+	// NULL GUARD ---
+	// Steps: LEFT JOIN returns null id/role when no leaders exist; filter nulls explicitly to avoid false positives in leader counts.
+	return { type: result[0]?.type, admins: result.filter(member => member && member.role === 'admin' && member.id).map(member => member.id), vips: result.filter(member => member && member.role === 'VIP' && member.id).map(member => member.id) };
 };
 
 // TRANSACTION WRAPPER ---------------------------------------------------------
-// Wraps a function in a SQL transaction (commit/rollback)
-// CHAT TRANSACTION -------------------------------------------------------------
-// Ensures chat mutations are atomic and rollback on any failure.
 // Steps: beginTransaction, run transactionFunction, commit on success, rollback on error, then rethrow so caller can map to Catcher.
 export const runChatTransaction = async (connection: any, transactionFunction: () => Promise<any>) => {
 	try {
@@ -133,9 +133,9 @@ async function createChat({ members: membersInput, type = 'private', name, conte
 				? `SELECT c.id FROM chats c JOIN chat_members cm ON cm.chat = c.id WHERE c.type = 'private' GROUP BY c.id HAVING COUNT(*) = ? AND SUM(cm.id IN (${memberIDs.map(
 						() => '?'
 				  )})) = ? LIMIT 1`
-				: `WITH dc AS (SELECT cm.chat as id FROM chat_members cm WHERE cm.id = ? AND cm.punish NOT IN ('ban','gag') AND EXISTS (SELECT 1 FROM chat_members cm2 WHERE cm2.chat = cm.chat AND cm2.id IN (${memberIDs.map(
+				: `WITH dc AS (SELECT cm.chat as id FROM chat_members cm WHERE cm.id = ? AND cm.punish NOT IN ('ban','gag') AND EXISTS (SELECT 1 FROM chat_members cm2 WHERE cm2.chat = cm.chat GROUP BY cm2.chat HAVING COUNT(DISTINCT cm2.id) = ${members.length} AND SUM(cm2.id IN (${memberIDs.map(
 						() => '?'
-				  )}) GROUP BY cm2.chat HAVING COUNT(DISTINCT cm2.id) = ${members.length})) SELECT dc.id FROM dc LEFT JOIN chat_members cm ON dc.id = cm.chat AND cm.id = ? LIMIT 10`;
+				  )})) = ${members.length})) SELECT dc.id FROM dc LEFT JOIN chat_members cm ON dc.id = cm.chat AND cm.id = ? LIMIT 10`;
 		const [similarChats]: [any[], any] = await connection.execute(query, type === 'private' ? [memberIDs.length, ...memberIDs, memberIDs.length] : [userID, ...memberIDs, userID]);
 
 		if (similarChats.length) {
@@ -230,8 +230,8 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 			!members.some(member => member.role === 'VIP') &&
 			(members.some(member => member.role === 'admin') || admins.some((id: any) => members.some(member => member.id === id && member.role !== 'admin'))),
 		VIP: () => {
-			const vipMember = members.find(member => member.role === 'VIP' && member.id !== vips[0]);
-			return !vipMember || !vips[0] || members.some(member => member.id === vips[0] && member.role !== 'VIP');
+			const vipMembers = members.filter(member => member.role === 'VIP');
+			return vipMembers.length === 1 && (!vips[0] || vipMembers[0].id === vips[0]);
 		},
 	};
 
@@ -286,8 +286,6 @@ async function setupChat({ members: rawMembers, type, name, chatID, socket, role
 
 	// 5) SYNC REDIS & BROADCAST
 	// Steps: update redis membership/roles, update socket room membership, then broadcast the change events.
-	if (!result.meta && querySource.length)
-		await connection.execute(`UPDATE chats SET ${querySource.map(([key]) => `${key} = ?`).join(', ')}, changed = NOW() WHERE id = ?`, [...querySource.map(([, value]) => value), chatID]);
 	if (result.updated.length)
 		await setRolesAndLasts({ members: result.updated, chatID, addToMembers: true, setMembChange: now }),
 			newMembers.length && (await manageUsersInChatRoom({ chatID, userIDs: newMembers.map((member: any) => member.id), mode: 'add' }));
@@ -318,9 +316,9 @@ async function getChats({ mode, cursor = null, getNewest = false, userID, chatID
 		chatID ? ['AND c.id = ?', [chatID]] : chatIDs.length ? [`AND c.id IN (${chatIDs.map(() => '?').join(',')})`, chatIDs] : ['', []],
 	];
 
-	// EXECUTE COMPLEX JOIN
-	// 1. CTE (tempChats): Get relevant chat IDs first (optimization).
-	// 2. Main Query: Join back to messages/members to get preview content and other party details.
+	// EXECUTE COMPLEX JOIN ---
+	// 1. CTE (tempChats): Get relevant chat IDs first (optimization). ORDER BY in CTE required for LIMIT to select correct top N.
+	// 2. Main Query: Outer ORDER BY re-applied because SQL does not guarantee join preserves CTE order.
 	const [chats]: [any[], any] = await connection.execute(
 		`WITH tc AS (SELECT c.id, c.last_mess FROM chats c JOIN chat_members cm ON c.id = cm.chat AND cm.id = ? WHERE ${flagCondition} ${idsCondition[0]} ${
 			cursorCondition[0]
@@ -465,7 +463,7 @@ export async function Chat(request: ChatRequest, response: any = null) {
 		// CONNECTION REUSE ----------------------------------------------------
 		// Steps: pass connection to authorizeRole to avoid opening a second connection on cache misses; eliminates connection pool exhaustion under high traffic.
 		if (needsAuth.has(request.body.mode)) {
-			const [role, last] = await authorizeRole({ ...request.body, con: connection });
+			const [role, last] = await authorizeRole({ ...request.body, con: connection } as AuthorizeRoleProps);
 			if (!role) throw new Error('unauthorized');
 			Object.assign(request.body, { role, last });
 		}

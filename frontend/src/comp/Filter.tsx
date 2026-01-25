@@ -33,11 +33,9 @@ function Filter(props) {
 			if (invertButton === inp) {
 				setInvertButton(null);
 				newSelTypes = [...types.filter(typeID => !typesInCat.includes(typeID)), ...typesInCat.filter(typeID => !newSelTypes.includes(typeID))];
-			} else if ((typesInCat.every(typeID => isIn(typeID, newSelTypes)) && typesInCat.length > 1) || !typesInCat.some(typeID => isIn(typeID, newSelTypes))) {
+			} else if (typesInCat.length > 1 && (typesInCat.every(typeID => isIn(typeID, newSelTypes)) || !typesInCat.some(typeID => isIn(typeID, newSelTypes)))) {
 				const otherCatTypes = newSelTypes.filter(typeID => !typesInCat.includes(typeID));
-				(newSelTypes = !typesInCat.some(typeID => isIn(typeID, newSelTypes)) ? [...otherCatTypes, inp] : [...otherCatTypes, ...typesInCat.filter(typeID => typeID === inp)]),
-					setInvertButton(inp),
-					setTimeout(() => setInvertButton(null), 2000);
+				((newSelTypes = !typesInCat.some(typeID => isIn(typeID, newSelTypes)) ? [...otherCatTypes, inp] : [...otherCatTypes, ...typesInCat.filter(typeID => typeID === inp)]), setInvertButton(inp), setTimeout(() => setInvertButton(null), 2000));
 			} else newSelTypes = newSelTypes.includes(inp) ? newSelTypes.filter(typeID => typeID !== inp) : [...newSelTypes, inp];
 		}
 		snapMan(
@@ -54,17 +52,12 @@ function Filter(props) {
 
 	return (
 		<types-filter ref={scrollTarget} class={`${nowAt !== 'editor' ? 'padBotXl' : ''}    textAli ${map === true ? 'padBotS' : ''} posRel flexCol marAuto block aliCen w100 `}>
-			<blue-divider
-				style={{ filter: 'saturate(1) hue-rotate(-10deg) brightness(0.8) opacity(0.3)' }}
-				class={` hr0-2  posAbs topCen block bInsetBlueTopXl  zinMenu  downLittle   w50   zinMaXl opacityS  marAuto   `}
-			/>
-			<blue-divider style={{ filter: 'saturate(1) hue-rotate(0deg)' }} class={` ${nowAt === 'editor' ? 'hr2' : 'hr10'} bInsetBlueTopXs2  block zin1 maskLowXs     w80   zinMax   marAuto   `} />
+			<blue-divider style={{ filter: 'saturate(1) hue-rotate(-10deg) brightness(0.8) opacity(0.3)' }} class={` hr0-2  posAbs topCen block bInsetBlueTopXl  zinMenu  downLittle   w50  mw80 zinMaXl opacityS  marAuto   `} />
+			<blue-divider style={{ filter: 'saturate(1) hue-rotate(0deg)' }} class={` ${nowAt === 'editor' ? 'hr2' : 'hr10'} bInsetBlueTopXs2  block zin1 maskLowXs     w80   mw95 zinMax   marAuto   `} />
 
 			{/* SELECT / DESELECT ALL --------------------------------------------------------------------- */}
 			{nowAt !== 'editor' && avail.types?.length > 1 && (
-				<button
-					className={`${allSel && active ? 'tRed' : ''}   padBotXxs   w100 mw30 fs12  shaBlueLight bBor  bold borBotLight   posRel marBotXs marAuto inlineBlock  borderLight boRadXxxs `}
-					onClick={() => man(null, allSel && active ? 'none' : 'all')}>
+				<button className={`${allSel && active ? 'tRed' : 'tGreen'} textSha   padBotXxs   w100 mw25 borBotLight fs8  shaBlueLight bBor  bold borBotLight   posRel marBotXs marAuto inlineBlock  borderLight boRadXxxs `} onClick={() => man(null, allSel && active ? 'none' : 'all')}>
 					{allSel && active ? 'odznačit vše' : 'označit vše'}
 				</button>
 			)}
@@ -83,12 +76,9 @@ function Filter(props) {
 							<Fragment key={cat}>
 								{/* SELECT / DESELECT ALL IN CAT ------------------------------------------------------------- */}
 								{nowAt === 'home' && typesToRender.length > 0 && (
-									<button
-										style={{ width: `100%`, maxWidth: `${Math.min(bWidth, 100)}px` }}
-										className={`noBackground flexCol xBold  borRed  shaBlue  posRel  grow textSha   bHover`}
-										onClick={() => man(cat, allSel && active ? 'none' : 'all')}>
-										<span className='lh0-6 fs18 xBold'>{cat.slice(0, 4)}</span>
-										<span className={`${allSel && active ? 'tRed' : 'tBlue'} lh1 boldXs  fs8`}>{allSel && active ? 'nic >' : 'vše >'}</span>
+									<button style={{ width: `100%`, maxWidth: `${Math.min(bWidth, 100)}px` }} className={`noBackground flexCol xBold bInsetBlueTopXs bBor2     posRel  grow textSha   bHover`} onClick={() => man(cat, allSel && active ? 'none' : 'all')}>
+										<span className="lh0-6 fs16 marBotXxxs xBold">{cat.slice(0, 4)}</span>
+										<span className={`${allSel && active ? 'tRed' : 'tBlue'} lh1   fs6 boldS`}>{allSel && active ? 'nic >' : 'vše >'}</span>
 									</button>
 								)}
 
@@ -97,24 +87,10 @@ function Filter(props) {
 									return (
 										<button
 											style={{ width: `100%`, maxWidth: `${Math.min(bWidth, 100)}px` }}
-											className={` ${invertButton === typeID ? 'boldM xBold' : ''}   ${
-												nowAt === 'editor' ? (types.includes(typeID) ? 'thickBors shaBot xBold posRel bgTrans  boRadS zinMax  shaComment ' : 'boldXs ') : ''
-											} ${
-												avaTypes.includes(typeID) && types.includes(typeID) && active
-													? 'shaBlue boRadXxs bInsetBlueTopS borderBot posRel'
-													: avaTypes.includes(typeID)
-													? '  shaSubtle boRadXxs  textSha'
-													: !avaTypes.includes(typeID)
-													? ''
-													: ''
-											} fs6      w100  bHover`}
+											className={` ${invertButton === typeID ? 'boldM xBold' : ''}   ${nowAt === 'editor' ? (types.includes(typeID) ? 'thickBors shaBot xBold posRel bgTrans  boRadS zinMax  shaComment ' : 'boldXs ') : ''} ${avaTypes.includes(typeID) && types.includes(typeID) && active ? 'shaBlue boRadXxs bInsetBlueTopS boldXs posRel' : avaTypes.includes(typeID) ? '  shaSubtle boRadXxs  textSha' : ''} fs6      w100  bHover`}
 											onClick={() => ((nowAt === 'home' && avaTypes.includes(typeID)) || nowAt === 'editor') && man(cat, typeID)}
 											key={typeID}>
-											<img
-												className={`${nowAt === 'home' ? (!avaTypes.includes(typeID) ? 'opaque mw4 mh4 ' : 'mw6 mh5') : 'mw7'} shaWhite boRadXxs     posRel   `}
-												src={`/icons/types/${typeID}.png`}
-												alt=''
-											/>
+											<img className={`${nowAt === 'home' ? (!avaTypes.includes(typeID) ? 'opaque mw4 mh4 ' : 'mw6 mh5') : 'mw7'} shaWhite boRadXxs     posRel   `} src={`/icons/types/${typeID}.png`} alt="" />
 											{invertButton === typeID ? 'invert?' : typesMap.get(typeID).cz}
 										</button>
 									);
@@ -130,15 +106,7 @@ function Filter(props) {
 }
 
 function dontRender(prevProps, nextProps) {
-	return (
-		prevProps.snap.types === nextProps.snap.types &&
-		prevProps.avail === nextProps.avail &&
-		prevProps.snap.cats === nextProps.snap.cats &&
-		areEqual(prevProps.fadedIn, nextProps.fadedIn) &&
-		prevProps.avail?.types === nextProps.avail?.types &&
-		prevProps.snap.time === nextProps.snap.time &&
-		prevProps.map === nextProps.map
-	);
+	return prevProps.snap.types === nextProps.snap.types && prevProps.avail === nextProps.avail && prevProps.snap.cats === nextProps.snap.cats && areEqual(prevProps.fadedIn, nextProps.fadedIn) && prevProps.avail?.types === nextProps.avail?.types && prevProps.snap.time === nextProps.snap.time && prevProps.map === nextProps.map;
 }
 
 export default memo(Filter, dontRender);

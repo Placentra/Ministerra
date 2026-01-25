@@ -146,11 +146,6 @@ async function processContentMetas({ con, load, getCities, cities, userID }) {
 				// PIPELINE FLUSH ---
 				// Steps: execute once, then stitch results back into their original city order, then populate cache on success.
 				const [pRes, fRes] = await Promise.all([getPublicMetasPipe.exec(), getFilteringMapsPipe.exec()]);
-				console.log("🚀 ~ processContentMetas ~ pRes:", pRes);
-
-				console.log("🚀 ~ processContentMetas ~ fRes:", fRes);
-
-		
 
 				for (let j = 0; j < missingIndices.length; j++) {
 					const idx = missingIndices[j];
@@ -267,6 +262,9 @@ async function processContentMetas({ con, load, getCities, cities, userID }) {
 					continue;
 				}
 
+				const [, pubMap] = publicMetasResult[i] || [],
+					[, filtering] = filteringMapsResult[i] || [];
+
 				let metas = [];
 				if (nonPubIndexMap.has(i)) {
 					const [err, arr] = nonPubResults[nonPubIndexMap.get(i)] || [null, []];
@@ -284,6 +282,16 @@ async function processContentMetas({ con, load, getCities, cities, userID }) {
 				// Steps: slot ordered `metas` buffers onto their IDs; later filters may delete some entries.
 				for (let j = 0; j < passedIDs.length; j++) cityMetas[passedIDs[j]] = metas[j];
 
+				// VISIBLE EVENTS SET ---
+				// Steps: Create a set of all event IDs this viewer is allowed to see (Public + Unlocked Private)
+				// This is critical for preventing "The Leak" where attendance reveals a private event's existence.
+				const visibleEveIDs = new Set(passedIDs);
+				if (filtering) {
+					for (const [owner, events] of filtering.byOwner) {
+						if (!blocks.has(owner)) events.forEach(e => e.priv === 'pub' && visibleEveIDs.add(e.id));
+					}
+				}
+
 				// INDIVIDUAL META FILTER ---
 				// Steps: decode, filter embedded attendance list by per-event privacy, then re-encode; delete the entry if it becomes empty.
 				for (const id of indUsers) {
@@ -291,9 +299,12 @@ async function processContentMetas({ con, load, getCities, cities, userID }) {
 						const meta = decode(cityMetas[id]);
 						// ATTENDANCE ACCESS ------------------------------------------------
 						// We intentionally use a mutable array view for attendance reads/writes.
+						// FIX: Filter out attendance for events the viewer cannot see (visibleEveIDs check).
 						const metaArray = meta;
 						metaArray[userAttendIdx] = metaArray[userAttendIdx].filter(
-							([eveID, , evePriv]) => !evePriv || evePriv === 'pub' || (evePriv === 'lin' && linAccess.has(id)) || (evePriv === 'tru' && truAccess.has(id)) || ownEve.has(eveID)
+							([eveID, , evePriv]) =>
+								visibleEveIDs.has(String(eveID)) &&
+								(!evePriv || evePriv === 'pub' || (evePriv === 'lin' && linAccess.has(id)) || (evePriv === 'tru' && truAccess.has(id)) || ownEve.has(eveID))
 						);
 						if (metaArray[userAttendIdx].length) cityMetas[id] = encode(metaArray);
 						else delete cityMetas[id];
@@ -305,9 +316,6 @@ async function processContentMetas({ con, load, getCities, cities, userID }) {
 
 				// PUBLIC LAYER ---
 				// Steps: public metas are still gated by the filtering index + blocks, then appended onto the same cityMetas map.
-				const [, pubMap] = publicMetasResult[i] || [],
-					[, filtering] = filteringMapsResult[i] || [];
-
 				if (pubMap && filtering) {
 					const { byOwner } = filtering;
 					for (const [owner, events] of byOwner) {

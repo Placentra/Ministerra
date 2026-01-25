@@ -139,6 +139,13 @@ const ImageCropper = props => {
 			reader.readAsDataURL(file);
 		});
 
+	// TIMER CLEANUP -----------------------------------------------------------
+	// Steps: clear debounced timers to prevent state updates after unmount.
+	const clearImageCropperTimers = () => {
+		if (deboCalcCoverage.current) clearTimeout(deboCalcCoverage.current);
+		if (deboFinalImg.current) clearTimeout(deboFinalImg.current);
+	};
+
 	// ON FILE CHANGE ---
 	const onFileChange = async e => {
 		const file = e.target.files?.[0];
@@ -147,14 +154,15 @@ const ImageCropper = props => {
 
 		const img = new Image();
 		img.src = URL.createObjectURL(file);
-		await img.decode();
+		try {
+			await img.decode();
+		} finally {
+			// OBJECT URL CLEANUP ---
+			// Steps: release object URL to avoid memory leaks.
+			URL.revokeObjectURL(img.src);
+		}
 
 		if (img.width > MAX_IMAGE_WIDTH || img.height > MAX_IMAGE_HEIGHT) return alert(`Image resolution exceeds the ${MAX_IMAGE_WIDTH}x${MAX_IMAGE_HEIGHT} limit.`);
-
-		// If this is the first image change, save the original
-		if (!originalImageSrc && imageSrc) {
-			setOriginalImageSrc(imageSrc);
-		}
 
 		setImageSrc(await readFile(file));
 	};
@@ -209,19 +217,26 @@ const ImageCropper = props => {
 		return () => window.removeEventListener('resize', updateCanvasDimensions);
 	}, []);
 
+	// UNMOUNT CLEANUP --------------------------------------------------------
+	// Steps: clear pending timers on unmount to avoid late state writes.
+	useEffect(function setImageCropperCleanupOnUnmount() {
+		return () => clearImageCropperTimers();
+	}, []);
+
 	useLayoutEffect(() => {
-		if (imageRef.current) drawCanvas(), checkAreaCoverage();
+		if (imageRef.current) (drawCanvas(), checkAreaCoverage());
 	}, [zoom, rotation, crop, aspect, canvasDimensions]);
 
 	useLayoutEffect(() => {
-		if (imageRef.current) fitImageToCanvas(), setFinalImage();
+		if (imageRef.current) (fitImageToCanvas(), setFinalImage());
 	}, [canvasDimensions]);
 
 	// FIT IMAGE TO CANVAS ---
 	// Calculates initial zoom and position to ensure the crop area is fully covered.
 	const fitImageToCanvas = () => {
 		if (!width || !height || !imageRef.current) return;
-		const { width: imgW, height: imgH } = imageRef.current, nextAspect = nowAt === 'editor' ? imgW / imgH : 1.6;
+		const { width: imgW, height: imgH } = imageRef.current,
+			nextAspect = nowAt === 'editor' ? imgW / imgH : 1.6;
 
 		// CALCULATE ACTUAL CROP DIMS TO FIND REQUIRED ZOOM ---
 		const cropWidth = Math.min(width * CROP_WIDTH_COEF, height * CROP_HEIGHT_COEF * nextAspect),
@@ -233,7 +248,7 @@ const ImageCropper = props => {
 
 		// RESET STATE ---
 		if (deboCalcCoverage.current) clearTimeout(deboCalcCoverage.current);
-		setAspect(nextAspect), setZoom(zoomToCover), setCrop({ x: 0, y: 0 }), setRotation(0), setIsAreaCovered(true);
+		(setAspect(nextAspect), setZoom(zoomToCover), setCrop({ x: 0, y: 0 }), setRotation(0), setIsAreaCovered(true));
 	};
 
 	// DRAW CANVAS -------------------------------------------------------------
@@ -256,8 +271,8 @@ const ImageCropper = props => {
 		ctx.restore();
 		ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
 
-		ctx.beginPath(), ctx.rect((width - cropWidth) / 2, (height - cropHeight) / 2, cropWidth, cropHeight), ctx.rect(0, 0, width, height), ctx.fill('evenodd');
-		(ctx.strokeStyle = 'lightGreen'), (ctx.lineWidth = 3), ctx.strokeRect((width - cropWidth) / 2, (height - cropHeight) / 2, cropWidth, cropHeight);
+		(ctx.beginPath(), ctx.rect((width - cropWidth) / 2, (height - cropHeight) / 2, cropWidth, cropHeight), ctx.rect(0, 0, width, height), ctx.fill('evenodd'));
+		((ctx.strokeStyle = 'lightGreen'), (ctx.lineWidth = 3), ctx.strokeRect((width - cropWidth) / 2, (height - cropHeight) / 2, cropWidth, cropHeight));
 
 		checkAreaCoverage();
 	}, [canvasDimensions, crop, zoom, rotation, aspect]);
@@ -351,7 +366,7 @@ const ImageCropper = props => {
 		const cropY = (height - cropHeight) / 2 + crop.y;
 
 		const insideImage = mouseX >= cropX && mouseX <= cropX + cropWidth && mouseY >= cropY && mouseY <= cropY + cropHeight;
-		if (insideImage) setDragging(true), setDragStart({ x: mouseX - crop.x, y: mouseY - crop.y });
+		if (insideImage) (setDragging(true), setDragStart({ x: mouseX - crop.x, y: mouseY - crop.y }));
 	};
 
 	// HANDLE DRAGGING -----------------------------------------------------------
@@ -414,28 +429,26 @@ const ImageCropper = props => {
 	return (
 		<image-cropper class={`w100 ${isIntroduction ? 'mw160 marAuto' : ''} ${nowAt === 'editor' ? 'marBotM' : ''}  boRadS overHidden marAuto  block posRel`}>
 			{!imageSrc ? (
-				<load-image name='image' className='w100 block   marAuto pointer posRel'>
+				<load-image name="image" className="w100 block   marAuto pointer posRel">
 					{/* TITLE TEXTS ------------------------------------------------- */}
-					{data.id && (
-						<title-texts class='posRel block'>
-							<span className='xBold marBotXxxs fs10 block'>Profilová fotka</span>
-							<p className='fs6 marBotXs mw160 lh1 marAuto'>Však to znáš, s profilovkou budeš mít o dost větší šanci na úspěch.</p>
+					{data.id && nowAt !== 'editor' && (
+						<title-texts class="posRel block">
+							<span className="xBold marBotXxxs fs10 block">Profilová fotka</span>
+							<p className="fs6 marBotXs mw160 lh1 marAuto">Však to znáš, s profilovkou budeš mít o dost větší šanci na úspěch.</p>
 						</title-texts>
 					)}
 
 					{/* LOAD IMAGE PLACEHOLDER -------------------------------------- */}
-					<img-load
-						className='flexCol justCen aliCen gapXs  iw33 shaBotLongDown imw12 fPadHorXs  w100 hvw10 bInsetBlueTopXs2  bBor borBotLight  mih10 marAuto posRel'
-						onClick={() => document.querySelector('#file').click()}>
-						<img src='/icons/placeholdergood.png' alt='' className='bHover boRadXs shaCon' />
-						<span className='fs13'>Klikni pro nahrání obrázku</span>
+					<img-load className="flexCol justCen aliCen gapXs  iw33 shaBotLongDown imw12 fPadHorXs  w100 hvw10 bInsetBlueTopXs2  bBor borBotLight  mih10 marAuto posRel" onClick={() => document.querySelector('#file').click()}>
+						<img src="/icons/placeholdergood.png" alt="" className="bHover boRadXs shaCon" />
+						<span className="fs13">Klikni pro nahrání obrázku</span>
 					</img-load>
-					<input title='Klikni pro nahrání obrázku' className='hide' type='file' id='file' onChange={onFileChange} accept='image/*' />
+					<input title="Klikni pro nahrání obrázku" className="hide" type="file" id="file" onChange={onFileChange} accept="image/*" />
 
 					{/* REVERT BUTTON WHEN IMAGE IS REMOVED ------------------------- */}
 					{originalImageSrc && (
 						<button
-							className={'boldS fs8 textSha bDarkRed tWhite shaBlue bInsetBlue miw50 padVerXxs boRadXs marTopXs block marAuto'}
+							className={'boldS fs8 textSha bInsetBlueTopXs posRel tWhite shaBlue bInsetBlue w100 mw20 padVerXxs boRadXs marTopXs block marAuto'}
 							onClick={() => {
 								setImageSrc(originalImageSrc);
 								fitImageToCanvas();
@@ -448,46 +461,24 @@ const ImageCropper = props => {
 				<>
 					<canvas-wrapper ref={canvasWrapper} class={`  shaTop block bgLightBlue borTop  w100 posRel ${isAreaCovered ? '' : 'inform'}`}>
 						{/* CANVAS -------------------------------------------------- */}
-						<canvas
-							className={'  posRel'}
-							ref={canvasRef}
-							width={width}
-							height={height}
-							onMouseDown={startDrag}
-							onTouchStart={handleTouchStart}
-							onTouchMove={handleTouchMove}
-							onTouchEnd={handleTouchEnd}
-						/>
+						<canvas className={'  posRel'} ref={canvasRef} width={width} height={height} onMouseDown={startDrag} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} />
 
 						{/* SLIDERS -------------------------------------------------- */}
-						<div className='slider-container  posAbs botCen marAuto fPadHorS marBotS w100 growAll flexCen wrap gapXs'>
+						<div className="slider-container  posAbs botCen marAuto fPadHorS marBotS w100 growAll flexCen wrap gapXs">
 							{['zoom', 'rotation', ...(nowAt === 'editor' ? ['aspect'] : [])].map(mode => (
-								<input-wrapper key={mode} class='block grow posRel'>
-									<input
-										className={'pointer sliderHover  w100 cropperSlider'}
-										{...sliderProps.current[mode]}
-										value={mode === 'zoom' ? zoom : mode === 'rotation' ? rotation : aspect}
-										type='range'
-										onMouseDown={() => setActiveSlider(mode)}
-										onMouseUp={() => setActiveSlider(null)}
-										onInput={handleSliderChange}
-										onChange={handleSliderChange}
-										onTouchStart={() => setActiveSlider(mode)}
-										onTouchEnd={() => setActiveSlider(null)}
-									/>
-									<span className='posRel fs8 bold textSha posAbs botCen noPoint  padHorXs upTinyBit bgTrans  shaCon  inlineBlock'>
-										{mode === 'zoom' ? 'příblížení' : mode === 'rotation' ? 'otočení' : 'tvar ořezu'}
-									</span>
+								<input-wrapper key={mode} class="block grow posRel">
+									<input className={'pointer sliderHover  w100 cropperSlider'} {...sliderProps.current[mode]} value={mode === 'zoom' ? zoom : mode === 'rotation' ? rotation : aspect} type="range" onMouseDown={() => setActiveSlider(mode)} onMouseUp={() => setActiveSlider(null)} onInput={handleSliderChange} onChange={handleSliderChange} onTouchStart={() => setActiveSlider(mode)} onTouchEnd={() => setActiveSlider(null)} />
+									<span className="posRel fs8 bold textSha posAbs botCen noPoint  padHorXs upTinyBit bgTrans  shaCon  inlineBlock">{mode === 'zoom' ? 'příblížení' : mode === 'rotation' ? 'otočení' : 'tvar ořezu'}</span>
 								</input-wrapper>
 							))}
 						</div>
 					</canvas-wrapper>
 
 					{/* CROP AREA NOT COVERED INFORM ------------------------------------------------ */}
-					{!isAreaCovered && <div className='padVerXxxs borTop 	 tWhite fs11 bBlue tSha10 boldS w100 inlineBlock'>Plocha výřezu není zcela zakrytá (NEPOVINNÉ)</div>}
+					{!isAreaCovered && <div className="padVerXxxs borTop 	 tWhite fs11 bBlue tSha10 boldS w100 mw120 inlineBlock">Plocha výřezu není zcela zakrytá (NEPOVINNÉ)</div>}
 
 					{/* BASICS CONTROLS BS -------------------------------------------------------------- */}
-					<div style={{ filter: 'saturate(0.8)' }} className=' 	hvw8 mh5 growAll  gapXxxs flexCen posRel bInsetBlueTop  w100 mw120 marAuto'>
+					<div style={{ filter: 'saturate(0.8)' }} className=" 	hvw8 mh5 growAll  gapXxxs flexCen posRel bInsetBlueTop  w100 mw120 marAuto">
 						<blue-divider style={{ filter: 'brightness(0.7)' }} class={`hr0-5 borTop block posAbs zinMaXl topCen bInsetBlueTopXl borTop bgTrans w100 marAuto`} />
 
 						<button className={'xBold fs10  textSha   bHover  h100 bgTrans  shaBlue '} onClick={() => document.querySelector('#file').click()}>
@@ -515,7 +506,7 @@ const ImageCropper = props => {
 			)}
 
 			{/* HIDDEN FILE CHANGE INPUT ----------------------------------------------------------- */}
-			<input type='file' id='file' onChange={onFileChange} accept='image/*' hidden />
+			<input type="file" id="file" onChange={onFileChange} accept="image/*" hidden />
 		</image-cropper>
 	);
 };

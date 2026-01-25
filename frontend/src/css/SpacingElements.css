@@ -78,6 +78,10 @@ html.overHidden body {
 	bottom: -1rem;
 	right: -1rem;
 }
+.cornerBotRightM {
+	bottom: -0.5rem;
+	right: -2rem;
+}
 .cornerTopRight {
 	top: -1rem;
 	right: -1.2rem;
@@ -812,6 +816,9 @@ html.overHidden body {
 }
 .gapXxxs {
 	gap: 0.2rem;
+}
+.gapXxxxs {
+	gap: 1px;
 }
 .gapXxs {
 	gap: 0.8rem;

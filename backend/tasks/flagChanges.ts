@@ -22,7 +22,7 @@ async function processFlagChanges(con, redis) {
 
 		// FETCH SQL FLAGS -------------------------------------------------------
 		// Steps: read rows where nextTask='flagChanges' - these need immediate redis cache updates.
-		const eventsQ = `SELECT ${EVENT_COLUMNS} FROM events e INNER JOIN cities c ON e.cityID = c.id WHERE e.nextTask = 'flagChanges'`;
+		const eventsQ = `SELECT ${EVENT_COLUMNS} FROM events e LEFT JOIN cities c ON e.cityID = c.id WHERE e.nextTask = 'flagChanges'`;
 		const usersQ = `SELECT id, flag, priv FROM users u WHERE u.nextTask = 'flagChanges' GROUP BY u.id`;
 
 		let events, users;

@@ -8,7 +8,7 @@ const logger = getLogger('ChatHelpers');
 // ROLE DEFINITIONS ------------------------------------------------------------
 // Steps: define role sets once so authorization checks are cheap and consistent across HTTP + socket entry points.
 const ROLES_MAP = {
-	all: new Set(['member', 'priv', 'spect', 'gagged', 'guard', 'admin', 'VIP']),
+	all: new Set(['member', 'priv', 'guard', 'admin', 'VIP', 'gagged',  'spect',]),
 	full: new Set(['member', 'priv', 'guard', 'admin', 'VIP']),
 	mod: new Set(['guard', 'admin', 'VIP']),
 	admin: new Set(['admin', 'VIP']),
@@ -86,7 +86,7 @@ const startAuthFailGarbageCollector = (): void => {
 };
 startAuthFailGarbageCollector();
 
-interface AuthorizeRoleProps {
+export interface AuthorizeRoleProps {
 	chatID: string | number;
 	mode?: keyof typeof necessaryRoles;
 	userID: string | number;
@@ -173,14 +173,16 @@ async function setRolesAndLasts({
 	}
 	if (ops) {
 		const res: any[] | null = await t.exec();
+		// PARTIAL FAILURE HANDLING ---
+		// Steps: log errors but don't throw to avoid leaving caches in inconsistent state; invalidate cache regardless so next read refetches from source.
 		if (!res || res.some(([err]) => err)) {
-			const errors: string = res!
+			const errors: string = (res || [])
 				.filter(([err]) => err)
-				.map(([err]) => err.message)
+				.map(([err]) => err?.message || 'unknown')
 				.join(', ');
-			throw new Error(`Redis transaction failed: ${errors}`);
+			logger.error('setRolesAndLasts.partial_failure', { errors, chatID, memberCount: items.length });
 		}
-		// INVALIDATE CACHE: Ensure subsequent reads fetch fresh data from Redis
+		// INVALIDATE CACHE: Ensure subsequent reads fetch fresh data from Redis regardless of partial failure
 		if (addToMembers || delFromMembers) membersCache.delete(String(chatID));
 	}
 	return items.map(m => m.id);
@@ -232,7 +234,7 @@ async function getMembers({ memberIDs = [], chatID, membSync: prev, mode = 'getM
 	]);
 
 	if (IDsOnly && rows.length) return rows.map(r => r.id);
-	if (mode === 'getMembers' && !ids.length) await setRolesAndLasts({ members: rows, chatID, addToMembers: true });
+	if (mode === 'getMembers' && !ids.length && rows.length) await setRolesAndLasts({ members: rows, chatID, addToMembers: true });
 	return { members: rows, ...(prev && { membSync: await redis.hget(REDIS_KEYS.lastMembChangeAt, chatID) }) };
 }
 
@@ -242,6 +244,8 @@ interface GetMessagesProps {
 	cursor?: string | number;
 	chatID: string | number;
 	last?: string | number;
+	userID?: string | number;
+	res?: any;
 	con: any;
 }
 

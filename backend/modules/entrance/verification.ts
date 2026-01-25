@@ -35,7 +35,7 @@ async function verifyMail({ userID }: VerifyMailProps, con: any): Promise<Verify
 	// Frontend stores this in sessionStorage and proceeds to /setup for profile configuration.
 	// Email is included so Welcome page can display which account user is confirming.
 	const introToken: string = jwtQuickies({ mode: 'create', payload: { userID, is: 'unintroduced' }, expiresIn: EXPIRATIONS.introductionMailLink });
-	const expiry: number = Date.now() + parseInt(EXPIRATIONS.introductionMailLink) * 60 * 1000;
+	const expiry: number = Date.now() + parseInt(EXPIRATIONS.introductionMailLink, 10) * 60 * 1000;
 	const encodedEmail: string = encodeURIComponent(email);
 	return { redirect: `${process.env.FRONT_END}/entrance?mode=introduction&auth=${introToken}:${expiry}&email=${encodedEmail}` };
 }
@@ -54,7 +54,7 @@ async function verifyNewMail({ userID }: VerifyMailProps, con: any): Promise<Ver
 			await sendEmail({
 				mode: 'revertEmailChange',
 				token: `${jwtQuickies({ mode: 'create', payload: { userID, is: 'revertEmailChange' }, expiresIn: EXPIRATIONS.revertEmailChangeLink })}:${
-					Date.now() + parseInt(EXPIRATIONS.revertEmailChangeLink) * 24 * 60 * 60 * 1000
+					Date.now() + parseInt(EXPIRATIONS.revertEmailChangeLink, 10) * 24 * 60 * 60 * 1000
 				}`,
 				email: prev_mail,
 			});

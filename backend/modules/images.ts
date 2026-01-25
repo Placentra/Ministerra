@@ -162,12 +162,12 @@ const Images = async (req: ImagesRequest, res: Response, next: NextFunction) => 
 			if (!eventID) {
 				// New event: defer saving to Editor after event is created
 				req.processedImages = processedImages;
-				req.body.imgVers = `1_${Math.floor(height / 10)}`;
+				req.body.imgVers = 1;
 			} else {
 				// Editing existing event: defer saving until authorization in Editor
 				const newVImg = Number(imgVers) + 1;
 				req.processedImages = processedImages;
-				req.body.imgVers = `${newVImg}_${Math.floor(height / 10)}`;
+				req.body.imgVers = newVImg;
 			}
 		} else {
 			// User images can be saved immediately

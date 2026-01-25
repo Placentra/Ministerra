@@ -2,6 +2,7 @@ import axios from 'axios';
 import { redirect } from 'react-router-dom';
 import { forage, setPropsToContent, processMetas, extractInteractions } from '../../helpers';
 import { notifyGlobalError } from '../hooks/useErrorsMan';
+import { INTERVALS } from '../../../shared/constants.ts';
 
 // EVENT PAGE LOADER ------------------------------------------------------------
 // Steps: resolve eventID, hydrate cached users if needed, decide whether to fetch based on state+sync+past/users requirements, then merge eventData+metas into brain and persist to forage (including past events).
@@ -9,13 +10,15 @@ export async function eventLoader(brain, params) {
 	const eventID = params.eventID?.split('!', 1)[0];
 	if (!eventID) return redirect('/');
 
-	const [now, fiveMinutes, isGuest, unstableObj] = [Date.now(), 1000 * 60 * 5, !brain.user.id, brain.user.unstableObj];
+	const [now, isGuest, unstableObj] = [Date.now(), !brain.user.id, brain.user.unstableObj];
 	// PAST EVENT HYDRATION -------------------------------------------------------
 	// Steps: prefer brain.user.pastEve cache, fall back to forage storage, and cache back into brain so navigation is instant next time.
 	const pastEvent = await (async () => {
 		if (brain.user.pastEve?.[eventID]) return brain.user.pastEve?.[eventID];
 		const restored = await forage({ mode: 'get', what: 'past', id: eventID });
-		if (restored) return (brain.user.pastEve[eventID] = restored);
+		// ENSURE PASTEVE EXISTS ---
+		// Steps: initialize pastEve object if undefined to prevent null reference on assignment.
+		if (restored) return ((brain.user.pastEve ??= {})[eventID] = restored);
 		return null;
 	})();
 
@@ -24,7 +27,7 @@ export async function eventLoader(brain, params) {
 	const isPast = storedPastUsers || (ends || starts) < Date.now();
 
 	const cachedUserIDs = brain.user.eveUserIDs?.[eventID];
-	const needsFetch = state !== 'basiDeta' || (!isPast && now - lastSync > fiveMinutes) || (type.startsWith('a') && (isPast ? !storedPastUsers : !cachedUserIDs));
+	const needsFetch = state !== 'basiDeta' || (!isPast && now - lastSync > INTERVALS.cityContentRefresh) || (type?.startsWith('a') && (isPast ? !storedPastUsers : !cachedUserIDs));
 	if (cachedUserIDs?.length && cachedUserIDs.some(id => !brain.users[id])) {
 		const restored = await forage({ mode: 'get', what: 'users', id: cachedUserIDs });
 		const restoredUsers = setPropsToContent('users', restored || [], brain);
@@ -36,8 +39,8 @@ export async function eventLoader(brain, params) {
 			// FETCH PLAN ---------------------------------------------------------
 			// Steps: decide whether we already “gotUsers” cheaply from recent city sync, decide whether to request SQL overlays (unstable), then call backend and merge into local objects.
 			const citySync = brain.citiesContSync?.[cityID];
-			const hasRecentCitySync = typeof citySync === 'number' && now - citySync < fiveMinutes;
-			const gotUsers = type.startsWith('a') && (!isPast ? (Boolean(brain.citiesEveTypesInTimes?.[cityID]) && hasRecentCitySync) || now - lastUsersSync < fiveMinutes : storedPastUsers);
+			const hasRecentCitySync = typeof citySync === 'number' && now - citySync < INTERVALS.cityContentRefresh;
+			const gotUsers = type?.startsWith('a') && (!isPast ? (Boolean(brain.citiesEveTypesInTimes?.[cityID]) && hasRecentCitySync) || now - lastUsersSync < INTERVALS.cityContentRefresh : storedPastUsers);
 
 			const body = {
 				eventID,

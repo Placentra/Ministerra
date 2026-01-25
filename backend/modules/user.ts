@@ -32,7 +32,7 @@ const qs = {
 	note: `UPDATE user_links SET note = CASE WHEN ?=1 THEN ? ELSE note END, note2 = CASE WHEN ?=2 THEN ? ELSE note2 END WHERE user = ? AND user2 = ?`,
 	link: `INSERT INTO user_links (user, user2, note, note2, who, message, link, changed) VALUES (?, ?, CASE WHEN ?=1 THEN ? ELSE NULL END, CASE WHEN ?=2 THEN ? ELSE NULL END, ?, ?, 'req', NOW()) ON DUPLICATE KEY UPDATE link = CASE WHEN (link='del' OR (link='ref' AND who!=VALUES(who))) THEN 'req' ELSE link END, who = CASE WHEN (link='del' OR (link='ref' AND who!=VALUES(who)) OR (link='req' AND who!=VALUES(who))) THEN VALUES(who) ELSE who END, message = CASE WHEN (link IN ('del','req') OR (link='ref' AND who!=VALUES(who))) THEN VALUES(message) ELSE message END, note = CASE WHEN (link IN ('del','req') OR (link='ref' AND who!=VALUES(who))) AND VALUES(who)=1 THEN VALUES(note) ELSE note END, note2 = CASE WHEN (link IN ('del','req') OR (link='ref' AND who!=VALUES(who))) AND VALUES(who)=2 THEN VALUES(note2) ELSE note2 END, changed = CASE WHEN (link IN ('del','req') OR (link='ref' AND who!=VALUES(who))) THEN NOW() ELSE changed END`,
 	cancel: `DELETE FROM user_links WHERE user=? AND user2=? AND link='req'`,
-	accept: `UPDATE user_links SET link='ok', message=NULL, who=NULL, changed=NOW(), created=NOW(), note2=? WHERE user=? AND user2=? AND (link='req' OR (link='ref' AND who!=?))`,
+	accept: `UPDATE user_links SET link='ok', message=NULL, who=NULL, changed=NOW(), created=NOW(), note = CASE WHEN user < user2 THEN ? ELSE note END, note2 = CASE WHEN user > user2 THEN ? ELSE note2 END WHERE user=? AND user2=? AND (link='req' OR (link='ref' AND who!=?))`,
 	refuse: `UPDATE user_links SET link='ref', message=NULL WHERE user=? AND user2=? AND who=? AND link='req'`,
 	unlink: `UPDATE user_links SET link='del', note=NULL, note2=NULL WHERE user=? AND user2=? AND link IN ('ok','tru')`,
 	block: `INSERT INTO user_blocks (user, user2, who) VALUES (?, ?, ?)`,
@@ -77,7 +77,12 @@ export async function getProfile({ userID, id, basiOnly, devIsStable }, con) {
 
 	const [p, [[{ mark, awards } = {}]]] = await Promise.all([
 		basiOnly
-			? cachedBasi || redis.hgetall(`userBasics:${id}`).then(res => (userCache.set(id, res), res))
+			? cachedBasi || redis.hgetall(`userBasics:${id}`).then(res => {
+				// EMPTY RESULT CHECK ---
+				// Steps: hgetall returns {} for missing keys; treat as not found to avoid returning empty profile.
+				if (!res || !Object.keys(res).length) throw new Error('notFound');
+				return userCache.set(id, res), res;
+			})
 			: redis.getBuffer(`tempProfile:${id}`).then(async b => {
 					if (b) return decode(b);
 					let c;
@@ -113,7 +118,7 @@ const linksHandler = async ({ mode, userID, id, note, message }, con) => {
 		if (['refuse', 'accept'].includes(mode)) await con.beginTransaction();
 		if (mode === 'link' && (await redis.sismember(`links:${userID}`, id))) throw new Error('alreadyLinked');
 
-		const args = { note: [who, note, who, note, ...ord], link: [...ord, who, note, who, note, who, message], accept: [note, ...ord, who], unlink: [...ord] }[mode] || [...ord, who === 1 ? 2 : 1];
+		const args = { note: [who, note, who, note, ...ord], link: [...ord, who, note, who, note, who, message], accept: [note, note, ...ord, who], unlink: [...ord] }[mode] || [...ord, who === 1 ? 2 : 1];
 		const [res] = await con.execute(qs[mode], args);
 		if (!res.affectedRows) throw new Error('noUpdate');
 
@@ -164,8 +169,10 @@ const trustsHandler = async ({ mode, userID, id }, con) => {
 				? `UPDATE user_links SET link='tru', who=CASE WHEN who=? THEN 3 ELSE ? END WHERE user=? AND user2=? AND link IN ('ok','tru')`
 				: `UPDATE user_links SET link=CASE WHEN who=? THEN 'ok' ELSE link END, who=CASE WHEN who=3 THEN ? ELSE NULL END WHERE user=? AND user2=? AND link IN ('tru','ok')`;
 		if (!(await con.execute(q, mode === 'trust' ? [opp, who, ...ord] : [who, opp, ...ord]))[0].affectedRows) throw new Error('noUpdate');
-		(await (Socket as any)()).to(userID).emit(mode, { target: id });
 		await con.commit();
+		// SOCKET EMIT AFTER COMMIT ---
+		// Steps: emit only after successful commit to prevent false notifications on transaction rollback.
+		(await (Socket as any)()).to(userID).emit(mode, { target: id });
 		await updateRedis(mode, userID, id);
 		await redis.multi().hset(`${REDIS_KEYS.userSetsLastChange}:${userID}`, 'trusts', Date.now()).hset(`${REDIS_KEYS.userSetsLastChange}:${id}`, 'trusts', Date.now()).exec();
 	} catch (e) {
@@ -194,6 +201,10 @@ const blocksHandler = async ({ mode, userID, id }, con) => {
 					.exec(),
 				emitToUsers({ mode, userID, otherUserID: id }),
 			]);
+		// INVALIDATE LOCAL CACHE ---
+		// Steps: clear both users from in-memory cache so subsequent profile reads reflect the block state immediately.
+		userCache.delete(userID);
+		userCache.delete(id);
 	} catch (e) {
 		logger.error('blocksHandler', { error: e, userID, id, mode });
 		throw new Error('userBlockUpdateFailed');

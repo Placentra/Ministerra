@@ -10,23 +10,7 @@ import { notifyGlobalError } from '../hooks/useErrorsMan';
 
 // TODO implement the note into invitations.
 
-function Invitations({
-	brain,
-	obj,
-	onSuccess,
-	downMargin = undefined,
-	mode = 'eventToUsers',
-	pendingMode = false,
-	selectedItems: externalSelectedItems,
-	invitesTotal,
-	fetchMoreUsers,
-	superMan,
-	nowAt,
-	showUsersOnly = false,
-	galleryMode = '',
-	invitesHandler,
-	topPadding = false,	
-}: any) {
+function Invitations({ brain, obj, onSuccess, downMargin = undefined, mode = 'eventToUsers', pendingMode = false, selectedItems: externalSelectedItems, invitesTotal, fetchMoreUsers, superMan, nowAt, showUsersOnly = false, galleryMode = '', invitesHandler, topPadding = false }: any) {
 	const [selectedItems, setSelectedItems] = useState([]);
 	const [inviteStatus, setInviteStatus] = useState('idle');
 	const [tabMode, setTabMode] = useState();
@@ -80,41 +64,31 @@ function Invitations({
 					[isUserToEvents ? 'targetUser' : 'targetEvent']: obj?.id,
 					...(note?.trim() ? { note: note.trim() } : {}),
 				});
-				setInviteStatus('success'), setTimeout(() => onSuccess(), 2000);
+				(setInviteStatus('success'), setTimeout(() => onSuccess(), 2000));
 			} catch (error) {
 				notifyGlobalError(error, 'Nepodařilo se odeslat pozvánky.');
-				setInviteStatus('error'), setTimeout(() => setInviteStatus('idle'), 2000);
+				(setInviteStatus('error'), setTimeout(() => setInviteStatus('idle'), 2000));
 			}
 		}
 	}
 
 	return (
-		<invitations-container
-			onClick={e => e.stopPropagation()}
-			class={`w100 ${tabMode ? 'mw150' : 'mw150'} marAuto zinMaXl padBotXs borderBot posRel aliCen justStart flexCol mihvh33 ${downMargin ? 'marBotXl ' : ''} ${topPadding ? 'marTopS' : ''} ${nowAt === 'event' ? 'marTopXl' : !galleryMode ? 'padTopM' : ''} `}
-			ref={containerRef}>
+		<invitations-container onClick={e => e.stopPropagation()} class={`w100 ${tabMode ? 'mw150' : 'mw150'} marAuto zinMaXl padTopXs padBotXs  posRel aliCen justStart flexCol mihvh33 ${downMargin ? 'marBotXl ' : ''}  ${nowAt === 'event' ? 'marTopXl' : ''} `} ref={containerRef}>
 			{!showUsersOnly && (
-				<upper-wrapper class='w100   '>
+				<upper-wrapper class="w100   ">
 					{nowAt !== 'editor' && itemLimit > selItemsSrc.length && (
 						<>
 							<span
-								className='fs20 tDarkBlue textAli   w100 
-					 inlineBlock marAuto xBold marBotXs'>
+								className="fs20 tDarkBlue textAli   w100 
+					 inlineBlock marAuto xBold marBotXs">
 								{isUserToEvents ? 'Pozvání uživatele' : 'Pozvaní uživatelů'}
 							</span>
-							<p className='fs7 textAli  marBotXxs fPadHorXs lh1-1 '>
-								Níže vyber zdroj, ve kterém chceš události dohledat. Můžeš až 3 najednou. Zdroje lze také kombinovat = vybrané události &quot;přežijí&quot; v zásobníku i když v průběhu
-								změníš zdroj.
-							</p>
+							<p className="fs7 textAli  marBotXxs fPadHorXs lh1-1 ">Níže vyber zdroj, ve kterém chceš události dohledat. Můžeš až 3 najednou. Zdroje lze také kombinovat = vybrané události &quot;přežijí&quot; v zásobníku i když v průběhu změníš zdroj.</p>
 						</>
 					)}
-					<inner-wrapper class='w100 block posRel'>
+					<inner-wrapper class="w100 block posRel">
 						{tabMode && itemLimit > selItemsSrc.length && (
-							<button
-								onClick={() => setTabMode('')}
-								className={`${
-									tabMode ? 'tBlue textSha fs8' : 'tDarkBlue fs8'
-								} posRel  xBold borBot2 bGlassSubtle w33 mw60 padVerXxs  posAbs topCen  zinMaXl    sideBors marBotXxxs  marAuto `}>
+							<button onClick={() => setTabMode('')} className={`${tabMode ? 'tBlue textSha fs8' : 'tDarkBlue fs8'} posRel  xBold borBot2 bGlassSubtle w33 mw60 padVerXxs  posAbs topCen  zinMaXl zinMenu   sideBors marBotXxxs  marAuto `}>
 								{tabMode ? `Zpět na zdroje` : `${isUserToEvents ? 'Vyber zdroj události' : 'Vyber zdroj uživatelů'}`}
 							</button>
 						)}
@@ -126,12 +100,8 @@ function Invitations({
 
 						{!tabMode && (
 							<menu-bs class={`w100 flexCen wrap marAuto gapXxxs aliStretch  zinMax  posRel `}>
-								{['search', 'gallery', 'other']
-									.filter(
-										b =>
-											(tabMode ? b === tabMode : b !== 'gallery' || brain.user.unstableObj || brain.user[isUserToEvents ? 'eveInters' : 'linkUsers'].length) ||
-											(isUserToEvents && brain.user.galleryIDs.futuOwn?.length)
-									)
+								{['gallery', 'search', 'other']
+									.filter(b => !tabMode || b === tabMode)
 									.map(m => (
 										<button
 											key={m}
@@ -140,31 +110,22 @@ function Invitations({
 												if (m === 'search' && !isUserToEvents) setSearchCat(null);
 												setTabMode(prev => (prev === m ? '' : m));
 											}}
-											className={` bHover  bBor  padAllS imw8   iw80   bInsetBlueTopXs2   borderTop      ${
-												tabMode === m
-													? 'marAuto boRadM posAbs topCen maskLowXs upTiny bgTransXs  mw40  w100 bInsetBlueTopXs fs7    zinMaXl bgTransXs padHorM      xBold '
-													: 'grow boldXs fs7    posRel   '
-											}`}>
-											<img
-												src={`/icons/${m === 'search' ? 'search' : m === 'gallery' ? (mode === 'userToEvents' ? 'event' : 'people') : 'email'}.png`}
-												style={{ aspectRatio: '16/10' }}
-												className={`${!tabMode || tabMode === m ? '' : 'opacityS'}`}
-												alt={`${m} icon`}
-											/>
-											{!tabMode && <span className=' xBold'>{m === 'search' ? 'Vyhledávání' : m === 'gallery' ? 'Galerie' : 'Ostatní'}</span>}
+											className={` bHover  bBor  padAllS imw6   iw80   bInsetBlueTopXs2   borderTop      ${tabMode === m ? 'marAuto boRadM posAbs topCen maskLowXs upTiny bgTransXs  mw40  w100 bInsetBlueTopXs fs7    zinMaXl bgTransXs padHorM      xBold ' : 'grow boldXs fs7    posRel   '}`}>
+											<img src={`/icons/${m === 'search' ? 'search' : m === 'gallery' ? (mode === 'userToEvents' ? 'event' : 'people') : 'email'}.png`} style={{ aspectRatio: '16/10' }} className={`${!tabMode || tabMode === m ? '' : 'opacityS'}`} alt={`${m} icon`} />
+											{!tabMode && <span className=" xBold">{m === 'search' ? 'Vyhledávání' : m === 'gallery' ? 'Galerie' : 'Ostatní'}</span>}
 										</button>
 									))}
 							</menu-bs>
 						)}
 
 						{tabMode === 'search' && (
-							<div className={`${selItemsSrc.length >= itemLimit ? 'hide' : ''} mw160   block marAuto`}>
+							<div className={`${selItemsSrc.length >= itemLimit ? 'hide' : ''} mw160  padTopXs block marAuto`}>
 								<Search brain={brain} cat={searchCat} isInvitations={mode} superMan={man} selectedItems={selItemsSrc} obj={obj} />
 							</div>
 						)}
 
 						{tabMode === 'gallery' && !showUsersOnly && (
-							<div className={`${selItemsSrc.length >= itemLimit ? 'hide' : ''}`}>
+							<div className={`${selItemsSrc.length >= itemLimit ? 'hide' : ''} padTopXs`}>
 								<Gallery brain={brain} superMan={man} isInvitations={mode} selectedItems={selItemsSrc} itemLimit={itemLimit} />
 							</div>
 						)}
@@ -174,14 +135,8 @@ function Invitations({
 			{selItemsSrc.length > 0 && (tabMode || showUsersOnly) && (
 				<selected-wrapper ref={contentRef} class={`w100 flexCol   aliCen  justCen block `}>
 					<header-wrapper class={`${!showUsersOnly ? 'marTopM' : ''} flexCol textAli justCen w100`}>
-						{!showUsersOnly && (
-							<span className='fs17 marBotXxs xBold inlineBlock  marAuto'>
-								{isUserToEvents
-									? `Vybran${selItemsSrc.length > 1 ? 'é' : 'á'} událost${selItemsSrc.length > 1 ? 'i' : ''} (${selItemsSrc.length}/${itemLimit})`
-									: `Vybran${selItemsSrc.length > 1 ? 'é' : 'i'} adresáti (${selItemsSrc.length}/${itemLimit})`}
-							</span>
-						)}
-						{!showUsersOnly && <span className='fs7 marBotXxs tRed boldS marAuto'>Pro odstranění na vybrané položky klikni</span>}
+						{!showUsersOnly && <span className="fs17 marBotXxs xBold inlineBlock  marAuto">{isUserToEvents ? `Vybran${selItemsSrc.length > 1 ? 'é' : 'á'} událost${selItemsSrc.length > 1 ? 'i' : ''} (${selItemsSrc.length}/${itemLimit})` : `Vybran${selItemsSrc.length > 1 ? 'é' : 'i'} adresáti (${selItemsSrc.length}/${itemLimit})`}</span>}
+						{!showUsersOnly && <span className="fs7 marBotXxs tRed boldS marAuto">Pro odstranění na vybrané položky klikni</span>}
 					</header-wrapper>
 
 					<Masonry
@@ -190,14 +145,11 @@ function Invitations({
 								key={item.id}
 								rightButtons={
 									showUsersOnly ? (
-										<invite-actions className='flexRow h100 aliStretch'>
+										<invite-actions className="flexRow h100 aliStretch">
 											{Object.entries({ accept: 'surely', refuse: 'error', [galleryMode === 'invitesIn' ? 'delete' : 'cancel']: 'trash' })
 												.filter(([key]) => galleryMode === 'invitesIn' || key === 'cancel')
 												.map(([key, icon]) => (
-													<button
-														key={key}
-														className='fs6 h100 ihr2-5 iwr2-5  imw4 imiw3 iw80 padAllXs borRed'
-														onClick={e => (e.stopPropagation(), invitesHandler(key, item.id))}>
+													<button key={key} className="fs6 h100 ihr2-5 iwr2-5  imw4 imiw3 iw80 padAllXs borRed" onClick={e => (e.stopPropagation(), invitesHandler(key, item.id))}>
 														<img src={`/icons/${icon}.png`} alt={key} />
 													</button>
 												))}
@@ -210,6 +162,7 @@ function Invitations({
 									isInvitations: true,
 									superMan: man,
 									galleryMode,
+									numOfCols,
 								}}
 							/>
 						))}
@@ -219,10 +172,10 @@ function Invitations({
 					/>
 
 					{!showUsersOnly && (
-						<note-wrapper className='w100 block textAli fPadHorXxxs marTopL'>
-							<label className='fs10 xBold marBotXxs inlineBlock'> Nepovinná zpráva</label>
+						<note-wrapper className="w100 block textAli fPadHorXxxs marTopL">
+							<label className="fs10 xBold marBotXxs inlineBlock"> Nepovinná zpráva</label>
 							<blue-divider class={` hr0-3  borTop block bInsetBlueTopXl borTop bgTrans  w100  mw100   marAuto   `} />
-							<textarea value={note} onChange={e => setNote(e.target.value)} placeholder='...' className='w100  boRadXs mw160 textAli marAuto block textArea padVerXs' rows={5} />
+							<textarea value={note} onChange={e => setNote(e.target.value)} placeholder="..." className="w100  boRadXs mw160 textAli marAuto block textArea padVerXs" rows={5} />
 							<blue-divider class={` hr0-3  borTop block bInsetBlueTopXl borTop bgTrans  w100  mw100   marAuto   `} />
 						</note-wrapper>
 					)}
@@ -238,17 +191,7 @@ function Invitations({
 							tWhite boldM fs11 padVerXs padHorS boRadXs marVerXs w100 mw100 pointer posRel marAuto
 						`}
 							disabled={inviteStatus === 'sending'}>
-							{invitesTotal && invitesTotal > selItemsSrc.length
-								? 'Načíst další...'
-								: inviteStatus === 'sending'
-								? 'Odesílám...'
-								: inviteStatus === 'success'
-								? 'Úspěšně pozváno!'
-								: inviteStatus === 'error'
-								? 'Chyba při odesílání'
-								: isUserToEvents
-								? 'Pozvat na vybrané události'
-								: 'Odeslat pozvánky'}
+							{invitesTotal && invitesTotal > selItemsSrc.length ? 'Načíst další...' : inviteStatus === 'sending' ? 'Odesílám...' : inviteStatus === 'success' ? 'Úspěšně pozváno!' : inviteStatus === 'error' ? 'Chyba při odesílání' : isUserToEvents ? 'Pozvat na vybrané události' : 'Odeslat pozvánky'}
 						</button>
 					)}
 				</selected-wrapper>

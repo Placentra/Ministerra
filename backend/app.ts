@@ -189,7 +189,7 @@ const metricsLogger = getLogger('Metrics');
 							return;
 						}
 						try {
-							const metrics = await (aggregatorRegistry as any).clusterMetrics({ timeout: 15000 });
+							const metrics = await (aggregatorRegistry as any).clusterMetrics({ timeout: 5000 });
 							res.setHeader('Content-Type', client.register.contentType);
 							res.end(metrics);
 						} catch (e) {

@@ -67,7 +67,9 @@ const Masonry = props => {
 		content.forEach((card, index) => {
 			const chunkIndex = Math.floor(index / CHUNK_SIZE);
 			if (!newChunks[chunkIndex]) {
-				newChunks[chunkIndex] = Array(numOfCols).fill(null).map(() => []);
+				newChunks[chunkIndex] = Array(numOfCols)
+					.fill(null)
+					.map(() => []);
 				heights[chunkIndex] = Array(numOfCols).fill(0);
 			}
 			let targetColIdx = 0;
@@ -77,7 +79,7 @@ const Masonry = props => {
 			else {
 				// Find column with minimum total estimated height ---------------------------
 				let minColHeight = heights[chunkIndex][0];
-				for (let i = 1; i < numOfCols; i++) if (heights[chunkIndex][i] < minColHeight) (minColHeight = heights[chunkIndex][i]), (targetColIdx = i);
+				for (let i = 1; i < numOfCols; i++) if (heights[chunkIndex][i] < minColHeight) ((minColHeight = heights[chunkIndex][i]), (targetColIdx = i));
 				heights[chunkIndex][targetColIdx] += getHeight(card);
 			}
 			newChunks[chunkIndex][targetColIdx].push(card);
@@ -92,25 +94,22 @@ const Masonry = props => {
 				const emptyCols = numOfCols - itemsInLastChunk;
 				if (emptyCols > 0 && emptyCols % 2 === 0) {
 					const padding = emptyCols / 2;
-					const centered = Array(numOfCols).fill(null).map(() => []);
+					const centered = Array(numOfCols)
+						.fill(null)
+						.map(() => []);
 					for (let i = 0; i < itemsInLastChunk; i++) centered[padding + i] = newChunks[lastIdx][i];
 					newChunks[lastIdx] = centered;
 				}
 			}
 		}
 
-		setView(contType), setNumCols(numOfCols), setChunks(newChunks);
+		(setView(contType), setNumCols(numOfCols), setChunks(newChunks));
 	}, [content, numOfCols, contType]);
 
 	// RENDER MASONRY LAYOUT ---------------------------------------------------
 	return (
-		<masonry-wrapper
-			ref={masonryRef}
-			class={`block ${contType.includes('Strips') ? 'w100 marAuto padBotXs fPadHorXxxs   maskTopXxs' : nowAt !== 'event' ? 'mihvh120 w100' : 'w100'}  posRel block `}>
-			<content-chunks
-				class={` ${
-					nowAt !== 'event' && !view.includes('Strips') ? ' block' : nowAt !== 'event' && !isChatSetup && !noPadTop ? 'padTopXs' : ''
-				}  w100 posRel block  posRel   aliCen flexCol fPadHorXxxs  `}>
+		<masonry-wrapper ref={masonryRef} class={`block ${contType.includes('Strips') ? 'w100 marAuto padBotXs fPadHorXxxs   ' : nowAt !== 'event' ? 'mihvh120 w100' : 'w100'}  posRel block `}>
+			<content-chunks class={` ${nowAt !== 'event' && !view.includes('Strips') ? ' block' : nowAt !== 'event' && !isChatSetup && !noPadTop ? 'padTopXs' : ''}  w100 posRel block  posRel   aliCen flexCol fPadHorXxxs  `}>
 				{(() => {
 					let cumulative = 0;
 					return chunks?.map((chunk, i) => {
@@ -134,25 +133,10 @@ const Masonry = props => {
 									</chunks-divider>
 								)}
 								{/* COLUMN GRID --------------------------- */}
-								<cols-wrapper
-									class={`${
-										view === 'alertStrips'
-											? 'gapXxs'
-											: view === 'pastUsers'
-											? 'gapXxs'
-											: ['users', 'eveUsers'].includes(view)
-											? 'gapXs'
-											: view.includes('Strips')
-											? 'gapXxs'
-											: ['gapMiddleL', 'gapMiddleS', 'gapMiddleXs'][numCols > 3 ? 2 : numCols - 2]
-									} flexCen w100 marAuto aliStart  spaceCen padBotXs `}
-									key={i}>
+								<cols-wrapper class={`${view === 'alertStrips' ? 'gapXxs' : view === 'pastUsers' ? 'gapXxs' : ['users', 'eveUsers'].includes(view) ? 'gapXs' : view.includes('Strips') ? 'gapXxs' : ['gapMiddleL', 'gapMiddleS', 'gapMiddleXs'][numCols > 3 ? 2 : numCols - 2]} flexCen w100 marAuto aliStart  spaceCen padBotXs `} key={i}>
 									{chunk.map((cards, j) => {
 										return (
-											<content-column
-												style={{ width: `${100 / numCols}%`, maxWidth: maxWidthSource[contType] ? `${maxWidthSource[contType]}px` : undefined }}
-												class={`flexCol justStart grow ${nowAt !== 'event' ? 'downTinyBit' : ''} posRel   ${!view.includes('Strips') ? 'gapXxxs' : ''} aliCen   `}
-												key={j}>
+											<content-column style={{ width: `${100 / numCols}%`, maxWidth: maxWidthSource[contType] ? `${maxWidthSource[contType]}px` : undefined }} class={`flexCol justStart grow ${nowAt !== 'event' ? 'downTinyBit' : ''} posRel   ${!view.includes('Strips') ? 'gapXxxs' : ''} aliCen   `} key={j}>
 												{/* RENDER ITEMS OR PLACEHOLDERS --------------------------- */}
 												{cards.map((item, idx) => (isValidElement(item) ? item : <Comp {...cardProps} key={item.id} obj={item} isFirstInCol={idx === 0} />))}
 											</content-column>
@@ -170,14 +154,7 @@ const Masonry = props => {
 
 // RENDER OPTIMIZATION -----------------------------------------------------
 function areEqual(prev, next) {
-	return (
-		prev.content === next.content &&
-		prev.nowAt === next.nowAt &&
-		prev.config.numOfCols === next.config.numOfCols &&
-		prev.config.contType === next.config.contType &&
-		prev.cardProps?.showAllThumbs === next.cardProps?.showAllThumbs &&
-		prev.cardProps?.cardsView === next.cardProps?.cardsView
-	);
+	return prev.content === next.content && prev.nowAt === next.nowAt && prev.config.numOfCols === next.config.numOfCols && prev.config.contType === next.config.contType && prev.cardProps?.showAllThumbs === next.cardProps?.showAllThumbs && prev.cardProps?.cardsView === next.cardProps?.cardsView;
 }
 
 export default memo(Masonry, areEqual);

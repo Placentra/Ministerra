@@ -29,7 +29,52 @@ const seenUpdateCache = new LRUCache({
 // KEYS[1]: Hash key (chatSeen:{id})
 // KEYS[2]: ZSet key (chatSeenChanged:{id})
 // ARGV[1]: Cache limit (number)
-const LUA_TRIM = `local h=KEYS[1];local z=KEYS[2];local l=tonumber(ARGV[1]);if not l or l<=0 then return 0 end;local s=redis.call('ZCARD',z);local o=s-l;if o<=0 then return 0 end;local r=redis.call('ZRANGE',z,0,o-1);if #r>0 then redis.call('HDEL',h,unpack(r)) end;redis.call('ZREMRANGEBYRANK',z,0,o-1);return o`;
+// LUA TRIM WITH BATCHED HDEL ---
+// Steps: use loop instead of unpack to avoid Lua stack overflow on large result sets (unpack has ~8000 element limit).
+const LUA_TRIM = `local h=KEYS[1];local z=KEYS[2];local l=tonumber(ARGV[1]);if not l or l<=0 then return 0 end;local s=redis.call('ZCARD',z);local o=s-l;if o<=0 then return 0 end;local r=redis.call('ZRANGE',z,0,o-1);for i=1,#r do redis.call('HDEL',h,r[i]) end;redis.call('ZREMRANGEBYRANK',z,0,o-1);return o`;
+
+// LUA SCRIPT: PREPARE WRITE ---------------------------------------------------
+// Atomically checks monotonicity, allocates versions, and updates max trackers.
+// KEYS[1]: chatSeenMax:{id}
+// KEYS[2]: chatSeenVersion (Hash)
+// KEYS[3]: lastSeenChangeAt (Hash)
+// ARGV[1]: chatID
+// ARGV[2+]: Pairs of (key, seenId)
+const LUA_PREPARE = `
+local maxH = KEYS[1]
+local verH = KEYS[2]
+local lastH = KEYS[3]
+local chatID = ARGV[1]
+local inputKeys = {}
+local inputVals = {}
+local n = 0
+for i=2, #ARGV, 2 do
+    n = n + 1
+    inputKeys[n] = ARGV[i]
+    inputVals[n] = tonumber(ARGV[i+1])
+end
+if n == 0 then return {} end
+local currents = redis.call('HMGET', maxH, unpack(inputKeys))
+local result = {}
+local maxUpdates = {}
+local lastVer = redis.call('HINCRBY', verH, chatID, n)
+local startVer = lastVer - n + 1
+for i=1, n do
+    local cur = tonumber(currents[i])
+    local final = inputVals[i]
+    if cur and final and cur > final then final = cur end
+    if final then
+        table.insert(maxUpdates, inputKeys[i])
+        table.insert(maxUpdates, final)
+    end
+    table.insert(result, inputKeys[i])
+    table.insert(result, final or 0) -- Use 0 for null/undefined if necessary, or handle in JS
+    table.insert(result, startVer + i - 1)
+end
+if #maxUpdates > 0 then redis.call('HSET', maxH, unpack(maxUpdates)) end
+redis.call('HSET', lastH, chatID, lastVer)
+return result
+`;
 
 let redis;
 // SET REDIS CLIENT ------------------------------------------------------------
@@ -37,11 +82,12 @@ let redis;
 export const setSeenRedisClient = (c: any): void => {
 	redis = c;
 	c?.defineCommand('chatSeenTrim', { numberOfKeys: 2, lua: LUA_TRIM });
+	c?.defineCommand('chatSeenPrepare', { numberOfKeys: 3, lua: LUA_PREPARE });
 };
 
 // KEYS ------------------------------------------------------------------------
 // Steps: keep key formatting centralized so hash/zset pairs never drift.
-const keys = (id: string | number): { hash: string; zset: string } => ({ hash: `chatSeen:${id}`, zset: `chatSeenChanged:${id}` });
+const keys = (id: string | number): { hash: string; zset: string; maxHash: string } => ({ hash: `chatSeen:${id}`, zset: `chatSeenChanged:${id}`, maxHash: `chatSeenMax:${id}` });
 
 // HELPERS ---------------------------------------------------------------------
 
@@ -74,7 +120,7 @@ const parseCache = (mid: string | number, val: Buffer): CacheEntry | null => {
 // Steps: keep only the newest version per memberId so duplicate/overlapping sources collapse deterministically.
 const upsert = (map: Map<number, CacheEntry>, { id, seenId, ts }: CacheEntry): void => {
 	const exist: CacheEntry | undefined = map.get(id);
-	if (!exist || (exist.ts || 0) < ts) map.set(id, { id, seenId, ts: ts || Date.now() });
+	if (!exist || (exist.ts || 0) < ts) map.set(id, { id, seenId, ts: ts || 0 });
 };
 
 interface WriteSeenResult {
@@ -92,31 +138,44 @@ export async function writeSeenEntriesToCache(chatID: string | number, entries: 
 		.filter((e): e is { mid: number; key: string; seen: number | null } => !!e);
 	if (!norm.length) return null;
 
-	// VERSION ALLOCATION ---
-	// Steps: reserve a contiguous version range so every write is orderable and clients can request deltas since version N.
-	const lastVer: number = await redis.hincrby('chatSeenVersion', String(chatID), norm.length);
-	const { hash, zset }: { hash: string; zset: string } = keys(chatID);
-	const pipe: any = redis.multi();
+	// MONOTONIC SEEN NORMALIZATION & VERSION ALLOCATION (ATOMIC LUA) -----------
+	// Steps: use Lua to atomically check max-seen, allocate versions, and update metadata.
+	// This eliminates the race condition between reading 'max' and writing 'current'.
+	const { hash, zset, maxHash }: { hash: string; zset: string; maxHash: string } = keys(chatID);
+	const luaArgs = [chatID, ...norm.flatMap(e => [e.key, String(e.seen || 0)])];
+	
+	// Returns flat array: [key, finalSeen, version, key, finalSeen, version, ...]
+	const prepared: (string | number)[] = await (redis as any).chatSeenPrepare(maxHash, 'chatSeenVersion', REDIS_KEYS.lastSeenChangeAt, ...luaArgs);
+	
+	if (!prepared || !prepared.length) return null;
 
-	let verPtr: number = lastVer - norm.length + 1;
+	const pipe: any = redis.multi();
 	const [hArgs, zArgs, res]: [any[], any[], any[]] = [[], [], []];
+	let lastVer = 0;
 
 	// COMMAND STAGING ---
-	// Steps: stage one hset payload per member (CBOR), plus one zset score per member (version) so zrangebyscore becomes the delta index.
-	norm.forEach(({ mid, key, seen }) => {
-		const ver: number = verPtr++;
+	// Steps: stage HSET and ZADD based on the atomic decisions made by Lua.
+	for (let i = 0; i < prepared.length; i += 3) {
+		const key = String(prepared[i]);
+		const seen = Number(prepared[i + 1]) || null;
+		const ver = Number(prepared[i + 2]);
+		
+		// Map back to memberId (key is String(id))
+		const mid = Number(key);
+		
 		hArgs.push(key, toBuf(encode({ seenId: seen, ts: ver, updatedAt })));
 		zArgs.push(ver, key);
 		res.push({ memberId: mid, seenId: seen, version: ver });
-	});
+		if (ver > lastVer) lastVer = ver;
+	}
 
 	// ATOMIC-ish WRITE ---
-	// Steps: multi executes the grouped writes together so consumers see consistent hash/zset pairs.
+	// Steps: write the payloads. Metadata (max, version, lastChange) was already updated by Lua.
 	if (hArgs.length) pipe.hset(hash, ...hArgs);
 	if (zArgs.length) pipe.zadd(zset, ...zArgs);
-	pipe.hset(REDIS_KEYS.lastSeenChangeAt, String(chatID), lastVer);
 
 	await pipe.exec();
+	
 	// ASYNC TRIM ---
 	// Steps: trim in background so writes stay low-latency; fallback to raw eval if the custom command is missing.
 	(redis as any).chatSeenTrim(hash, zset, CACHE_LIMIT).catch((err: any) => {
@@ -269,10 +328,10 @@ export async function messSeen({ chatID, messID, role, userID, socket }: MessSee
 	// SEEN UPDATE GATE ---------------------------------------------------------
 	// Private chats do not use this sync path; privileged roles may be excluded to avoid leaking presence semantics.
 	if (role !== 'priv') {
-		await Promise.all([
-			redis.xadd('lastSeenMess', 'MAXLEN', '~', STREAM_MAXLEN, '*', 'payload', encode([chatID, userID, messID])),
-			writeSeenEntriesToCache(chatID, [{ id: userID, seenId: Number(messID) }]),
-		]);
+		// PERSIST BEFORE BROADCAST ---
+		// Steps: write to stream and cache first so broadcast only happens after persistence succeeds; prevents "seen" checkmarks that vanish on refresh.
+		await redis.xadd('lastSeenMess', 'MAXLEN', '~', STREAM_MAXLEN, '*', 'payload', encode([chatID, userID, messID]));
+		await writeSeenEntriesToCache(chatID, [{ id: userID, seenId: Number(messID) }]);
 		broadcastMessSeen({ socket, chatID, userID, messID });
 	}
 }

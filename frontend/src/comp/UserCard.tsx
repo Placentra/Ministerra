@@ -60,7 +60,7 @@ const UserCard = props => {
 			[obj.eveInters, brain.events, selTypes, showAllThumbs]
 		),
 		hasMoreEvents = eveThumbsToShow?.length > 1,
-		showTopRedInfoStrip = ['evePreview', 'protocol', 'profile', 'invites'].some(button => modes[button]);
+		showTopRedInfoStrip = ['evePreview', 'protocol', 'profile', 'invites', 'allEveThumbs'].some(button => modes[button]);
 
 	// TEXT CLASS DEFINITION ---------------------------
 	const textClass = !cols || cols <= 3 ? 'fs9' : 'fs7';
@@ -102,18 +102,12 @@ const UserCard = props => {
 	// EVENT THUMBNAILS COMPONENT ---------------------------
 	// Renders list of upcoming events for the user with status indicators.
 	const eventsThumb = (
-		<thumbs-wrapper
-			onClick={() => setModes(prev => ({ ...prev, allEveThumbs: false }))}
-			class={`flexRow aliEnd point ${modes.allEveThumbs ? 'w100  bgTransXs padBotXs padTopXxs   overAuto' : hasMoreEvents ? `` : cardsView !== 2 ? `miw9 marRigXs ` : ` `} ${
-				modes.evePreview && hasMoreEvents ? 'padBotXs ' : ''
-			}   posRel wrap  boRadXs zinMax  `}>
+		<thumbs-wrapper onClick={() => setModes(prev => ({ ...prev, allEveThumbs: false }))} class={`flexRow aliEnd point ${modes.allEveThumbs ? 'w100  bgTransXs padBotXs padTopXxs   overAuto' : hasMoreEvents ? `marBotXxs` : cardsView !== 2 ? `miw9 marRigXs ` : ` `} ${modes.evePreview && hasMoreEvents ? 'padBotXs ' : ''}   posRel wrap  boRadXs zinMax  `}>
 			{/* SHOW ALL BUTTON --------------------------- */}
 			{!modes.allEveThumbs && hasMoreEvents && (
-				<show-all
-					onClick={e => (e.stopPropagation(), setModes(prev => ({ ...prev, allEveThumbs: !prev.allEveThumbs, evePreview: false, actions: false })))}
-					className={`${modes.allEveThumbs ? 'noBackground padHorS posRel zinMaXl' : 'borRedSel'} block flexCol aliCen boldM shaLight boRadXxxs  posRel`}>
-					<img className={`marAuto posRel boRadXs ${cardsView === 2 ? ' mw8' : 'aspect1610 upTiny mw9'}`} src={`/icons/event.png`} alt='' />
-					{!modes.allEveThumbs && <span className='xBold fs14 bgTransXxs posAbs padVerXxxxs padHorXs botRight bgWhite boRadM lh1'>{eveThumbsToShow.length}</span>}
+				<show-all onClick={e => (e.stopPropagation(), setModes(prev => ({ ...prev, allEveThumbs: !prev.allEveThumbs, evePreview: false, actions: false })))} className={`${modes.allEveThumbs ? 'noBackground padHorS posRel zinMaXl' : 'borRedSel'} block flexCol aliCen boldM shaLight boRadXxxs  posRel`}>
+					<img className={`marAuto posRel boRadXs ${cardsView === 2 ? ' mw8' : 'aspect1610 upTiny mw9'}`} src={`/icons/event.png`} alt="" />
+					{!modes.allEveThumbs && <span className="xBold fs14 bgTransXxs posAbs padVerXxxxs padHorXs botRight bgWhite boRadM lh1">{eveThumbsToShow.length}</span>}
 				</show-all>
 			)}
 			{/* INDIVIDUAL EVENT THUMBS --------------------------- */}
@@ -129,28 +123,17 @@ const UserCard = props => {
 						return (
 							<single-thumb
 								key={eventID}
-								onClick={async e => (
-									e.stopPropagation(),
-									modes.evePreview?.id === eventObj.id
-										? setModes(prev => ({ ...prev, evePreview: false }))
-										: (await previewEveCard({ obj: eventObj, brain }), setModes(prev => ({ ...prev, evePreview: eventObj, protocol: false, invite: false })))
-								)}
-								className={`${modes.evePreview?.id === eventID ? 'bDarkBlue arrowDown1 tWhite zinMaXl bsContentGlow' : 'zinMax'} flexCen ${modes.allEveThumbs ? '' : ''}  ${
-									cardsView === 2 ? 'mw8' : 'padRightXs'
-								}  pointer bgTransXs  miw12     posRel boRadXxs`}>
-								<inner-wrapper class='flexCen bHover aliCen padLeftXxs justCen grow'>
-									<img className={`${cols === 3 ? 'mw10' : cols === 4 ? 'mw7' : 'mw7 '}   posRel  w90    posRel boRadXs   `} src={`/icons/types/${eventObj.type}.png`} alt='' />
-									<texts-wraper class='flexCol justCen  fPadHorXxxs    '>
-										<span className={`${flag === 'sur' ? 'tGreen tSha10 xBold' : eventIsPast ? 'tGrey textSha' : 'tBlue bold'} textSha fs18 lh1`}>
-											{humanizeDateTime({ dateInMs: eventObj.starts, thumbRow: 'upper' })}
-										</span>
-										<span className='tNoWrap fs7 bold lh1'>{humanizeDateTime({ dateInMs: eventObj.starts, thumbRow: 'bottom' })}</span>
+								onClick={async e => (e.stopPropagation(), modes.evePreview?.id === eventObj.id ? setModes(prev => ({ ...prev, evePreview: false })) : (await previewEveCard({ obj: eventObj, brain }), setModes(prev => ({ ...prev, evePreview: eventObj, protocol: false, invite: false }))))}
+								className={`${modes.evePreview?.id === eventID ? 'bDarkBlue arrowDown1 tWhite zinMaXl bsContentGlow' : 'zinMax'} flexCen ${modes.allEveThumbs ? '' : ''}  ${cardsView === 2 ? 'mw8' : 'padRightXs'}  pointer bgTransXs  miw12     posRel boRadXxs`}>
+								<inner-wrapper class="flexCen bHover aliCen padLeftXxs justCen grow">
+									<img className={`${cols === 3 ? 'mw10' : cols === 4 ? 'mw7' : 'mw7 '}   posRel  w90    posRel boRadXs   `} src={`/icons/types/${eventObj.type}.png`} alt="" />
+									<texts-wraper class="flexCol justCen  fPadHorXxxs    ">
+										<span className={`${flag === 'sur' ? 'tGreen tSha10 xBold' : eventIsPast ? 'tGrey textSha' : 'tBlue bold'} textSha fs18 lh1`}>{humanizeDateTime({ dateInMs: eventObj.starts, thumbRow: 'upper' })}</span>
+										<span className="tNoWrap fs7 bold lh1">{humanizeDateTime({ dateInMs: eventObj.starts, thumbRow: 'bottom' })}</span>
 										{/* INTERACTION BADGES --------------------------- */}
-										{eventObj.inter === 'may' && obj.id !== brain.user.id && <span className='bBlue boldS fs6 flexCen boRadXxs padVerXxxxs  tWhite'>možná</span>}
-										{eventObj.inter === 'sur' && obj.id !== brain.user.id && (
-											<span className='bDarkGreen flexCen fs7 xBold boRadXxs bold padVerXxxxs padHorXxs tWhite'>určitě</span>
-										)}
-										{eventIsPast && <span className='bRed flexCen fs6 xBold boRadXxs bold padVerXxxxs padHorXxs tWhite'>minulá</span>}
+										{eventObj.inter === 'may' && obj.id !== brain.user.id && <span className="bBlue boldS fs6 flexCen boRadXxs padVerXxxxs  tWhite">možná</span>}
+										{eventObj.inter === 'sur' && obj.id !== brain.user.id && <span className="bDarkGreen flexCen fs7 xBold boRadXxs bold padVerXxxxs padHorXxs tWhite">určitě</span>}
+										{eventIsPast && <span className="bRed flexCen fs6 xBold boRadXxs bold padVerXxxxs padHorXxs tWhite">minulá</span>}
 									</texts-wraper>
 								</inner-wrapper>
 							</single-thumb>
@@ -167,12 +150,7 @@ const UserCard = props => {
 				{obj.indis
 					?.filter(indi => indi <= 10 && indi !== 0)
 					.map((indi, i) => (
-						<img
-							key={i}
-							className={`${cardsView === 3 ? 'mw2-5 miw1-5' : cols <= 3 ? 'mw2 ' : 'mw2 miw2'} ${sherlockMatches.indis?.includes(indi) ? 'borderRed' : ''}`}
-							src={`/icons/indicators/${indi}.png`}
-							alt={`indi number ${i}`}
-						/>
+						<img key={i} className={`${cardsView === 3 ? 'mw2-5 miw1-5' : cols <= 3 ? 'mw2 ' : 'mw2 miw2'} ${sherlockMatches.indis?.includes(indi) ? 'borderRed' : ''}`} src={`/icons/indicators/${indi}.png`} alt={`indi number ${i}`} />
 					))}
 			</user-indicators>
 
@@ -182,7 +160,7 @@ const UserCard = props => {
 				(() => {
 					const d = obj.distance;
 					const label = d < 1 ? `${Math.round(d * 1000)} m` : d > 5 ? `${Math.round(d)} km` : `${d.toFixed(1)} km`;
-					return <span className='fsA tGrey marLefXs marTopXxxs'>{label}</span>;
+					return <span className="fsA tGrey marLefXs marTopXxxs">{label}</span>;
 				})()}
 		</indi-row>
 	);
@@ -212,32 +190,21 @@ const UserCard = props => {
 			id={`card_${obj.id}`}
 			class={`
 				${isProfile ? 'mw65 marTopXs 	posRel  zinMax' : 'mw80 marBotXs'}
-				${status.blocked ? 'bRed' : !status.embeded && (modes.actions || modes.evePreview) ? ' shaMega thickBors ' : !modes.actions ? '' : ''}
+				${status.blocked ? 'bRed' : !status.embeded && (modes.actions || modes.evePreview) ? ' shaMega  ' : !modes.actions ? '' : ''}
 			 bHover boRadXxs  shaBotLong   bgWhite  	  flexCol marAuto ${isProfile ? '' : 'marBotXs'}      grow   posRel    w100  `}>
 			{/* IMAGE WRAPPER -------------------------------------------------*/}
 			<image-wrapper onClick={handleClick} class={` maskTopXxs  w100 posRel `}>
-				{/* IMAGE AND TOP LIGHT STRIPS --------------------------------------------------------*/}
-				<div className='mih0-5 shaTop bgWhite zin100 posAbs topCen opacityS w100 aliStart' />
-				<div className='mih2 shaTop  zin100 posAbs topCen opacityS w100 aliStart' />
+				{/* IMAGE AND TOP LIGHT STRIPS ------------------------------------------------	--------*/}
+				<div className="mih0-5 shaTop bgWhite zin100 posAbs topCen opacityS w100 aliStart" />
+				<div className="mih2 shaTop  zin100 posAbs topCen opacityS w100 aliStart" />
 				{showTopRedInfoStrip && (
-					<info-strip class='posAbs topCen zinMaXl w100 textAli'>
-						<arrow-down className='arrowDownRed posRel  zinMaXl  textAli   marAuto   inlineBlock   downLittle  s  xBold ' />
-						<span className='  tRed tShaWhiteXl   padHorM padVerXxs marAuto posAbs topCen zinMaXl  textAli   padHorM marAuto  padVerXxs inlineBlock borTop bInsetBlueTopXs  fs18  xBold '>
-							zpět na profil
-						</span>
+					<info-strip class="posAbs topCen zinMaXl marTopXs w100 textAli">
+						<arrow-down className="arrowDownRed posRel  zinMaXl  textAli   marAuto   inlineBlock   downTiny   xBold " />
+						<span className="  tRed tShaWhiteXl   padHorM   marAuto posAbs topCen zinMaXl  textAli   padHorM marAuto  inlineBlock borTop bInsetBlueTopXs  fs14  xBold ">zpět na profil</span>
 					</info-strip>
 				)}
 				{/* USER IMAGE --------------------------- */}
-				<img
-					decoding='async'
-					className={`w100 maskLowXs  aspect1610`}
-					src={
-						obj.imgVers
-							? `${import.meta.env.VITE_BACK_END}/public/users/${obj.id === brain.user.id ? brain.user.id : stableRandom.current}_${obj.imgVers}.webp`
-							: '/icons/placeholdergood.png'
-					}
-					alt=''
-				/>
+				<img decoding="async" className={`w100 maskLowXs  aspect1610`} src={obj.imgVers ? `${import.meta.env.VITE_BACK_END}/public/users/${obj.id === brain.user.id ? brain.user.id : stableRandom.current}_${obj.imgVers}.webp` : '/icons/placeholdergood.png'} alt="" />
 
 				{/* CARDSVIEW 1 - FULL NAME + INDICATORS STRIP -------------------------------------------------*/}
 				{cardsView === 1 && !modes.protocol && !modes.invites && (
@@ -246,13 +213,13 @@ const UserCard = props => {
 
 						{!modes.allEveThumbs && obj.indis?.includes(1) && (
 							<cool-guy class={`shaMega w14 flexCol aliCen justCen  boRadXs bgTrans  padTopXs maskTopXs posAbs   upEvenMore zinMax `}>
-								<img className='miw5 mw4   ' src={`/icons/indicators/1.png`} alt='' />
+								<img className="miw5 mw4   " src={`/icons/indicators/1.png`} alt="" />
 							</cool-guy>
 						)}
 						{nowAt !== 'event' && !isProfile && eveThumbsToShow?.length > 0 && eventsThumb}
 						{!modes.allEveThumbs && (
-							<left-side class='flexCol fPadHorXxs grow aliStart textLeft  posRel'>
-								<span className={`${!cols || cols === 1 ? 'fs20' : cols <= 3 ? 'fs16' : cols === 4 ? 'fs14' : cols === 5 ? 'fs9' : 'fs10'} textSha  inlineBlock lh1`}>
+							<left-side class="flexCol fPadHorXxs grow aliStart textLeft  posRel">
+								<span className={`${!cols || cols === 1 ? 'fs20' : cols <= 3 ? 'fs16' : cols === 4 ? 'fs14' : cols === 5 ? 'fs9' : 'fs10'} textSha  inlineBlock lh1 wordBreak`}>
 									<strong className={'xBold'}>{obj.first + ' ' + obj.last}</strong> ({obj.age})
 								</span>
 								{indiRow}
@@ -263,20 +230,22 @@ const UserCard = props => {
 
 				{/* CARDSVIEW 2 - CENTERED NAME + COOL-GUY + EVENT THUMBS -------------------------------------------------*/}
 				{cardsView === 2 && (
-					<bottom-row class='flexCol posAbs botCen aliCen justCen w100'>
+					<bottom-row class="flexCol posAbs botCen aliCen justCen w100">
 						{nowAt !== 'event' && !isProfile && (
-							<top-wrapper class='flexRow aliCen w100  justCen'>
+							<top-wrapper class="flexRow aliCen w100  justCen">
 								{eveThumbsToShow?.length > 0 && eventsThumb}
 								{!modes.allEveThumbs && obj.indis?.includes(1) && (
 									<cool-guy class={' w14 miw7  flexCol aliCen justCen padAllXxxs maskLowXs posRel marLefS   bgTrans boRadXs  zinMax '}>
-										<img className='miw5 mw8 w80   ' src={`/icons/indicators/0.png`} alt='' />
+										<img className="miw5 mw8 w80   " src={`/icons/indicators/0.png`} alt="" />
 									</cool-guy>
 								)}
 							</top-wrapper>
 						)}
-						<span className={`${cols <= 3 ? 'fs20' : 'fs14'} textSha  textAli marAuto w100 inlineBlock lh1 textAli`}>
-							<strong className={'xBold'}>{obj.first + ' ' + obj.last}</strong> ({obj.age})
-						</span>
+						{!modes.allEveThumbs && (
+							<span className={`${cols <= 3 ? 'fs20' : 'fs14'} textSha  textAli marAuto w100 inlineBlock lh1 textAli wordBreak`}>
+								<strong className={'xBold'}>{obj.first + ' ' + obj.last}</strong> ({obj.age})
+							</span>
+						)}
 					</bottom-row>
 				)}
 			</image-wrapper>
@@ -296,9 +265,7 @@ const UserCard = props => {
 									.filter(key => obj[key] && Math.random() < 0.5)
 									.map(key => (
 										<topics-wraper class={`marRigXs  flexInline inline ${textClass}`} key={key}>
-											<span className={`marRigS  tDarkBlue inline ${key === 'exps' ? 'boRadXxs padVerXxxxs boldM textSha' : 'boldM textSha'} ${textClass}`}>
-												{key === 'exps' ? 'Expertní' : 'Oblíbené'}
-											</span>
+											<span className={`marRigS  tDarkBlue inline ${key === 'exps' ? 'boRadXxs padVerXxxxs boldM textSha' : 'boldM textSha'} ${textClass}`}>{key === 'exps' ? 'Expertní' : 'Oblíbené'}</span>
 											{obj[key].map((item, index) => (
 												<Fragment key={index}>
 													<single-topic class={`inline ${sherlockMatches[key]?.includes(item) ? 'borderRed' : ''} boldXxs `}>{item}</single-topic>
@@ -328,7 +295,7 @@ const UserCard = props => {
 							{(modes.actions || isProfile || isPast) && (
 								<extras-sec className={`${cardsView === 2 ? 'textAli ' : ''} flexCol   `}>
 									{/* GROUPS ---------------------------------------------------------------- */}
-									<traits-wrapper className='block marBotXxxs w100'>
+									<traits-wrapper className="block marBotXxxs w100">
 										{Array.from(USER_TRAITS).map(([categoryName, categoryMap]) => {
 											const traits = obj.traits?.filter(trait => categoryMap.has(String(trait))) || [];
 											if (traits.length > 0) {
@@ -353,7 +320,7 @@ const UserCard = props => {
 										})}
 									</traits-wrapper>
 									{/*PROGRESSIVE TOPICS --------------------------------------------------------- */}
-									<span className='block lh1-1 fs7  marBotXs'>
+									<span className="block lh1-1 fs7  marBotXs">
 										<span className={`boldM textSha tGreen ${textClass}  marRigXs`}>Progresivní</span>
 										{obj.basics?.map((topic, idx) => (
 											<span key={topic} className={`${sherlockMatches.basics?.includes(topic) ? 'borderRed' : ''} ${textClass} `}>
@@ -366,12 +333,10 @@ const UserCard = props => {
 							)}
 							{/* THERE´S MORE INDICATORS --------------------------------------------------------- */}
 							{!modes.actions && !isProfile && !isPast && (
-								<theres-more class='block selfEnd marTopAuto  w100'>
+								<theres-more class="block selfEnd marTopAuto  w100">
 									{obj.shortDesc?.length && <span className={`marRigXs inlineBlock marAuto ${cardsView !== 2 ? '' : 'textAli'}    bold tBlue   ${textClass}`}>{`Více o mně ↓`}</span>}
 									{obj.note?.length && <span className={`marRigXs inlineBlock marAuto ${cardsView !== 2 ? '' : 'textAli'}   tDarkBlue boldXs fsA`}>{`+poznámka`}</span>}
-									{obj.traits?.length > 0 && !isProfile && (
-										<span className={` miw8  boldS marBotXs  inlineBlock tDarkGreen boldM ${textClass}`}>{`+${obj.traits.length} skupiny`}</span>
-									)}
+									{obj.traits?.length > 0 && !isProfile && <span className={` miw8  boldS marBotXs  inlineBlock tDarkGreen boldM ${textClass}`}>{`+${obj.traits.length} skupiny`}</span>}
 								</theres-more>
 							)}
 						</texts-wrapper>
@@ -380,38 +345,13 @@ const UserCard = props => {
 			)}
 
 			{/* RATING SECTION --------------------------------------------------------------- */}
-			{modes.actions &&
-				obj.id !== brain.user.id &&
-				!modes.protocol &&
-				!status.blocked &&
-				!modes.evePreview &&
-				!modes.invites &&
-				(!isPast || eveInter === 'sur') &&
-				(!isProfile || (obj.state !== 'stale' && obj.eveInters?.length > 0)) && (
-					<RateAwards {...{ modes, brain, isCardOrStrip: true, thisIs: 'user', status, setStatus, setModes, obj, fadedIn: ['RatingBs'] }} />
-				)}
+			{modes.actions && obj.id !== brain.user.id && !modes.protocol && !status.blocked && !modes.evePreview && !modes.invites && (!isPast || eveInter === 'sur') && (!isProfile || (obj.state !== 'stale' && obj.eveInters?.length > 0)) && <RateAwards {...{ modes, brain, isCardOrStrip: true, thisIs: 'user', status, setStatus, setModes, obj, fadedIn: ['RatingBs'] }} />}
 
 			{/* IS YOU WARNING --------------------------------------------------------------- */}
-			{modes.actions && obj.id === brain.user.id && !modes.evePreview &&  (
-				<you-warning className='boldM textAli block  inlineBlock hr2  posRel textSha fs8 textSha borderRed tRed  marRigXs'>
-					Tohle jsi ty. Ovládací prvky nejsou dostupné
-				</you-warning>
-			)}
+			{modes.actions && obj.id === brain.user.id && !modes.evePreview && <you-warning className="boldM textAli block  inlineBlock hr2  posRel textSha fs8 textSha borderRed tRed  marRigXs">Tohle jsi ty. Ovládací prvky nejsou dostupné</you-warning>}
 
 			{/* USER MENU STRIP --------------------------------------------------------------- */}
-			{modes.actions && obj.id !== brain.user.id && !modes.evePreview && (
-				<UserMenuStrip
-					obj={obj}
-					brain={brain}
-					modes={modes}
-					status={status}
-					setStatus={setStatus}
-					setModes={setModes}
-					isEventPreview={isEventPreview}
-					isPast={isPast}
-					galleryMode={galleryMode}
-				/>
-			)}
+			{modes.actions && obj.id !== brain.user.id && !modes.evePreview && <UserMenuStrip obj={obj} brain={brain} modes={modes} status={status} setStatus={setStatus} setModes={setModes} isEventPreview={isEventPreview} isPast={isPast} galleryMode={galleryMode} />}
 			{/* EVENT evePreview userCard ---------------------------------------------------------- */}
 			<event-scroll ref={eventPreviewRef} />
 			{modes.evePreview && nowAt === 'home' && <EventCard key={modes.evePreview.id} obj={modes.evePreview} cols={cols || 1} brain={brain} isPreview={obj.id} setModes={setModes} />}
@@ -424,12 +364,6 @@ function areEqual(prevProps, nextProps) {
 	}
 
 	// Check other props
-	return (
-		prevProps.obj === nextProps.obj &&
-		prevProps.cols === nextProps.cols &&
-		prevProps.cardsView === nextProps.cardsView &&
-		(prevProps.selTypes === nextProps.selTypes ||
-			(prevProps.selTypes && nextProps.selTypes && prevProps.selTypes.size === nextProps.selTypes.size && Array.from(prevProps.selTypes).every(type => nextProps.selTypes.has(type))))
-	);
+	return prevProps.obj === nextProps.obj && prevProps.cols === nextProps.cols && prevProps.cardsView === nextProps.cardsView && (prevProps.selTypes === nextProps.selTypes || (prevProps.selTypes && nextProps.selTypes && prevProps.selTypes.size === nextProps.selTypes.size && Array.from(prevProps.selTypes).every(type => nextProps.selTypes.has(type))));
 }
 export default memo(UserCard, areEqual);

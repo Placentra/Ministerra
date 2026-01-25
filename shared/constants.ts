@@ -4,6 +4,23 @@ export const INTERESTS = { interested: 'int', surely: 'sur', maybe: 'may' } as c
 export const PRIVACIES = { public: 'pub', links: 'lin', owner: 'own', trusts: 'tru', invites: 'inv' } as const;
 export const PRIVACIES_SET = new Set(Object.values(PRIVACIES));
 
+// DEFAULT EVENT DURATION ---
+// Steps: when an event has no explicit end time, assume it lasts this long for isPast calculations to avoid marking events as past the instant they start.
+export const DEFAULT_EVENT_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+export const MAX_EVENT_DURATIONS = {
+	friendly: 3 * 24 * 60 * 60 * 1000, // 3 days
+	regular: 31 * 24 * 60 * 60 * 1000, // ~1 month
+} as const;
+
+// IS EVENT PAST CHECK ---
+// Steps: centralized isPast logic that handles missing ends by adding a default duration so ongoing meetings remain joinable.
+export const isEventPast = (event: { starts?: number; ends?: number }): boolean => {
+	if (!event?.starts) return false;
+	const effectiveEnd = event.ends || (event.starts + DEFAULT_EVENT_DURATION_MS);
+	return Date.now() > effectiveEnd;
+};
+
 export const META_INDEXES_SOURCE = {
 	event: { priv: 0, owner: 1, cityID: 2, type: 3, starts: 4, geohash: 5, surely: 6, maybe: 7, comments: 8, score: 9, basiVers: 10, detaVers: 11 },
 	user: { priv: 0, age: 1, gender: 2, indis: 3, basics: 4, traits: 5, score: 6, imgVers: 7, basiVers: 8, attend: 9 },
@@ -415,6 +432,7 @@ export const INTERVALS = {
 	authRotation: 30 * 24 * 60 * 60 * 1000,
 	userAlertsCleanup: 3, // months
 	userLinksRequestsCleanup: 3, // months
+	cityContentRefresh: 5 * 60 * 1000, // 5 minutes
 } as const;
 
 export const ALLOWED_IDS = {

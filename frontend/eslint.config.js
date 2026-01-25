@@ -4,6 +4,8 @@ import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 import tsParser from '@typescript-eslint/parser';
 import tseslint from '@typescript-eslint/eslint-plugin';
+import prettier from 'eslint-plugin-prettier';
+import prettierConfig from 'eslint-config-prettier';
 
 export default [
 	{
@@ -28,13 +30,17 @@ export default [
 		plugins: {
 			react,
 			'react-hooks': reactHooks,
+			prettier,
 		},
 		settings: {
 			react: { version: 'detect' },
 		},
 		rules: {
+			'no-inline-styles': 'off',
 			...react.configs.recommended.rules,
 			...reactHooks.configs.recommended.rules,
+			...prettierConfig.rules,
+			'prettier/prettier': 'warn',
 
 			// Common modern React settings
 			'react/react-in-jsx-scope': 'off',
@@ -71,6 +77,7 @@ export default [
 			'@typescript-eslint': tseslint,
 			react,
 			'react-hooks': reactHooks,
+			prettier,
 		},
 		settings: {
 			react: { version: 'detect' },
@@ -83,6 +90,8 @@ export default [
 
 			...react.configs.recommended.rules,
 			...reactHooks.configs.recommended.rules,
+			...prettierConfig.rules,
+			'prettier/prettier': 'warn',
 
 			// Common modern React settings
 			'react/react-in-jsx-scope': 'off',

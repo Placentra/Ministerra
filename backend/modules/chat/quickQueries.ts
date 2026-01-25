@@ -60,7 +60,13 @@ async function blockChat({ chatID, userID, con, socket }: QuickQueryProps): Prom
 		chatID,
 		chatID,
 	]);
-	if (!res.affectedRows) throw new Error('badRequest');
+	// ALREADY BLOCKED HANDLING ---
+	// Steps: if no rows affected, check if chat is already blocked; if so, return silently rather than throwing error.
+	if (!res.affectedRows) {
+		const [[existing]]: [any[], any] = await con.execute(`SELECT punish FROM chat_members WHERE chat=? AND id=? LIMIT 1`, [chatID, userID]);
+		if (existing?.punish === 'block') return;
+		throw new Error('badRequest');
+	}
 	await endSocket({ chatID, memberIDs: [userID, other], skipChatEndedEmit: true });
 	broadcastBlocking({ socket, chatID, mode: 'block', who: userID, targetUserID: other });
 }

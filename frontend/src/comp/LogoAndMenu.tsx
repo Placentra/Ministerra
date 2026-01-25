@@ -88,21 +88,6 @@ function LogoAndMenu(props) {
 		};
 	}, []);
 
-	// DEVICE WIPE HELPER ---------------------------
-	async function waitForFullWipe(timeoutMs = 5000) {
-		const start = Date.now(),
-			maxIterations = Math.ceil(timeoutMs / 100) + 10;
-		let iterations = 0;
-		while (iterations++ < maxIterations) {
-			try {
-				const status = await forage({ mode: 'status', what: 'status' });
-				if (status && !status.hasUserData && !status.hasBtoa && (status.keysCount === 0 || status.keysCount === null || status.keysCount === undefined)) break;
-			} catch (_) {}
-			if (Date.now() - start > timeoutMs) break;
-			await new Promise(r => setTimeout(r, 100));
-		}
-	}
-
 	// SCROLL LOCKING ---------------------------
 	useEffect(() => {
 		const shouldLockScroll = menuView;
@@ -117,26 +102,24 @@ function LogoAndMenu(props) {
 
 	// LOGO ACTIONS ---------------------------
 	async function logoClick() {
-		const subText = { scrollUp: 'Vrácení nahoru', hideMenu: 'Skrytí menu', random: 'Ministerra je nejlepší!!!', back: 'Zpět' }[
-			nowAt !== 'home' ? 'random' : menuView ? 'hideMenu' : window.scrollY > 50 ? 'scrollUp' : 'random'
-		];
+		const subText = { scrollUp: 'Vrácení nahoru', hideMenu: 'Skrytí menu', random: 'Ministerra je nejlepší!!!', back: 'Zpět' }[nowAt !== 'home' ? 'random' : menuView ? 'hideMenu' : window.scrollY > 50 ? 'scrollUp' : 'random'];
 		if (timeout.current) clearTimeout(timeout.current);
-		setLogoSubtext(subText), Object.assign(timeout, { current: setTimeout(() => setLogoSubtext(null), 2000) });
+		(setLogoSubtext(subText), Object.assign(timeout, { current: setTimeout(() => setLogoSubtext(null), 2000) }));
 		const { menuView: prevMenuView, galleryCat, stripMenuId } = parseMenuViewState();
 		if (brain.user.isUnintroduced) return;
 
 		if (menuView && prevMenuView && prevMenuView !== menuView) {
 			if (galleryCat) brain.showGalleryCat = galleryCat;
 			if (stripMenuId) brain.restoreStripMenu = stripMenuId;
-			return setMenuView(prevMenuView), sessionStorage.removeItem('menuView');
+			return (setMenuView(prevMenuView), sessionStorage.removeItem('menuView'));
 		}
-		if (menuView && !nextBackIsHome.current) return setMenuView('');
+		if (menuView && !nextBackIsHome.current) return (sessionStorage.removeItem('menuView'), setMenuView(''));
 		if (nowAt === 'home') return window.scrollY > 50 ? window.scrollTo({ top: 0, behavior: 'smooth' }) : setInitialize('cityEvents');
 		if (nowAt !== 'home') {
 			if (prevMenuView) {
 				if (galleryCat) brain.showGalleryCat = galleryCat;
 				if (stripMenuId) brain.restoreStripMenu = stripMenuId;
-				setMenuView(prevMenuView), sessionStorage.removeItem('menuView');
+				(setMenuView(prevMenuView), sessionStorage.removeItem('menuView'));
 				return;
 			} else setMenuView('');
 			return brain.fastLoaded ? (window.history.replaceState({}, '', '/'), loader.load()) : navigate('/');
@@ -150,46 +133,31 @@ function LogoAndMenu(props) {
 		const needCities = cities.filter(city => typeof city === 'object' || !brain.citiesEveTypesInTimes[city]);
 		window.scrollTo({ top: 0, behavior: 'smooth' });
 		if (needCities.length) loader.load(`/?homeView=cityEvents&newCities=${encodeURIComponent(JSON.stringify(cities))}`);
-		else (user.curCities = inp), setInitialize('cityEvents');
+		else ((user.curCities = inp), setInitialize('cityEvents'));
 	}
 
 	// SHARED MENU PROPS ---------------------------
 	const jsxProps = { brain, setMenuView, nowAt, scrollDir, setNotifDots, isMobile, logOut, changeCities, notifDots, menuView, showToast };
+	const prevMenuView = sessionStorage.getItem('menuView');
+
+	const hasNotifs = notifDots.chats > 0 || notifDots.alerts > 0 || notifDots.archive > 0;
+	const notifDot = <span className={`miw2 posAbs ${menuView ? 'botCen' : 'left'} hr2 zin2500 bDarkRed round`} />;
 
 	return (
 		<logo-menu class={'posRel block bgTransXs mhvh100  zin3000'}>
 			{toast}
 			{/* LOGO HEADER --------------------------- */}
-			<top-logo onClick={() => logoClick()} class='marAuto posFix zinMenu topCen w100  textAli '>
+			<top-logo onClick={() => logoClick()} class="marAuto posFix zinMenu topCen w100  textAli ">
 				<div className={`w90 mw150  trapezoid-logo-background hvh1 bBlue marAuto `} />
-				<div className={`w80 mw70 flexCol aliCen pointer  upLittle trapezoid-logo-background marAuto posRel`} style={{ overflow: 'hidden' }}>
-					{pulseKey > 0 && <span key={pulseKey} className='logo-pulse-active posAbs block' style={{ inset: 0, zIndex: 0 }} />}
-					<h1 className={`fsD lh1 boldM inlineBlock  marBotXxxxs posRel tWhite`} style={{ zIndex: 1 }}>
-						Ministerra
+				<div className={`w80 mw70 flexCol aliCen pointer ${menuView ? 'bDarkPurple' : ''} upLittle trapezoid-logo-background marAuto posRel`} style={{ overflow: 'hidden' }}>
+					{pulseKey > 0 && <span key={pulseKey} className="logo-pulse-active posAbs block" style={{ inset: 0, zIndex: 0 }} />}
+					<h1 className={`${menuView ? 'fs12' : 'fs18'} lh1 boldM inlineBlock  marBotXxxxs posRel tWhite`} style={{ zIndex: 1 }}>
+						{`${menuView ? (prevMenuView !== menuView ? 'Vrátit se' : `Zavřít ${prevMenuView === 'alerts' ? 'upozornění' : prevMenuView === 'chats' ? 'chaty' : prevMenuView === 'gallery' ? 'galerii' : prevMenuView === 'search' ? 'vyhledávání' : 'menu'}`) : 'Ministerra'}`}
 					</h1>
-					{logoSubtext && <span className='wordBreak  padVerXxs  w100 bGreen padHorL tWhite boldXs  textAli fsA'>{logoSubtext}</span>}
+					{logoSubtext && <span className="wordBreak  padVerXxs  w100 bGreen padHorL tWhite boldXs  textAli fsA">{logoSubtext}</span>}
 					{/* LOGOUT BUTTON --------------------------- */}
 					{!menuView && (
-						<button
-							className='noBackground padBotXxs  xBold tBlue padHorXl bHover'
-							onClick={async e => {
-								e.stopPropagation();
-								window.__wipeInProgress = true;
-								const originalErrorHandler = window.__showGlobalError;
-								window.__showGlobalError = () => {};
-								try {
-									disconnectSocketIO();
-									await new Promise(resolve => setTimeout(resolve, 100));
-								} catch (err) {}
-								sessionStorage.clear();
-								localStorage.clear();
-								await forage({ mode: 'del', what: 'everything' });
-								await waitForFullWipe(2000);
-								window.__showGlobalError = originalErrorHandler;
-								brain && Object.keys(brain).forEach(key => delete brain[key]);
-								window.location.href = '/entrance';
-								setTimeout(() => (window.__wipeInProgress = false), 2000);
-							}}>
+						<button className="noBackground padBotXxs xBold tBlue padHorXl bHover" onClick={e => (e.stopPropagation(), logOut())}>
 							odhlásit
 						</button>
 					)}
@@ -198,7 +166,7 @@ function LogoAndMenu(props) {
 
 			{/* BOTTOM MENU PANELS --------------------------- */}
 			{brain.user.id && (
-				<bottom-menu ref={bottomMenu} class={`w100 posFix mhvh100 justEnd bgWhite botCen zinMaXl miw36 `}>
+				<bottom-menu ref={bottomMenu} class={`w100 posFix mhvh100 justEnd bgWhite botCen zinMaXl  `}>
 					<Alerts {...jsxProps} />
 					<Chat {...jsxProps} />
 					<Menu {...jsxProps} />
@@ -212,65 +180,38 @@ function LogoAndMenu(props) {
 
 			{/* NAVIGATION BUTTONS --------------------------- */}
 			{!brain.user.isUnintroduced &&
+				!menuView &&
 				(() => {
-					const hasAnyNotif = notifDots.chats > 0 || notifDots.alerts > 0 || notifDots.archive > 0;
-					const shouldHideButtons = menuView && !hasAnyNotif;
-					const buttonsToShow =
-						menuView && hasAnyNotif
-							? ['alerts', 'chats', 'menu', 'search', 'gallery'].filter(
-									b => (b === 'alerts' && notifDots.alerts > 0) || (b === 'chats' && (notifDots.chats > 0 || notifDots.archive > 0))
-							  )
-							: ['alerts', 'chats', 'menu', 'search', 'gallery'];
 					return (
 						<menu-buttons
 							style={{
-								'--translateY': shouldHideButtons ? '6rem' : scrollDir === 'up' || !['home', 'event'].includes(nowAt) || menuView ? '0%' : `6rem`,
+								'--translateY': scrollDir === 'up' || !['home', 'event'].includes(nowAt) || menuView ? '0%' : `6rem`,
 								transform: 'translateX(-50%) translateY(var(--translateY))',
 								transition: 'transform 0.3s',
 							}}
-							class='flexCen trapezoid-logo-background-bot2 bgWhite gapXxxs padHorXxs boRadS zinMenu w100 mw80 marAuto hvw2 mih3 posFix botCen borTop'>
-							{buttonsToShow.map(b => (
-								<button
-									key={b}
-									onClick={() => setMenuView(mode => (mode === b ? (sessionStorage.setItem('menuView', ''), false) : (sessionStorage.setItem('menuView', b), b)))}
-									className={`${
-										menuView === b
-											? ' posRel bDarkGreen shaMega thickBors bold'
-											: notifDots[b] > 0 || (b === 'alerts' && notifDots.alerts > 0)
-											? 'bGlass borRedSel bgWhite'
-											: ' bgWhite'
-									} w100 bHover mhvh5 zinMax padTopXxs imw4 fs7 iw45 h100 textSha bold posRel grow `}>
-									<inner-wrapper class='posRel h100 w100 overHidden'>
+							class="flexCen trapezoid-logo-background-bot2 bgWhite gapXxxs padHorXxs boRadS zinMenu w100 mw80 marAuto hvw2 mih3 posFix botCen borTop">
+							{['alerts', 'chats', 'menu', 'search', 'gallery'].map(b => (
+								<button key={b} onClick={() => setMenuView(mode => (mode === b ? (sessionStorage.setItem('menuView', ''), false) : (sessionStorage.setItem('menuView', b), b)))} className={`${menuView === b ? ' posRel bDarkGreen shaMega thickBors bold' : notifDots[b] > 0 || (b === 'alerts' && notifDots.alerts > 0) ? 'bGlass borRedSel bgWhite' : ' bgWhite'} w100 bHover mhvh5 zinMax padTopXxs imw4 fs7 iw45 h100 textSha bold posRel grow `}>
+									<inner-wrapper class="posRel h100 w100 overHidden">
 										{b === 'menu' ? (
-											<div className='flexRow gapXxxs aliCen justCen padBotXxs boRadXs h100 padHorS '>
-												{brain.user.first && <span className='xBold fs8'>{brain.user.first[0].toUpperCase()}</span>}
-												<img
-													className='miw4'
-													src={
-														brain.user.imgVers && brain.user.id
-															? `${import.meta.env.VITE_BACK_END}/public/users/${brain.user.id}_${brain.user.imgVers}S.webp`
-															: '/icons/placeholdergood.png'
-													}
-													alt=''
-													style={{ borderRadius: '12%', objectFit: 'cover', margin: '0 0.25rem' }}
-												/>
-												{brain.user.last && <span className='xBold fs8'>{brain.user.last[0].toUpperCase()}</span>}
+											<div className="flexRow gapXxxs aliCen justCen padBotXxs boRadXs h100 padHorS ">
+												{brain.user.first && <span className="xBold fs8">{brain.user.first[0].toUpperCase()}</span>}
+												<img className="miw4" src={brain.user.imgVers && brain.user.id ? `${import.meta.env.VITE_BACK_END}/public/users/${brain.user.id}_${brain.user.imgVers}S.webp` : '/icons/placeholdergood.png'} alt="" style={{ borderRadius: '12%', objectFit: 'cover', margin: '0 0.25rem' }} />
+												{brain.user.last && <span className="xBold fs8">{brain.user.last[0].toUpperCase()}</span>}
 											</div>
 										) : (
-											<img src={`/icons/${b}.png`} alt='' className='' />
+											<img src={`/icons/${b}.png`} alt="" className="" />
 										)}
-										{(Boolean(Number(notifDots[b])) || (b === 'alerts' && Boolean(notifDots.alerts)) || (b === 'chats' && menuView !== 'chats' && Boolean(notifDots.archive))) && (
-											<span className='miw2 posAbs right hr2 bDarkRed round' />
-										)}
+										{(Boolean(Number(notifDots[b])) || (b === 'alerts' && Boolean(notifDots.alerts)) || (b === 'chats' && menuView !== 'chats' && Boolean(notifDots.archive))) && notifDot}
 									</inner-wrapper>
 								</button>
 							))}
-							{<empty-div class='hr2 bgWhite bgTransXxs zin0 pointer w95 botCen posAbs block' />}
+							{<empty-div class="hr2 bgWhite bgTransXxs zin0 pointer w95 botCen posAbs block" />}
 						</menu-buttons>
 					);
 				})()}
-			{<trapezoid-bg class=' w100 mw110 trapezoid-logo-background-bot zinMin noPoint posAbs botCen   hvh3 bBlue ' />}
-			{menuView && <empty-div onClick={() => setMenuView('')} class='hvh100 bgTransXxs maskTopXs zinMax pointer posFix w100 topCen mhvh100 block' />}
+			{menuView && hasNotifs && notifDot}
+			{menuView && <empty-div onClick={() => setMenuView('')} class="hvh100 bgTransXxs maskTopXs zinMax pointer posFix w100 topCen mhvh100 block" />}
 		</logo-menu>
 	);
 }

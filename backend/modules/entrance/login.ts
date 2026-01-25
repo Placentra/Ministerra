@@ -5,6 +5,10 @@ import { getLogger } from '../../systems/handlers/loggers.ts';
 import { REDIS_KEYS } from '../../../shared/constants.ts';
 
 const logger = getLogger('Entrance:Login');
+
+// LOGIN IP HISTORY LIMIT -------------------------------------------------------
+// Steps: cap IP count per user to prevent unbounded JSON growth.
+const MAX_LOGIN_IP_ENTRIES: number = 30;
 let redis, socketIO;
 export const setRedis = r => (redis = r),
 	setSocketIO = io => (socketIO = io);
@@ -39,6 +43,7 @@ export async function updateLoginsTable(req, userID, con) {
 		// Steps: persist before SQL writes so concurrent calls converge on the same rate-limit boundary.
 		await redis.hset(`${REDIS_KEYS.userSummary}:${userID}`, 'lastLogin', time);
 
+
 		const sets = [hQ, dQ, devQ, osQ]
 			.filter(c => c)
 			.map(c => `, ${c} = ${c} + 1`)
@@ -47,8 +52,8 @@ export async function updateLoginsTable(req, userID, con) {
 		// Steps: try UPDATE with 10min guard; if 0 affectedRows then INSERT IGNORE to create the row.
 		const res = (
 			await con.execute(
-				`UPDATE logins SET last_seen = NOW(), ip_addresses = JSON_MERGE_PATCH(COALESCE(ip_addresses, '{}'), JSON_OBJECT(?, COALESCE(JSON_EXTRACT(ip_addresses, ?), 0) + 1)), count = count + 1${sets} WHERE user = ? AND (last_seen IS NULL OR TIMESTAMPDIFF(MINUTE, last_seen, NOW()) > 10)`,
-				[ip, `$."${ip}"`, userID]
+				`UPDATE logins SET last_seen = NOW(), ip_addresses = CASE WHEN JSON_LENGTH(COALESCE(ip_addresses, '{}')) >= ? THEN JSON_OBJECT(?, 1) ELSE JSON_MERGE_PATCH(COALESCE(ip_addresses, '{}'), JSON_OBJECT(?, COALESCE(JSON_EXTRACT(ip_addresses, ?), 0) + 1)) END, count = count + 1${sets} WHERE user = ? AND (last_seen IS NULL OR TIMESTAMPDIFF(MINUTE, last_seen, NOW()) > 10)`,
+				[MAX_LOGIN_IP_ENTRIES, ip, ip, `$."${ip}"`, userID]
 			)
 		)[0];
 		if (!res.affectedRows) {
@@ -78,17 +83,13 @@ export async function login({ email, pass, print, devID }, con) {
 	const loginCols = 'id, created, pass, flag, cities, status';
 
 	// USER LOOKUP -------------------------------------------------------------
-	// Steps: query users table directly; frozen users stay in same table with flag='fro'.
-	const [[u]] = await con.execute(`SELECT ${loginCols} FROM users WHERE email = ? AND flag NOT IN ('del', 'fro') LIMIT 1`, [email]);
+	// Steps: query users table; frozen users included so they can re-enter via unfreeze flow.
+	const [[u]] = await con.execute(`SELECT ${loginCols} FROM users WHERE email = ? AND flag != 'del' LIMIT 1`, [email]);
 
 	// CREDENTIAL CHECK --------------------------------------------------------
 	// Steps: fail fast without leaking extra info; bcrypt compare is the canonical guard.
 	if (!u) throw new Error('userNotFound');
 	if (!(await bcrypt.compare(pass, u.pass))) throw new Error('wrongLogin');
-
-	// STATUS BRANCHES ---------------------------------------------------------
-	// Steps: return sentinel payloads so the frontend can enter verify/intro flows without full auth issuance.
-	if (u.status === 'verifyMail') return { payload: 'verifyMail' };
 
 	// FROZEN USER UNFREEZE ----------------------------------------------------
 	// Steps: user with flag='fro' is logging back in; mark for unfreezing, task will complete the process.
@@ -96,6 +97,10 @@ export async function login({ email, pass, print, devID }, con) {
 		await con.execute(`UPDATE users SET flag = 'unf' WHERE id = ?`, [u.id]);
 		return { payload: 'unfreezing' };
 	}
+
+	// STATUS BRANCHES ---------------------------------------------------------
+	// Steps: return sentinel payloads so the frontend can enter verify/intro flows without full auth issuance.
+	if (u.status === 'verifyMail') return { payload: 'verifyMail' };
 
 	const isIntroduction = u.status === 'unintroduced';
 	const auth = getAuth(u.id),

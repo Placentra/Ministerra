@@ -56,40 +56,6 @@ function AlertStrip(props) {
 	const isOutgoingInvite = what === 'invite' && inviteDir === 'out';
 	const outgoingInviteTitle = `${(fullName || 'Někdo').trim() || 'Někdo'} ${inviteActionText} ${inviteEventTitle || 'událost'}`;
 
-	// TEXT GENERATORS ---
-	const title =
-		what === 'interest'
-			? data.title
-				? `"${data.title}" má nové zájmy!`
-				: 'Tvoje událost má nové zájmy!'
-			: what === 'eve_rating'
-			? data.title
-				? `"${data.title}" má nové hodnocení!`
-				: 'Tvá událost má nové hodnocení!'
-			: what === 'user_rating'
-			? data.first || data.last
-				? `${data.first || ''} ${data.last || ''} má nové hodnocení!`
-				: 'Tvůj uživatel má nové hodnocení!'
-			: what === 'comm_rating'
-			? data.content
-				? `${data.content} má nové hodnocení!`
-				: 'Tvůj komentář má nové hodnocení!'
-			: what === 'comment'
-			? null
-			: what === 'reply'
-			? data.title
-				? `${data.title} má novou odpověď!`
-				: 'Tvoje událost má novou odpověď!'
-			: what === 'invite' && isOutgoingInvite
-			? outgoingInviteTitle
-			: what === 'invite'
-			? `${data.first || ''} ${data.last || ''} Tě pozval`
-			: what === 'link'
-			? `${data.first || ''} ${data.last || ''} požádal o propojení${data.message ? ' se zprávou:' : ''}`
-			: what === 'accept'
-			? `${data.first || ''} ${data.last || ''} přijal propojení`
-			: 'Upozornění';
-
 	let subtitle = '';
 	if (what === 'interest') {
 		const c = { sur: data?.sur, may: data?.may, int: data?.int };
@@ -99,31 +65,15 @@ function AlertStrip(props) {
 		if (c.int) parts.push(`${c.int >= 0 ? '+' : ''}${c.int} sledují`);
 		subtitle = parts.join('  ');
 	} else if (what === 'eve_rating') subtitle = typeof data?.points === 'number' ? `Získala ${data.points >= 0 ? '+' : ''}${data.points} nových bodů!` : data?.title || '';
-	else if (what === 'user_rating')
-		subtitle =
-			typeof data?.points === 'number' || typeof data?.counts === 'number'
-				? `Získal${fullName ? 'a' : ''} ${(data.points ?? data.counts) >= 0 ? '+' : ''}${data.points ?? data.counts} nových bodů!`
-				: '';
+	else if (what === 'user_rating') subtitle = typeof data?.points === 'number' || typeof data?.counts === 'number' ? `Získal${fullName ? 'a' : ''} ${(data.points ?? data.counts) >= 0 ? '+' : ''}${data.points ?? data.counts} nových bodů!` : '';
 	else if (what === 'comm_rating') subtitle = data?.content || '';
-	else if (what === 'invite')
-		subtitle = isOutgoingInvite
-			? inviteFlagComputed === 'acc'
-				? 'Pozvánka přijata'
-				: inviteFlagComputed === 'ref'
-				? 'Pozvánka odmítnuta'
-				: inviteFlagComputed === 'del'
-				? 'Pozvánka zrušena'
-				: ''
-			: (data?.note || '').trim() || data?.title || '';
+	else if (what === 'invite') subtitle = isOutgoingInvite ? (inviteFlagComputed === 'acc' ? 'Pozvánka přijata' : inviteFlagComputed === 'ref' ? 'Pozvánka odmítnuta' : inviteFlagComputed === 'del' ? 'Pozvánka zrušena' : '') : (data?.note || '').trim() || data?.title || '';
 	else if (what === 'link') subtitle = data?.message || '';
 	else if (what === 'message' || what === 'newChat') subtitle = data?.content ? (data.content.length > 80 ? data.content.slice(0, 80) + '...' : data.content) : data?.attach ? '📎 Příloha' : '';
 	else subtitle = data?.content || '';
 
-	// SUBTITLE NODE ---
-	const subtitleNode = subtitle ? <span className={'fs7 marRigS tDarkBlue boldS'}>{subtitle}</span> : null;
-	const originalNode =
-		what === 'reply' && data?.original ? <span className={'fs7 tGrey marLefXs'}>{subtitle ? `· v odpovědi na: „${data.original}”` : `v odpovědi na: „${data.original}”`}</span> : null;
-	const timeNode = createdText ? <span className={'fs7 tGrey marLefXs'}>{subtitle || originalNode ? `· ${createdText}` : createdText}</span> : null;
+	const subtitleNode = subtitle ? <span className={'fs8 marRigS tDarkBlue boldS'}>{subtitle}</span> : null;
+	const originalNode = what === 'reply' && data?.original ? <span className={'fs8 tGrey marLefXs'}>{subtitle ? `· v odpovědi na: „${data.original}”` : `v odpovědi na: „${data.original}”`}</span> : null;
 
 	// THUMBNAIL LOGIC ---
 	const useUserThumb = new Set(['invite', 'link', 'accept', 'comm_rating', 'comment', 'reply', 'user_rating', 'message', 'newChat']).has(what);
@@ -132,107 +82,104 @@ function AlertStrip(props) {
 	const userVimg = what === 'message' || what === 'newChat' ? data?.user?.imgVers : data?.imgVers;
 	if (useUserThumb && userVimg && userIdForThumb) thumbUrl = `${import.meta.env.VITE_BACK_END}/public/users/${userIdForThumb}_${userVimg}S.webp`;
 	else if ((what === 'interest' || what === 'eve_rating') && (data?.event || alert?.target)) {
-		// const eid = data?.event || alert?.target;
-		// const vimg = brain?.events?.[eid]?.imgVers;
 		thumbUrl = `${import.meta.env.VITE_BACK_END}/public/events/${Math.floor(Math.random() * 30)}_1S.webp`;
 	}
 
-	// TITLE NODE (RICH TEXT) ---
+	// TYPE & TARGET ---
 	const messageAuthor = data?.user ? `${data.user.first || ''} ${data.user.last || ''}`.trim() : '';
 	const messageChatName = data?.chatName || messageAuthor || 'Nová zpráva';
 	const chatTypeLabel = { private: 'soukromý', group: 'skupinový', free: 'volný' };
 	const newChatTypeText = data?.chatType ? chatTypeLabel[data.chatType] || data.chatType : '';
 	const newChatNameText = data?.chatName && data?.chatType !== 'private' ? ` "${data.chatName}"` : '';
 
-	const titleNode =
-		what === 'message' ? (
+	let typeNode = null,
+		targetNode = null;
+	if (what === 'message') {
+		typeNode = 'nová zpráva';
+		targetNode = <span className="tGreen boldM">{messageChatName}</span>;
+	} else if (what === 'newChat') {
+		typeNode = newChatTypeText ? `${newChatTypeText} chat` : 'nový chat';
+		targetNode = (
 			<span>
-				<span className={'tGreen boldM'}>{messageChatName}</span>
+				<span className="tGreen boldM">{messageAuthor || 'Někdo'}</span>
+				{newChatNameText && <span className="tBlue boldM">{newChatNameText}</span>}
 			</span>
-		) : what === 'newChat' ? (
-			<span>
-				<span className={'tGreen boldM'}>{messageAuthor || 'Někdo'}</span> zahájil {newChatTypeText ? `${newChatTypeText} chat` : 'nový chat'}
-				{newChatNameText && <span className={'tBlue boldM'}>{newChatNameText}</span>}
-			</span>
-		) : what === 'comment' ? (
-			<span>
-				<span className={'tGreen boldM'}>{fullName || 'Někdo'}</span> přidal komentář k <span className={'tBlue boldM'}>{data.title || 'tvojí události'}</span>
-			</span>
-		) : what === 'reply' ? (
-			<span>
-				<span className={'tGreen boldM'}>{fullName || 'Někdo'}</span> odpověděl v <span className={'tBlue boldM'}>{data.title || 'diskuzi'}</span>
-			</span>
-		) : what === 'interest' ? (
-			<span>
-				<span className={'tBlue boldM'}>{data.title || 'Tvoje událost'}</span> má nové zájmy!
-			</span>
-		) : what === 'eve_rating' ? (
-			<span>
-				<span className={'tBlue boldM'}>{data.title || 'Tvoje událost'}</span> má nové hodnocení!
-			</span>
-		) : what === 'user_rating' ? (
-			<span>
-				<span className={'tGreen boldM'}>{fullName || 'Tvůj profil'}</span> má nové hodnocení!
-			</span>
-		) : what === 'comm_rating' ? (
-			<span>
-				<span className={'boldM'}>{data.content || 'Tvůj komentář'}</span> má nové hodnocení!
-			</span>
-		) : what === 'invite' ? (
-			isOutgoingInvite ? (
-				<span>
-					<span className={'tGreen boldM'}>{fullName || 'Někdo'}</span> {inviteActionText} <span className={'tBlue boldM'}>{inviteEventTitle || 'událost'}</span>
-				</span>
-			) : (
-				<span>
-					<span className={'tGreen boldM'}>{fullName || 'Někdo'}</span> Tě pozval na <span className={'tBlue boldM'}>{data.title || 'událost'}</span>
-				</span>
-			)
-		) : what === 'link' ? (
-			<span>
-				<span className={'tGreen boldM'}>{fullName || 'Uživatel'}</span> požádal o propojení
-			</span>
-		) : what === 'accept' ? (
-			<span>
-				<span className={'tGreen boldM'}>{fullName || 'Uživatel'}</span> přijal propojení
-			</span>
-		) : (
-			title
 		);
+	} else if (what === 'comment') {
+		typeNode = (
+			<span>
+				nový komentář k <span className="tBlue boldM">{data.title || 'tvojí události'}</span>
+			</span>
+		);
+		targetNode = <span className="tGreen boldM">{fullName || 'Někdo'}</span>;
+	} else if (what === 'reply') {
+		typeNode = (
+			<span>
+				nová odpověď v <span className="tBlue boldM">{data.title || 'diskuzi'}</span>
+			</span>
+		);
+		targetNode = <span className="tGreen boldM">{fullName || 'Někdo'}</span>;
+	} else if (what === 'interest') {
+		typeNode = 'nové zájmy';
+		targetNode = <span className="tBlue boldM">{data.title || 'Tvoje událost'}</span>;
+	} else if (what === 'eve_rating') {
+		typeNode = 'nové hodnocení';
+		targetNode = <span className="tBlue boldM">{data.title || 'Tvoje událost'}</span>;
+	} else if (what === 'user_rating') {
+		typeNode = 'nové hodnocení';
+		targetNode = <span className="tGreen boldM">{fullName || 'Tvůj profil'}</span>;
+	} else if (what === 'comm_rating') {
+		typeNode = 'nové hodnocení';
+		targetNode = <span className="boldM">{data.content || 'Tvůj komentář'}</span>;
+	} else if (what === 'invite') {
+		if (isOutgoingInvite) {
+			typeNode = (
+				<span>
+					{inviteActionText} <span className="tBlue boldM">{inviteEventTitle || 'událost'}</span>
+				</span>
+			);
+			targetNode = <span className="tGreen boldM">{fullName || 'Někdo'}</span>;
+		} else {
+			typeNode = (
+				<span>
+					pozvánka na <span className="tBlue boldM">{data.title || 'událost'}</span>
+				</span>
+			);
+			targetNode = <span className="tGreen boldM">{fullName || 'Někdo'}</span>;
+		}
+	} else if (what === 'link') {
+		typeNode = 'žádost o propojení';
+		targetNode = <span className="tGreen boldM">{fullName || 'Uživatel'}</span>;
+	} else if (what === 'accept') {
+		typeNode = 'propojení přijato';
+		targetNode = <span className="tGreen boldM">{fullName || 'Uživatel'}</span>;
+	} else {
+		typeNode = 'Upozornění';
+		targetNode = <span className="boldM">Alert</span>;
+	}
 
 	// RENDER ------------------------------------------------------------------
 	return (
-		<alert-strip
-			onClick={() => (isMessageToast && onToastClick ? onToastClick() : (setModes(prev => ({ menu: prev.menu ? null : true })), setStripMenu?.(modes.menu ? null : alert?.id)))}
-			class={`flexCol marBotXxxs shaBlue boRadXxs justCen aliStart w100 posRel bInsetBlueTopXxs bHover pointer shaBot borTopLight `}>
+		<alert-strip onClick={() => (isMessageToast && onToastClick ? onToastClick() : (setModes(prev => ({ menu: prev.menu ? null : true })), setStripMenu?.(modes.menu ? null : alert?.id)))} class={`flexCol marBotXxxs shaBlue boRadXxs justCen aliStart w100 posRel bInsetBlueTopXxs bHover pointer shaBot borTopLight `}>
 			<strip-body class={`flexCen w100 ${!isToast ? 'padVerXs' : 'bsContentGlow shaMega boRadXs thickBors'}`}>
 				{/* LEFT IMAGE --- */}
 				<image-wrapper class={'posRel w25 mw14 miw8 marRigM'}>
-					<img className={'w100 aspect1610 boRadXxs'} src={thumbUrl} alt='' />
-					<img
-						className={'zinMaXl bgWhite mw4 posAbs shaCon borBot2 cornerBotRightS padAllXxxs boRadM bgTrans marLefXxs boRadXs'}
-						src={`/icons/alerts/${what === 'message' || what === 'newChat' ? 'comment' : what}.png`}
-						alt=''
-					/>
+					<img className={'w100 aspect168 boRadXxs'} src={thumbUrl} alt="" />
+					<img className={'zinMaXl bgWhite mw5 posAbs bInsetBlueTopXs  cornerBotRightM padAllXxs boRadM bgTrans aspect1612  boRadXxs'} src={`/icons/alerts/${what === 'message' || what === 'newChat' ? 'comment' : what}.png`} alt="" />
 				</image-wrapper>
 
 				{/* RIGHT CONTENT --- */}
-				<right-side class={`h100 flexCol padRightS justCen ${!isToast ? 'padTopXs' : 'padTopXxxs'}`}>
-					<span className={'boldM lh1 textSha marRigXxs fs7'}>{titleNode}</span>
-					<second-row class={'flexRow aliCen marBotXxxs wrap textLeft'}>
+				<right-side class={`h100 flexCol padRightS justCen ${!isToast ? '' : 'padTopXxxs'}`}>
+					<first-row class="flexRow gapXxs fs6 tGrey wrap w100">
+						{createdText}
+						<span className=" fs6 ">{typeNode}</span>
+					</first-row>
+					<span className="boldM lh1 textSha marRigXxs fs12 wordBreak ">{targetNode}</span>
+					<second-row class="flexRow aliCen wrap textLeft">
 						{subtitleNode}
 						{originalNode}
-						{timeNode}
 					</second-row>
-					{status.inter || status.refused || status.accepted ? (
-						<ContentIndis
-							status={{ alertAccepted: Boolean(status.inter || status.accepted), alertRefused: status.refused === true }}
-							thisIs={'alert'}
-							isCardOrStrip={true}
-							brain={brain}
-							obj={{}}
-						/>
-					) : null}
+					{status.inter || status.refused || status.accepted ? <ContentIndis status={{ alertAccepted: Boolean(status.inter || status.accepted), alertRefused: status.refused === true }} thisIs={'alert'} isCardOrStrip={true} brain={brain} obj={{}} /> : null}
 				</right-side>
 			</strip-body>
 

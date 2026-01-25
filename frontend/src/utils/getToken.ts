@@ -13,6 +13,9 @@ export async function getToken(getAuthToken = false) {
 	// EXPIRY CHECK -------------------------------------------------------------
 	// Steps: compute expired flag from expiry timestamp; if expired, compute print so refresh endpoints can re-bind session to device.
 	const isExpired = expiry ? Date.now() >= Number(expiry) : false;
-	if (isExpired) print = getDeviceFingerprint();
-	return { token, expiry: Number(expiry) || null, print, expired: isExpired || (getAuthToken && !token) };
+	// MISSING AUTH TOKEN ---
+	// Steps: when getAuthToken=true but no token exists, mark as missing (not just expired) so callers don't attempt invalid refresh.
+	const isMissing = getAuthToken && !token;
+	if (isExpired && navigator.onLine) print = getDeviceFingerprint();
+	return { token, expiry: Number(expiry) || null, print, expired: isExpired, missing: isMissing };
 }

@@ -4,7 +4,7 @@ const marks = { event: [-2, 1, 3, 5], user: [1, 5], comment: [-2, 1, 3, 5] };
 // TODO pass sort, if its badges, display možná, určitě, tvoje atd.
 // CONTENT INDICATORS COMPONENT DEFINITION ---
 // Renders visual badges and status icons for events, users, and comments
-function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvitations, isChats, thisIs, galleryMode = '', brain, isNewUser, manageMode, getPunishmentStatus, cols }: any) {
+function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvitations, isChats, thisIs, galleryMode = '', brain, isNewUser, manageMode, getPunishmentStatus, cols, hideAttenRating = false }: any) {
 	// UNIFIED CHIP SIZING ---
 	const chipFontClass = { 1: 'fs7', 2: 'fs7', 3: 'fs7', 4: 'fs6', 5: 'fs5' }[cols] || 'fs7';
 	const chipClass = `${chipFontClass} bold textSha padHorXs hr1-5 boRadXxs tWhite`;
@@ -27,7 +27,7 @@ function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvi
 		opuštěná: { val: galleryMode && thisIs === 'event' && !obj.owner, class: 'chipRed' },
 		'trest skončil': { val: thisIs === 'chat' && punish !== 'kick' && expired, class: 'chipGreen' },
 		'tvoje událost': { val: thisIs === 'event' && status.own && !galleryMode?.includes('Own'), class: 'chipDarkBlue' },
-		mark: { val: isCardOrStrip && status.mark && ratingSrc[thisIs].rating[marks[thisIs].indexOf(status.mark)], class: 'chipLime' },
+		mark: { val: isCardOrStrip && status.mark && ratingSrc[thisIs].rating[marks[thisIs].indexOf(status.mark)] && !hideAttenRating, class: 'chipLime' },
 		vykopnut: { val: isChats && punish === 'kick', class: 'chipDarkRed' },
 		[thisIs === 'comment' ? 'tvůj' : 'tvoje']: { val: thisIs !== 'event' && !galleryMode && status.own, class: 'chipGreen' },
 		viděls: { val: !isSearch && status.opened && !galleryMode && !isLast, class: 'chipOrange' },
@@ -37,10 +37,7 @@ function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvi
 		žádost: { val: obj.flag === 'req', class: 'chipGreen' },
 		pozván: { val: !galleryMode?.includes('invites') && obj.invited === true, class: 'chipPurple' },
 		přijato: {
-			val:
-				(obj.linked === true && (galleryMode === 'requests' || status?.alertAccepted === true)) ||
-				(obj.invited === 'acc' && galleryMode === 'invitesIn') ||
-				Boolean(status?.alertAccepted === true),
+			val: (obj.linked === true && (galleryMode === 'requests' || status?.alertAccepted === true)) || (obj.invited === 'acc' && galleryMode === 'invitesIn') || Boolean(status?.alertAccepted === true),
 			class: 'chipGreen',
 		},
 		odmítnuto: { val: Boolean(status?.alertRefused === true), class: 'chipRed' },
@@ -48,7 +45,7 @@ function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvi
 		ukončen: { val: obj.ended, class: 'chipDarkRed' },
 		odchozí: { val: galleryMode === 'requests' && (status.linked === 'out' || obj.linked === 'out'), class: 'chipDarkBlue' },
 		příchozí: { val: galleryMode === 'requests' && (status.linked === 'in' || obj.linked === 'in'), class: 'chipDarkGreen' },
-		poslední: { val: !status.embeded && isLast && !galleryMode && !isSearch && !isInvitations, class: 'chipDarkRed' },
+		'viděls teď': { val: !status.embeded && isLast && !galleryMode && !isSearch && !isInvitations, class: 'chipDarkRed' },
 		bloknuls: { val: punish === 'block' && !active, class: 'chipRed' },
 		odblokován: { val: galleryMode === 'blocks' && punish !== 'block' && !active, class: 'chipGreen' },
 		připojen: { val: !obj.trusts && obj.linked === true && isCardOrStrip && galleryMode !== 'links', class: 'chipDarkGreen' },
@@ -59,24 +56,17 @@ function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvi
 	const someBasics = Object.values(basicIndis).some(indi => indi);
 
 	return (
-		<indicators-div class='flexInline noWrap  aliCen justCen noPoint'>
+		<indicators-div class="flexInline  aliCen justCen noPoint" style={{ display: 'contents' }}>
 			{/* INTERREST INDI - CARD AND GALLERY ------------------------------------ */}
-			{((thisIs === 'alert' && status.inter) || (thisIs === 'event' && ['sur', 'may', 'int'].includes(status.inter) && (galleryMode !== 'futuInt' || status.inter !== 'int'))) && (
-				<inter-indi class='flexInline aliCen marRigXxs'>
-					<span
-						className={`${status.inter === 'may' ? 'chipBlue' : status.inter === 'sur' ? 'chipGreen' : 'chipOrange'} ${
-							isCardOrStrip ? chipClass : 'fs10 hr2 flexInline padHorS boldM tWhite'
-						} marRigXxs`}>
-						{status.inter === 'sur' ? 'určitě jdeš' : status.inter === 'may' ? 'možná jdeš' : 'zajímá tě'}
-					</span>
-					{status.interPriv && status.interPriv !== 'pub' && (
-						<span className={`padHorXs ${chipFontClass} bold textSha opacityL noWrap`}>{{ lin: 'spojenci', own: 'jen autor', tru: 'důvěrníci' }[status.interPriv]}</span>
-					)}
+			{((thisIs === 'alert' && status.inter) || (thisIs === 'event' && ['sur', 'may', 'int'].includes(status.inter) && (galleryMode !== 'futuInt' || status.inter !== 'int') && !hideAttenRating)) && (
+				<inter-indi class="flexInline aliCen marRigXxs" style={{ display: 'contents' }}>
+					<span className={`${status.inter === 'may' ? 'chipBlue' : status.inter === 'sur' ? 'chipGreen' : 'chipOrange'} ${isCardOrStrip ? chipClass : 'fs10 hr2 flexInline padHorS boldM tWhite'} marRigXxs`}>{status.inter === 'sur' ? 'určitě jdeš' : status.inter === 'may' ? 'možná jdeš' : 'zajímá tě'}</span>
+					{status.interPriv && status.interPriv !== 'pub' && <span className={`padHorXs ${chipFontClass} bold textSha opacityL noWrap`}>{{ lin: 'spojenci', own: 'jen autor', tru: 'důvěrníci' }[status.interPriv]}</span>}
 				</inter-indi>
 			)}
 			{/* OPTIONAL INDIS --------------------------------------------- */}
 			{someOptionals && (
-				<optional-indis class='flexInline aliCen posRel'>
+				<optional-indis class="flexInline aliCen posRel" style={{ display: 'contents' }}>
 					{Object.keys(optionals)
 						.filter(indi => optionals[indi].val)
 						.map(indi => (
@@ -88,7 +78,7 @@ function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvi
 			)}
 			{/* BASIC INDIS ----------------------------------------------- */}
 			{someBasics && galleryMode !== 'requests' && (
-				<basic-indis class={` flexInline padVerXxxs aliCen justCen `}>
+				<basic-indis class={` flexInline padVerXxxs aliCen justCen `} style={{ display: 'contents' }}>
 					{Object.keys(basicIndis)
 						.filter(indi => basicIndis[indi])
 						.map(indi => {
@@ -97,9 +87,7 @@ function ContentIndis({ status, obj, isCardOrStrip, modes = {}, isSearch, isInvi
 								<ElementName key={indi} class={`flexInline aliCen justCen  marRigS zinMax`}>
 									<img className={`${isCardOrStrip ? 'mh1-5  ' : '   mw3'} marRigXxs aspect1611 posRel`} src={`/icons/${indi}.png`} />
 									<span className={`boldM ${isCardOrStrip ? 'fs11' : 'fs11'}  textSha`}>{basicIndis[indi]}</span>
-									{indi === 'people' && status.maybe > 0 && (
-										<span className={`textSha boldXs marLefXxs ${isCardOrStrip ? 'fs11' : 'fs11'}`}>{`${status.maybe ? `+${status.maybe}` : ''}`}</span>
-									)}
+									{indi === 'people' && status.maybe > 0 && <span className={`textSha boldXs marLefXxs ${isCardOrStrip ? 'fs11' : 'fs11'}`}>{`${status.maybe ? `+${status.maybe}` : ''}`}</span>}
 								</ElementName>
 							);
 						})}

@@ -821,6 +821,9 @@ action-divs::before {
 .borLeftThick {
 	border-left: 8px solid rgba(0, 81, 147, 0.452);
 }
+.borRightThick {
+	border-right: 8px solid rgba(0, 81, 147, 0.452);
+}
 
 .borBotGreen {
 	border-bottom: 4px solid rgba(0, 167, 131, 0.548);
@@ -948,7 +951,7 @@ action-divs::before {
 	transition: all 0.5s ease-in-out;
 }
 
-.bInsetBlueTop::before {
+.bInsetBlueTop::after {
 	content: '';
 	display: block;
 	position: absolute;
@@ -961,7 +964,7 @@ action-divs::before {
 	z-index: -1;
 }
 
-.bInsetBlueTopXs::before {
+.bInsetBlueTopXs::after {
 	content: '';
 	display: block;
 	position: absolute;
@@ -973,14 +976,13 @@ action-divs::before {
 	mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
 }
 
-.bInsetBlueTopXs2::before {
+.bInsetBlueTopXs2::after {
 	content: '';
 	display: block;
 	position: absolute;
 	pointer-events: none;
 	width: 100%;
 	height: 100%;
-	border-radius: px;
 	box-shadow: inset 0px 4px 10px -5px rgba(11, 93, 181, 0.151), inset 0px 10px 26px -8px rgba(162, 207, 255, 0.562); /* PRESSED: top edge shadow ---------------------------*/
 	-webkit-mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
 	mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
@@ -1032,7 +1034,7 @@ action-divs::before {
 }
 
 /* BOTTOM INSET BLUE VARIANTS ---------------------------*/
-.bInsetBlueBot::before {
+.bInsetBlueBot::after {
 	content: '';
 	display: block;
 	position: absolute;
@@ -1044,7 +1046,7 @@ action-divs::before {
 	mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
 	z-index: -1;
 }
-.bInsetBlueBotXs::before {
+.bInsetBlueBotXs::after {
 	content: '';
 	display: block;
 	position: absolute;

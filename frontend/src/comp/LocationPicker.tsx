@@ -25,20 +25,7 @@ const useDebounce = (value, delay) => {
 
 function LocationPicker(props) {
 	const { isMobile } = useContext(globalContext);
-	const {
-			brain,
-			nowAt,
-			data = {},
-			superMan,
-			inform = [],
-			curSelCities = props.cities || [],
-			setCurSelCities,
-			inMenu,
-			isIntroduction,
-			isEditing = false,
-			isFriendly = false,
-			eventCity = null,
-		} = props,
+	const { brain, nowAt, data = {}, superMan, inform = [], curSelCities = props.cities || [], setCurSelCities, inMenu, isIntroduction, isEditing = false, isFriendly = false, eventCity = null } = props,
 		citiesSrc = nowAt === 'setup' ? data.cities || [] : curSelCities || [];
 
 	// EDITOR RESTRICTIONS ------------------------------------------------------------
@@ -55,19 +42,19 @@ function LocationPicker(props) {
 			if (storedCity && brain.user.cities.includes(storedCity.cityID)) return '';
 		} else if (nowAt === 'setup') return '';
 
-	let newValue = '';
-	if (locaType === 'city') newValue = `${label ? `${label} ` : ''}${city}${location ? `, ${location}` : ''}`;
-	else if (locaType === 'part') newValue = `${label ? `${label} ` : ''}${part ? `${part}, ` : ''}${city ? `${city}, ` : ''}${location ? `${location}` : ''}`;
-	else if (locaType === 'place') newValue = `${place ? `${place}, ` : ''}${location ? `${location}` : ''} ${label ? `(${label})` : ''}`;
-	else newValue = `${place ? `${place}, ` : ''}${location ? `${location}` : ''} ${label ? `(${label})` : ''}`;
+		let newValue = '';
+		if (locaType === 'city') newValue = `${label ? `${label} ` : ''}${city}${location ? `, ${location}` : ''}`;
+		else if (locaType === 'part') newValue = `${label ? `${label} ` : ''}${part ? `${part}, ` : ''}${city ? `${city}, ` : ''}${location ? `${location}` : ''}`;
+		else if (locaType === 'place') newValue = `${place ? `${place}, ` : ''}${location ? `${location}` : ''} ${label ? `(${label})` : ''}`;
+		else newValue = `${place ? `${place}, ` : ''}${location ? `${location}` : ''} ${label ? `(${label})` : ''}`;
 		return newValue;
 	};
 
-	const [locaInput, setLocaInput] = useState(getLocaInput(curSelCities[0]).trim()),
+	const [locaInput, setLocaInput] = useState((nowAt === 'editor' ? getLocaInput(data) : getLocaInput(curSelCities[0])).trim()),
 		[suggestItems, setSuggestItems] = useState([]),
 		[showSuggest, setShowSuggest] = useState(false),
 		[invertButton, setInvertButton] = useState(null),
-		[suggestClicked, invertTimeout, locaInp] = [useRef(), useRef(), useRef()],
+		[suggestClicked, invertTimeout, locaInp, isFirstRender] = [useRef(), useRef(), useRef(), useRef(true)],
 		[searchValue, setSearchValue] = useState('');
 
 	const resetSearchState = useCallback(() => {
@@ -86,14 +73,7 @@ function LocationPicker(props) {
 			const seenCityKeys = new Set();
 
 			for (const entry of citiesList || []) {
-				const cityObj =
-					typeof entry === 'number'
-						? brain.cities.find(cityCandidate => cityCandidate.cityID === entry)
-						: typeof entry === 'string'
-						? brain.cities.find(cityCandidate => cityCandidate.hashID === entry) || brain.cities.find(cityCandidate => String(cityCandidate.cityID) === entry)
-						: entry && typeof entry === 'object'
-						? entry
-						: null;
+				const cityObj = typeof entry === 'number' ? brain.cities.find(cityCandidate => cityCandidate.cityID === entry) : typeof entry === 'string' ? brain.cities.find(cityCandidate => cityCandidate.hashID === entry) || brain.cities.find(cityCandidate => String(cityCandidate.cityID) === entry) : entry && typeof entry === 'object' ? entry : null;
 
 				const cityKey = cityObj?.cityID ?? cityObj?.hashID;
 				if (!cityObj || cityKey == null) continue;
@@ -129,16 +109,17 @@ function LocationPicker(props) {
 	}, [nowAt, isIntroduction, brain.user?.cities, brain.cities]);
 
 	async function fetchSuggestions(query) {
+		if (isEditingFriendly && data.locaMode === 'city') return;
 		try {
-			if (!query || query.length < 2) return setSuggestItems([]), setShowSuggest(false);
+			if (!query || query.length < 2) return (setSuggestItems([]), setShowSuggest(false));
 			// RESTRICT TO SAME CITY FOR RADIUS/EXACT MODES IN EDITOR -----------------------
-			const restrictCity = nowAt === 'editor' && ['radius', 'exact'].includes(data.locaMode) ? eventCityObj?.city || data.city?.city || data.city : null;
+			const restrictCity = nowAt === 'editor' && ['radius', 'exact'].includes(data.locaMode) ? eventCityObj?.city || (typeof data.city === 'string' ? data.city : data.city?.city) || brain.cities.find(c => c.cityID === data.cityID || c.hashID === data.cityID)?.city || null : null;
 			const items = await fetchLocationSuggestions(query, { locaMode: data.locaMode, nowAt, inMenu, cities: citiesSrc, restrictCity }, isIntroduction);
 
-			if (items.length > 0) setSuggestItems(items), setShowSuggest(true);
-			else setSuggestItems([]), setShowSuggest(false);
+			if (items.length > 0) (setSuggestItems(items), setShowSuggest(true));
+			else (setSuggestItems([]), setShowSuggest(false));
 		} catch (error) {
-			console.error('Error fetching geocode data:', error), setSuggestItems([]), setShowSuggest(false);
+			(console.error('Error fetching geocode data:', error), setSuggestItems([]), setShowSuggest(false));
 		}
 	}
 
@@ -153,23 +134,39 @@ function LocationPicker(props) {
 	}, [debouncedSearchValue]);
 
 	const handleInputChange = e => {
+		if (disableSearch) return;
 		const value = e.target.value;
 		setLocaInput(value);
 		setSearchValue(value);
-		if (!value.length) resetSearchState();
+		if (!value.length) {
+			resetSearchState();
+			if (nowAt === 'editor') {
+				const emptyLocation = { location: '', lat: undefined, lng: undefined, place: null, label: null, part: null, hashID: null, locaType: null };
+				// Only clear city if not a friendly meeting (where city is fixed/mandatory)
+				if (!isFriendly) Object.assign(emptyLocation, { city: null, cityID: null });
+				superMan('location', emptyLocation);
+			}
+		}
 	};
 
 	useLayoutEffect(() => {
-		if (!inMenu && nowAt !== 'setup') {
+		if (isFirstRender.current) {
+			isFirstRender.current = false;
+			return;
+		}
+		if (!inMenu && nowAt !== 'setup' && data?.locaMode === 'city') {
 			man('resetLoca', {});
 			resetSearchState();
 		}
+	}, [data?.locaMode, inMenu, nowAt, resetSearchState]);
+
+	useLayoutEffect(() => {
 		const handleEscKey = event => event.key === 'Escape' && setShowSuggest(false);
 		window.addEventListener('keydown', handleEscKey);
 		return () => {
 			window.removeEventListener('keydown', handleEscKey);
 		};
-	}, [data?.locaMode, inMenu, nowAt, resetSearchState]);
+	}, []);
 
 	// ------------------------ keep city name in input when switching to city mode during edit, even if city not in user list
 	useLayoutEffect(() => {
@@ -183,51 +180,51 @@ function LocationPicker(props) {
 	const man = (inp, val) => {
 		if (inMenu) {
 			const activateInvert = brain.user.cities.length > 2 && curSelCities.length === brain.user.cities.length;
-			if (activateInvert) setInvertButton(val), (invertTimeout.current = setTimeout(() => setInvertButton(null), 2000));
-			else if (invertButton === val) clearTimeout(invertTimeout.current), setInvertButton(null);
+			if (activateInvert) (setInvertButton(val), (invertTimeout.current = setTimeout(() => setInvertButton(null), 2000)));
+			else if (invertButton === val) (clearTimeout(invertTimeout.current), setInvertButton(null));
 
 			setCurSelCities(
 				inp === 'defaultCities'
 					? brain.user.cities
 					: inp === 'selCitiesInRad'
-					? !isNaN(val)
-						? brain.user.cities.filter(city =>
-								Object.keys(radCities)
-									.filter(key => key <= val)
-									.flatMap(rad => radCities[rad])
-									.includes(city)
-						  )
-						: val === 'Domov'
-						? [brain.user.cities[0]]
-						: brain.user.cities
-					: activateInvert || inp === 'searchedCity'
-					? [val]
-					: invertButton === val
-					? brain.user.cities.filter(city => city !== val)
-					: curSelCities.includes(val)
-					? curSelCities.filter(city => city != val)
-					: [...curSelCities.filter(city => brain.user.cities.includes(city.cityID || city)), val]
+						? !isNaN(val)
+							? brain.user.cities.filter(city =>
+									Object.keys(radCities)
+										.filter(key => key <= val)
+										.flatMap(rad => radCities[rad])
+										.includes(city)
+								)
+							: val === 'Domov'
+								? [brain.user.cities[0]]
+								: brain.user.cities
+						: activateInvert || inp === 'searchedCity'
+							? [val]
+							: invertButton === val
+								? brain.user.cities.filter(city => city !== val)
+								: curSelCities.includes(val)
+									? curSelCities.filter(city => city != val)
+									: [...curSelCities.filter(city => brain.user.cities.includes(city.cityID || city)), val]
 			);
 		} else if (nowAt === 'editor') superMan(inp, val);
-		else if (nowAt !== 'setup' && data.locaMode === 'city' && inp !== 'addCity') superMan('city', val), setShowSuggest(false);
+		else if (nowAt !== 'setup' && data.locaMode === 'city' && inp !== 'addCity') (superMan('city', val), setShowSuggest(false));
 		else {
 			const newCities = [
 				...(inp === 'delCity'
 					? data.cities.filter(city => (city.cityID || city.hashID) !== val)
 					: inp === 'setHome'
-					? [val, ...data.cities.filter(city => (city.cityID || city.hashID) !== (val.cityID || val.hashID))]
-					: inp === 'addCity'
-					? (() => {
-							const existingCity = citiesSrc.find(city => (city.cityID || city.hashID) === (val.cityID || val.hashID));
-							if (existingCity) return citiesSrc;
-							else if (citiesSrc.length >= MAX_COUNTS.cities) return citiesSrc;
-							else return [...citiesSrc, val];
-					  })()
-					: inp === 'searchedCity'
-					? [val]
-					: citiesSrc.includes(val)
-					? citiesSrc.filter(city => city !== val)
-					: [...citiesSrc, val]),
+						? [val, ...data.cities.filter(city => (city.cityID || city.hashID) !== (val.cityID || val.hashID))]
+						: inp === 'addCity'
+							? (() => {
+									const existingCity = citiesSrc.find(city => (city.cityID || city.hashID) === (val.cityID || val.hashID));
+									if (existingCity) return citiesSrc;
+									else if (citiesSrc.length >= MAX_COUNTS.cities) return citiesSrc;
+									else return [...citiesSrc, val];
+								})()
+							: inp === 'searchedCity'
+								? [val]
+								: citiesSrc.includes(val)
+									? citiesSrc.filter(city => city !== val)
+									: [...citiesSrc, val]),
 			];
 
 			superMan('cities', normalizeSetupCities(newCities));
@@ -237,14 +234,14 @@ function LocationPicker(props) {
 
 	// Memoize the processed items
 	const processedSuggestItems = useMemo(() => processLocationItems(suggestItems), [suggestItems]);
-	const city = eventCityObj?.city || data.city?.city || data.city;
+	const city = eventCityObj?.city || (typeof data.city === 'string' ? data.city : data.city?.city) || brain.cities.find(c => c.cityID === data.cityID || c.hashID === data.cityID)?.city || null;
 	const setupCitiesLimitReached = nowAt === 'setup' && Array.isArray(data.cities) && data.cities.length >= MAX_COUNTS.cities;
 	function inputPlaceholder() {
 		if (nowAt === 'setup' && isIntroduction) return 'vyhledej města pro odběr událostí (začni domovským) ...';
 		else if (nowAt === 'setup' && !isIntroduction) return 'vyhledej města pro odběr událostí ...';
 		else if (data?.locaMode === 'city') return 'vyhledej město a nebo níže vyber ...';
 		else if (data?.locaMode === 'radius') return city ? `vyhledej střed oblasti v ${city} ...` : 'vyhledej střed oblasti (ulice, adresa, podnik ...)';
-		else if (data?.locaMode === 'exact') return city ? `vyhledej místo v ${city} ...` : 'vyhledej přesné místo (adresa, podnik ...)';
+		else if (data?.locaMode === 'exact') return city ? `vyhledej místo v ${city} ...` : 'vyhledej adresu, místo, podnik ...';
 		else if (inMenu) return 'Vyhledej konkrétní město a nebo níže povybírej ...';
 		else if (!brain.user.id) return 'Chceš přesné výpočty? Zadej i adresu (klidně přibližnou)...';
 		else if (!data.cities?.length) return 'vyhledej město či adresu ...';
@@ -254,10 +251,11 @@ function LocationPicker(props) {
 
 	// DETERMINE IF SEARCH SHOULD BE HIDDEN/DISABLED ----------------------------------
 	const hideSearch = isEditingFriendly && data.locaMode === 'city' && brain.user.cities.some(city => city === data.cityID);
-	const disableSearch = setupCitiesLimitReached || (nowAt === 'editor' && data.locaMode === 'city' && isEditing && !hasUserCitySelected && (data.cityID || data.city));
+	const disableSearch = setupCitiesLimitReached || (nowAt === 'editor' && data.locaMode === 'city' && (isEditingFriendly || (isEditing && !hasUserCitySelected && (data.cityID || data.city))));
 
 	// Handle focus event
 	const handleInputFocus = () => {
+		if (disableSearch) return;
 		if (locaInput?.trim().length && suggestItems.length > 0) setShowSuggest(true);
 	};
 
@@ -316,13 +314,13 @@ function LocationPicker(props) {
 					flexRow aliStart justCen gapS bHover shaComment pointer block 
 					padHorS padVerXs boRadS shaCon w100
 					`}>
-					<icon-wrapper class='flexRow gapXs aliCen justCen padTopXxxs'>
-						<img src={`/icons/${item.locaType === 'city' ? 'home' : item.locaType === 'place' ? 'premise' : 'location'}.png`} className='mw5 aspect1610 ' alt='' />
-						<texts-part class='flexCol noPoint textLeft marTopXs w100 h100'>
-							<span className='fs11 inline marBotXxxs boldS'>{place || `${part || city}`}</span>
-							<span className='fs7 textLeft'>
+					<icon-wrapper class="flexRow gapXs aliCen justCen padTopXxxs">
+						<img src={`/icons/${item.locaType === 'city' ? 'home' : item.locaType === 'place' ? 'premise' : 'location'}.png`} className="mw5 aspect1610 " alt="" />
+						<texts-part class="flexCol noPoint textLeft marTopXs w100 h100">
+							<span className="fs11 inline marBotXxxs boldS">{place || `${part || city}`}</span>
+							<span className="fs7 textLeft">
 								{location}
-								{label && <span className='tGrey'> ({label})</span>}
+								{label && <span className="tGrey"> ({label})</span>}
 							</span>
 						</texts-part>
 					</icon-wrapper>
@@ -338,17 +336,15 @@ function LocationPicker(props) {
 					{/* SECTION DESCRIPTION (EXISTING USERS ONLY) --- */}
 					{data.id && (
 						<>
-							<span className='xBold marBotXxs inlineBlock fs15'>Sledované lokality</span>
-							<p className='fs8 marBotXs mw160 lh1 marAuto'>
-								Vyber si města, do nichž jsi ochotný cestovat za událostmi a za lidmi. Z těchto měst se ti bude automaticky načítat veškerý obsah.
-							</p>
+							<span className="xBold marBotXxs inlineBlock fs15">Sledované lokality</span>
+							<p className="fs8 marBotXs mw160 lh1 marAuto">Vyber si města, do nichž jsi ochotný cestovat za událostmi a za lidmi. Z těchto měst se ti bude automaticky načítat veškerý obsah.</p>
 						</>
 					)}
 				</title-texts>
 			)}
 			{/* LIMIT WARNING (ALL USERS) --- */}
 			{setupCitiesLimitReached && (
-				<span className='fs16 tRed xBold textSha marBotXs block'>
+				<span className="fs16 tRed xBold textSha marBotXs block">
 					Dosažen limit: {MAX_COUNTS.cities}/{MAX_COUNTS.cities}
 				</span>
 			)}
@@ -363,20 +359,18 @@ function LocationPicker(props) {
 					onBlur={handleInputBlur}
 					onChange={handleInputChange}
 					onFocus={handleInputFocus}
-					className={`${inform.includes('noCity') ? 'borderRed' : 'shaBlue '}  ${(inMenu && locaInput) || isIntroduction ? 'boldXs fs18 mw160' : 'fs16'} ${
-						disableSearch ? '' : ''
-					} hvw3 mih5  textAli w100 marAuto borderBot boldXs phLight`}
+					className={`${inform.includes('noCity') || inform.includes('noLocation') ? 'borderRed' : 'shaBlueLight '}  ${(inMenu && locaInput) || isIntroduction ? 'boldXs fs18 mw160' : 'fs16'} ${disableSearch ? '' : ''} hvw3 mih5  textAli w100 marAuto borBotLight boldXs phLight`}
 					placeholder={inputPlaceholder()}
-					type='text'
+					type="text"
 					ref={locaInp}
 				/>
 			)}
 
-			{inform.includes('noCity') && !isIntroduction && <span className='tRed fs12 block marTopXs xBold'>Přidej si alespoň 1 město (domovské)</span>}
+			{inform.includes('noCity') && !isIntroduction && <span className="tRed fs12 block marTopXs xBold">Přidej si alespoň 1 město (domovské)</span>}
 
 			{/* SEARCH RESULTS --------------------------------------------------------------------------------- */}
 			{showSuggest && suggestItems.length > 0 && (
-				<suggest-items class=' padBotXs mhvh33 block overAuto bgWhite'>
+				<suggest-items class=" padBotXs mhvh33 block overAuto bgWhite">
 					<Masonry
 						content={suggestionCards}
 						config={{
@@ -412,18 +406,14 @@ function LocationPicker(props) {
 										superMan('cities', newCities);
 									} else man(nowAt === 'setup' ? 'delCity' : nowAt === 'editor' ? 'cityID' : 'selCity', id);
 								}}
-								class={`${isDisabled && !isSelected ? 'opacityXs' : 'bHover'} ${
-									invertButton === id || isIntroduction || curSelCities.includes(id) || isSelected ? 'xBold bInsetBlueTopS ' : ''
-								} ${`${
-									nowAt === 'editor' ? (isSelected ? 'bInsetBlueTop  borTop textSha boRadS  xBold fs14' : '  fs14 xBold') : inMenu ? '  boldM fs15  ' : '  bold fs13'
-								}  posRel   `}  
+								class={`${isDisabled && !isSelected ? 'opacityXs' : 'bHover'} ${invertButton === id || isIntroduction || curSelCities.includes(id) || isSelected ? 'xBold bInsetBlueTopS ' : ''} ${`${nowAt === 'editor' ? (isSelected ? 'bInsetBlueTop  borTop textSha boRadS  xBold fs14' : '  fs14 xBold') : inMenu ? '  boldM fs15  ' : '  bold fs13'}  posRel   `}  
 								  ${inMenu && curSelCities.includes(id) ? 'bInsetBlueTopS borTop xBold' : ''}
 								 
 								 ${nowAt === 'setup' ? 'textLeft' : ''} shaLight padVerXxxs padHorL   flexCen bgTrans       `}>
 								{nowAt === 'setup' && (
 									<button
-										title='Domovské město'
-										type='button'
+										title="Domovské město"
+										type="button"
 										onClick={e => {
 											e.stopPropagation();
 											if (isIntroduction) {
@@ -438,8 +428,8 @@ function LocationPicker(props) {
 												superMan('cities', normalizeSetupCities([city, ...filteredCities]));
 											}
 										}}
-										className='padHorS  border bgTrans marRigS w14  mw8 padVerXxxs  bHover boRadS  h100 shaLight'>
-										<img src={`/icons/home.png`} className={`${!isHomeCity ? 'desaturated' : ''} mw3 `} alt='' />
+										className="padHorS  border bgTrans marRigS w14  mw8 padVerXxxs  bHover boRadS  h100 shaLight">
+										<img src={`/icons/home.png`} className={`${!isHomeCity ? 'desaturated' : ''} mw3 `} alt="" />
 									</button>
 								)}
 								{inMenu && invertButton === id ? 'invertovat?' : city.city}
@@ -449,28 +439,20 @@ function LocationPicker(props) {
 				</cities-wrapper>
 			)}
 
-			{/* SAME CITY WARNING FOR RADIUS/EXACT MODES ------------------------------------------- */}
-			{nowAt === 'editor' && isEditing && isFriendly && (eventCityObj || data.city) && (
-				<span className='tRed fs9 borderRed wAuto inlineBlock  marAuto padBotXxs marTopS  xBold block marBotXs textAli'>
-					{data.locaMode === 'city' ? 'POZOR! Město nelze u přátelských setkání měnit!' : 'POZOR: Místo musí být v původním městě:'}{' '}
-					{data.locaMode === 'city' ? '' : eventCityObj?.city || data.city?.city || data.city}
-				</span>
-			)}
-
 			{/* QUICK SELECTION BUTTONS -------------------------------------------------------------------- */}
 			{inMenu && brain.user.cities.length > 1 && (
-				<quick-sel className='flexCen  growAll marTopS   posRel posRel  boRadXs  wAuto    marBotL marAuto'>
+				<quick-sel className="flexCen  growAll marTopS   posRel posRel  boRadXs  wAuto    marBotL marAuto">
 					{['Domov', 10, 25, 50, 'Všechny']
 						.filter(button => {
 							return button === 'Domov'
 								? !curSelCities.includes(brain.user.cities[0]) || curSelCities.length > 1
 								: button === 'Všechny'
-								? curSelCities.length !== brain.user.cities.length
-								: radCities[button]?.length &&
-								  !areEqual(
-										curSelCities.map(city => city.cityID || city).sort((a, b) => a - b),
-										radCities[button].sort((a, b) => a - b)
-								  );
+									? curSelCities.length !== brain.user.cities.length
+									: radCities[button]?.length &&
+										!areEqual(
+											curSelCities.map(city => city.cityID || city).sort((a, b) => a - b),
+											radCities[button].sort((a, b) => a - b)
+										);
 						})
 						.map((button, _, arr) => (
 							<button
@@ -480,7 +462,7 @@ function LocationPicker(props) {
 									man('selCitiesInRad', button);
 								}}
 								style={{ width: `calc(100%/${arr.length})px` }}
-								className='grow bgTrans fs10  bInsetBlueTopXs bInsetBlueTopXs padVerXxxs  xBold posRel mw10  shaBlue tDarkBlue  boRadXs    borBotLight  bHover '>
+								className="grow bgTrans fs10  bInsetBlueTopXs bInsetBlueTopXs padVerXxxs  xBold posRel mw10  shaBlue tDarkBlue  boRadXs    borBotLight  bHover ">
 								{button}
 								{typeof button === 'number' ? ' km' : ''}
 							</button>
@@ -490,9 +472,7 @@ function LocationPicker(props) {
 			{nowAt === 'setup' && citiesSrc.length >= 10 && (
 				<>
 					<blue-divider class={` hr0-5 borTop block   borTop bgTrans  w100    marAuto   `} />
-					<span className={` boRadXxs boldS bBlue  tWhite tSha10  posRel inlineBlock bInsetBlueTopXl    borTop2   mw140   zinMax  fPadHorXs padVerXxs  w100    marAuto    fs8 bgWhite`}>
-						{`Zásobník je plný. Pro změnu odeber nějaké město ...`}
-					</span>
+					<span className={` boRadXxs boldS bBlue  tWhite tSha10  posRel inlineBlock bInsetBlueTopXl    borTop2   mw140   zinMax  fPadHorXs padVerXxs  w100    marAuto    fs8 bgWhite`}>{`Zásobník je plný. Pro změnu odeber nějaké město ...`}</span>
 				</>
 			)}
 		</location-strip>

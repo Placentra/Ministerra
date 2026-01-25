@@ -63,6 +63,7 @@ async function Editor(req, res) {
 		mode,
 		takeWith,
 		inter,
+		interPriv,
 		imgVers,
 	} = normalizeEditorPayload(req.body);
 
@@ -99,7 +100,7 @@ async function Editor(req, res) {
 				throw new Error(reasons.join(' + '));
 			}
 
-			await Promise.all([con.execute('UPDATE events SET flag = "del", changed = NOW(), basiVers = basiVers + 1 WHERE id = ?', [eventID]), redis.hset(REDIS_KEYS.remEve, eventID, now)]);
+			await Promise.all([con.execute('UPDATE events SET flag = "del", changed = NOW(), nextTask = "flagChanges", basiVers = basiVers + 1 WHERE id = ?', [eventID]), redis.hset(REDIS_KEYS.remEve, eventID, now)]);
 			invalidateEventCache(eventID);
 			return res.status(200).end();
 		}
@@ -117,7 +118,7 @@ async function Editor(req, res) {
 				await Promise.all([
 					redis.hset(REDIS_KEYS.eveMetas, eventID, encode(meta)),
 					redis.hset(`${REDIS_KEYS.eveBasics}:${eventID}`, 'canceled', true),
-					con.execute('UPDATE events SET flag = "can", changed = NOW(), basiVers = basiVers + 1 WHERE id = ?', [eventID]),
+					con.execute('UPDATE events SET flag = "can", changed = NOW(), nextTask = "flagChanges", basiVers = basiVers + 1 WHERE id = ?', [eventID]),
 					con.execute('DELETE FROM eve_inters WHERE event = ? AND user = ?', [eventID, userID]),
 				]);
 			invalidateEventCache(eventID);
@@ -156,7 +157,7 @@ async function Editor(req, res) {
 				// testUser has id 1 and test event as well (this is for API testing purposes only)
 				eventID = userID == '1' && !(await con.execute('SELECT id FROM events WHERE id = 3 LIMIT 1'))[0][0]?.id ? '3' : generateIDString();
 				const placeholders = cols.map(c => (c === 'coords' ? 'Point(?, ?)' : '?'));
-				const Q = `INSERT INTO events (id, ${cols.join(', ')}, owner, flag) VALUES (?, ${placeholders.join(',')}, ?, 'new')`;
+				const Q = `INSERT INTO events (id, ${cols.join(', ')}, owner, flag, nextTask) VALUES (?, ${placeholders.join(',')}, ?, 'new', 'flagChanges')`;
 				const P = [eventID, ...values, userID];
 				logger.debug('createEvent', { Q, P });
 				await con.execute(Q, P);
@@ -165,8 +166,8 @@ async function Editor(req, res) {
 				// SIDE EFFECTS ---
 				// Steps: save deferred images (if present), set initial interest (if requested), and write redis indexes for city and title/owner lookup.
 				const tasks = [
-					req.processedImages && saveImages(req.processedImages, eventID, 1, 'events'),
-					inter && Interests({ eventID, userID, inter, priv, con }),
+					req.processedImages && saveImages(req.processedImages, eventID, vars.imgVers || 1, 'events'),
+					inter && Interests({ eventID, userID, inter, priv: interPriv || priv, con }),
 					redis.hset(REDIS_KEYS.eveCityIDs, eventID, vars.cityID),
 					title && redis.hset(REDIS_KEYS.eveTitleOwner, eventID, encode([title.length > 40 ? title.slice(0, 39) + '…' : title, userID])),
 				];
@@ -196,9 +197,9 @@ async function Editor(req, res) {
 				} WHERE events.id = ? AND events.owner = ?`;
 
 				await con.execute(query, [...values, eventID, userID]);
-				if (req.processedImages && typeof imgVers === 'string') {
+				if (req.processedImages && imgVers) {
 					const [[row]] = await con.execute('SELECT imgVers FROM events WHERE id = ?', [eventID]);
-					await saveImages(req.processedImages, eventID, Number(String(row?.imgVers).split('_')[0] || 0), 'events');
+					await saveImages(req.processedImages, eventID, row?.imgVers || 0, 'events');
 				}
 				if (imgVers === 0)
 					for (const size of ['', 'S', 'L'])

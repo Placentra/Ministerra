@@ -65,7 +65,9 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 				const isNewMessage = existingIdx === -1;
 				console.log('🚀 ~ PROCESS MESSAGE IS NEW MESSAGE:', isNewMessage);
 
-				if (isNewMessage) chat.messages.push(Object.assign(message, { own: incomingOwn }));
+				// IMMUTABLE MESSAGE COPY ---
+				// Steps: create a copy of the message object to avoid mutating the original socket event payload.
+				if (isNewMessage) chat.messages.push({ ...message, own: incomingOwn });
 				else {
 					const target = chat.messages[existingIdx];
 					Object.assign(target, { ...message, own: incomingOwn });
@@ -92,9 +94,9 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 								what: 'message',
 								target: chatID,
 								data: {
-						content: message.content,
-								attach: message.attach,
-								user: chat.members.find(m => String(m.id) === String(user)) || { id: user },
+									content: message.content,
+									attach: message.attach,
+									user: chat.members.find(m => String(m.id) === String(user)) || { id: user },
 									chatName: chat.type !== 'private' ? chat.name : undefined,
 								},
 								created: Date.now(),
@@ -118,7 +120,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 					}
 				}
 
-				depsRef.run('store', chat), depsRef.run('refreshChatIdx', chat), depsRef.run('unshift', chat);
+				(depsRef.run('store', chat), depsRef.run('refreshChatIdx', chat), depsRef.run('unshift', chat));
 
 				// Auto-scroll if user is viewing this chat
 				if (brain.menuView === 'chats' && brain.openedChat === chatID && bottomScroll?.current) {
@@ -183,7 +185,9 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 	// Steps: mark chat ended, strip volatile props, mark room not joined, then demote all members to spect role.
 	async function handleChatEndedEvent({ chatID }) {
 		const chat = getTargetChat(chatID);
-		const basicProps = ['id', 'members', 'messages', 'cursors', 'seen'];
+		// PRESERVE TYPE FOR BLOCKING LOGIC ---
+		// Steps: keep 'type' so handleBlocking can check targetChat.type !== 'private' after chat ends.
+		const basicProps = ['id', 'type', 'members', 'messages', 'cursors', 'seen'];
 		if (chat) {
 			chat.ended = true;
 			chat.joinedRoom = false;
@@ -207,10 +211,15 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 		try {
 			const { data } = await axios.post('/chat', { mode: 'getMembers', chatID: chat.id, memberIDs: [id] });
 			if (data?.members?.length) depsRef.processChatMembers({ chatObj: chat, members: data.members });
-			else chat.members.push({ id: id, flag: 'del', role: 'spect', sync: Date.now() });
+			else {
+				// DUPLICATE CHECK BEFORE PUSH ---
+				// Steps: only add placeholder if member doesn't already exist to prevent duplicate entries on retry.
+				if (!chat.members.some(m => Number(m.id) === Number(id))) chat.members.push({ id: id, flag: 'del', role: 'spect', sync: Date.now() });
+			}
 		} catch (error) {
 			console.error('Failed to fetch member data:', error);
-			chat.members.push({ id: id, flag: 'del', sync: Date.now() });
+			// DUPLICATE CHECK BEFORE PUSH ---
+			if (!chat.members.some(m => Number(m.id) === Number(id))) chat.members.push({ id: id, flag: 'del', sync: Date.now() });
 			notifyGlobalError(error, 'Nepodařilo se načíst informace o členovi chatu.');
 		} finally {
 			pendingMemberFetches.delete(fetchKey);
@@ -218,9 +227,12 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 	};
 
 	// NEW CHAT -------------------------------------------------
-	// Steps: toast + dots for incoming chats, mark joined/opened, hydrate member basics into brain, then persist and place chat at top.
+	// Steps: dedupe by ID, toast + dots for incoming chats, mark joined/opened, hydrate member basics into brain, then persist and place chat at top.
 	const handleNewChat = async newChatObj => {
 		const { id, messages, members } = newChatObj;
+		// DUPLICATE CHECK ---
+		// Steps: skip if chat already exists to prevent duplicate entries on reconnect/retry.
+		if (chatsRef.current?.some(c => Number(c.id) === Number(id))) return;
 		const lastMessage = messages[messages.length - 1];
 		if (String(lastMessage.user) !== String(brain.user.id)) {
 			const author = members.find(m => String(m.id) === String(lastMessage.user)) || { id: lastMessage.user };
@@ -248,9 +260,9 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 			});
 			if (!newChatObj.muted) setNotifDots(prev => ({ ...prev, chats: 1 }));
 		}
-		(newChatObj.joinedRoom = true), (newChatObj.opened = true);
-		depsRef.processChatMembers({ chatObj: newChatObj, members }), setPropsToContent('messages', messages, brain);
-		depsRef.run('unshift', newChatObj), depsRef.run('store', newChatObj);
+		((newChatObj.joinedRoom = true), (newChatObj.opened = true));
+		(depsRef.processChatMembers({ chatObj: newChatObj, members }), setPropsToContent('messages', messages, brain));
+		(depsRef.run('unshift', newChatObj), depsRef.run('store', newChatObj));
 	};
 
 	// CHAT CHANGED ------------------------------------------------------------
@@ -268,7 +280,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 					else if (chatObj.type === 'group' && member.role === 'VIP') member.role = 'admin';
 				}
 			}
-			delete chatObj.members, Object.assign(chat, chatObj), depsRef.run('refreshChatIdx', chat);
+			(delete chatObj.members, Object.assign(chat, chatObj), depsRef.run('refreshChatIdx', chat));
 			depsRef.run('store', chat || chatObj);
 		}
 	};
@@ -285,7 +297,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 				if (idx > -1) {
 					// Handle un-punishments (unban, ungag) ---------------------------
 					if (how && how.startsWith('un')) {
-						delete targetChat.members[idx].punish, delete targetChat.members[idx].until, delete targetChat.members[idx].who, delete targetChat.members[idx].mess;
+						(delete targetChat.members[idx].punish, delete targetChat.members[idx].until, delete targetChat.members[idx].who, delete targetChat.members[idx].mess);
 						if (targetChat.members[idx].role === 'spect') targetChat.members[idx].role = 'member';
 					} else {
 						Object.assign(targetChat.members[idx], { punish: how, until, who, mess });
@@ -294,7 +306,8 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 					if (String(userID) === String(brain.user.id)) {
 						if (how && how.startsWith('un')) {
 							['punish', 'until', 'who', 'mess'].forEach(k => delete targetChat[k]);
-							if (targetChat.role === 'spect') targetChat.role = 'member';
+							// ONLY PROMOTE SPECT TO MEMBER ON UNBAN ---
+							if (how === 'unban' && targetChat.role === 'spect') targetChat.role = 'member';
 						} else {
 							Object.assign(targetChat, { punish: how, until, who, mess });
 						}
@@ -316,7 +329,7 @@ export function createChatsHandlers({ brain, chatsRef, setChats, setNotifDots, d
 				}
 
 				depsRef.run('refreshChatIdx', targetChat);
-				depsRef.run('store', targetChat), setScrollDir('up');
+				(depsRef.run('store', targetChat), setScrollDir('up'));
 				setChats(prev => [...prev]);
 			}
 		} catch (error) {

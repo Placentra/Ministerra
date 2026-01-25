@@ -234,23 +234,23 @@ function EveMenuStrip({
 			? () => {
 					if (menuView) storeMenuViewState(menuView, galleryMode, eventObj.id);
 					navigate(`/event/${eventObj.id}!${encodeURIComponent(eventObj.title).replace(/\./g, '-').replace(/%20/g, '_')}`);
-			  }
+				}
 			: null,
 		náhled:
 			galleryMode || isSearch
 				? async () => {
 						if (!modes.evePreview) await previewEveCard({ obj: eventObj, brain });
 						toggleMode('evePreview');
-				  }
+					}
 				: null,
 		účast: !galleryMode.includes('past') && !isInactive && (!own || (own && !status.isMeeting)) && isCardOrStrip ? async () => toggleMode('inter') : null,
 		smazat: nowAt !== 'event' && !undeletable && !status.deleted && (galleryMode === 'futuOwn' || !isCardOrStrip) && own && eventObj.state !== 'del' ? () => toggleMode('delete') : null,
-		zrušit: nowAt !== 'event' && 	!isInactive && (galleryMode === 'futuOwn' || !isCardOrStrip) && own && eventObj.starts > Date.now() && !eventObj.canceled ? () => toggleMode('cancel') : null,
+		zrušit: nowAt !== 'event' && !isInactive && (galleryMode === 'futuOwn' || !isCardOrStrip) && own && eventObj.starts > Date.now() && !eventObj.canceled ? () => toggleMode('cancel') : null,
 		editovat:
 			!galleryMode.includes('past') && !isInactive && (galleryMode || nowAt === 'event') && own
 				? () => {
 						navigate(`/editor/${eventID}!${eventObj.title ? encodeURIComponent(eventObj.title.slice(0, 50)).replace(/\./g, '-').replace(/%20/g, '_') : ''}`);
-				  }
+					}
 				: null,
 		sdílet: () => toggleMode('share'),
 		'zpětná vazba': allowFeedback && !isInactive ? () => toggleMode('feedback') : null,
@@ -260,26 +260,22 @@ function EveMenuStrip({
 			!galleryMode.includes('invites') && !isInactive && eventObj.starts > Date.now()
 				? () => {
 						if (nowAt === 'editor') {
+							setModes(prev => ({ ...prev, menu: false }));
 							window.scrollTo({ top: document.querySelector('invitations-container').getBoundingClientRect().top + window.scrollY, behavior: 'smooth' });
 						} else {
 							toggleMode('invites');
 							userCardSetModes && userCardSetModes(prev => ({ ...prev, inviteEvePreview: !prev.inviteEvePreview, protocol: false }));
 						}
-				  }
+					}
 				: null,
 		nahlásit: !status.embeded && !isSearch && !own ? () => toggleMode('protocol', modes.protocol ? false : 'report') : null,
 	};
 
-
-
-
-	const hideMenu = modes.report || modes.evePreview || modes.invites;
+	const hideMenu = modes.protocol || modes.evePreview || modes.invites || modes.delete || modes.cancel || modes.inter || modes.feedback || modes.deletePast || modes.invitees || modes.invitors;
 	const confirmTexts = {
 		del: 'Událost přestane být dostupná a její data budou smazána',
 		del2: 'Událost bude PERMANENTNĚ ODSTRANĚNA. Toto je nevratné!',
-		can: `Událost zůstane dostupná, avšak bez možnosti editace. Diskuze${
-			eventObj.type.startsWith('a') ? ' a seznam účastníků zůstanou' : ' zůstane'
-		} aktivní. Událost bude viditelně označená označena jako ZRUŠENÁ a automaticky smazaná po 90 dnech!`,
+		can: `Událost zůstane dostupná, avšak bez možnosti editace. Diskuze${eventObj.type.startsWith('a') ? ' a seznam účastníků zůstanou' : ' zůstane'} aktivní. Událost bude viditelně označená označena jako ZRUŠENÁ a automaticky smazaná po 90 dnech!`,
 		can2: 'Zrušení události je nevratnou akcí! ',
 		past: 'Permanentně skrýt tuto událost ze seznamu navštívených? Událost samotná zůstane nezměněna, stejně tak jako záznam o tvé účasti. Tato akce pouze skryje tento záznam v galerii. Toto je nevratné!',
 		past2: 'Skrytí účasti je nevratnou akcí!',
@@ -309,25 +305,13 @@ function EveMenuStrip({
 
 			{/* CONFIRMATION DIALOGS (DELETE / CANCEL / HIDE PAST) */}
 			{(modes.delete || modes.cancel || modes.deletePast) && (
-				<confirm-box onClick={e => e.stopPropagation()} class='flexCol textAli  padVerXs padHorS borTopLight shaComment bgWhite'>
+				<confirm-box onClick={e => e.stopPropagation()} class="flexCol textAli  padVerXs padHorS borTopLight shaComment bgWhite">
 					<span className={`${confirmStage === 2 ? 'tDarkRed' : 'tRed'} xBold inlineBlock marTopS fs8 marBotXxxs`}>
 						{confirmStage === 1 && (modes.delete ? 'Smazat událost?' : modes.cancel ? 'Zrušit událost?' : 'Skrýt v galerii?')}
 						{confirmStage === 2 ? 'JSI SI ABSOLUTNĚ JISTÝ?!' : ''}
 					</span>
-					<span className='fs7 inlineBlock marBotS'>
-						{modes.delete
-							? confirmStage === 1
-								? confirmTexts.del
-								: confirmTexts.del2
-							: modes.cancel
-							? confirmStage === 1
-								? confirmTexts.can
-								: confirmTexts.can2
-							: confirmStage === 1
-							? confirmTexts.past
-							: confirmTexts.past2}
-					</span>
-					{error && <span className='tRed fs9 xBold inlineBlock marVerXs'>{error}</span>}
+					<span className="fs7 inlineBlock marBotS">{modes.delete ? (confirmStage === 1 ? confirmTexts.del : confirmTexts.del2) : modes.cancel ? (confirmStage === 1 ? confirmTexts.can : confirmTexts.can2) : confirmStage === 1 ? confirmTexts.past : confirmTexts.past2}</span>
+					{error && <span className="tRed fs9 xBold inlineBlock marVerXs">{error}</span>}
 					<button
 						className={`${confirmStage === 2 ? 'bDarkRed' : confirmStage === 1 ? 'bRed' : 'bDarkGreen'} tWhite boRadXs padHorS padVerXs mw60 xBold marAuto w100 fs10`}
 						onClick={() => {
@@ -347,24 +331,13 @@ function EveMenuStrip({
 								}
 							} else handleConfirmAction(modes.delete ? 'delete' : modes.cancel ? 'cancel' : 'deletePast');
 						}}>
-						{error
-							? error === 'error'
-								? 'Chyba :-(, zkus to za chvilku znovu'
-								: error.includes('zrušeno')
-								? 'OK, rozumím'
-								: 'NELZE SMAZAT, JEN ZRUŠIT!'
-							: confirmStage === 2
-							? `${modes.delete ? 'ANO, smazat událost!' : modes.cancel ? 'ANO, zrušit událost!' : 'ANO, skrýt v galerii!'}`
-							: confirmStage === 1
-							? 'Potvrdit'
-							: 'Úspěšně provedeno'}
+						{error ? (error === 'error' ? 'Chyba :-(, zkus to za chvilku znovu' : error.includes('zrušeno') ? 'OK, rozumím' : 'NELZE SMAZAT, JEN ZRUŠIT!') : confirmStage === 2 ? `${modes.delete ? 'ANO, smazat událost!' : modes.cancel ? 'ANO, zrušit událost!' : 'ANO, skrýt v galerii!'}` : confirmStage === 1 ? 'Potvrdit' : 'Úspěšně provedeno'}
 					</button>
 				</confirm-box>
 			)}
 
 			{/* INVITATION MANAGER */}
 			{(modes.invites || modes.invitees || modes.invitors) && (
-				<invitations-container>
 				<Invitations
 					{...{
 						brain,
@@ -385,14 +358,12 @@ function EveMenuStrip({
 						mode: 'eventToUsers',
 					}}
 				/>
-			
-				</invitations-container>
 			)}
 
 			{/* BULK INVITE ACTIONS */}
 			{(modes.invitees || modes.invitors) && (
-				<bulk-actions onClick={e => e.stopPropagation()} className='w100 flexCen marTopXs'>
-					<button onClick={handleBulkInvites} className='bRed tWhite bold fs7 padVerXxs padHorXl boRadXs'>
+				<bulk-actions onClick={e => e.stopPropagation()} className="w100 flexCen marTopXs">
+					<button onClick={handleBulkInvites} className="bRed tWhite bold fs7 padVerXxs padHorXl boRadXs">
 						{galleryMode === 'invitesOut' ? 'Zrušit všechny pozvánky' : 'Smazat všechny pozvánky'}
 					</button>
 				</bulk-actions>
@@ -401,15 +372,7 @@ function EveMenuStrip({
 			{/* SUB-COMPONENTS (INTERESTS / PROTOCOL / FEEDBACK) */}
 			{modes.inter && <IntersPrivsButtons {...{ status, brain, nowAt, obj: eventObj, modes, setStatus, setModes }} />}
 			{modes.protocol && <SimpleProtocol setModes={setModes} obj={eventObj} target={eventObj.id} modes={modes} thisIs={'event'} brain={brain} nowAt={nowAt} setStatus={setStatus} />}
-			{modes.feedback && (
-				<EventFeedbackProtocol
-					obj={eventObj}
-					brain={brain}
-					isOwner={own}
-					mode={galleryMode || isCardOrStrip ? 'modal' : 'inline'}
-					onClose={() => setModes(prev => ({ ...prev, feedback: false, menu: false }))}
-				/>
-			)}
+			{modes.feedback && <EventFeedbackProtocol obj={eventObj} brain={brain} isOwner={own} mode={galleryMode || isCardOrStrip ? 'modal' : 'inline'} onClose={() => setModes(prev => ({ ...prev, feedback: false, menu: false }))} />}
 		</event-menu>
 	);
 }

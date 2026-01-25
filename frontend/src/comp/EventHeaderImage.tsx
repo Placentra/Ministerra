@@ -24,17 +24,11 @@ function EventHeaderImage({ event, fadedIn = [], maximizeImg = false, onImageCli
 		<header-div class={`${fadedIn.includes('Image') ? 'fadedIn' : ''} ${isMeeting ? 'hvw50 mh30' : ' '} fadingIn   posRel zin1  flexCol aliCen posRel w100 marAuto`}>
 			{/* PAGE BUTTONS ---------------------------------------- */}
 			{inQueue && queueLen > 1 && nowAt === 'event' && (
-				<page-bs class='flexRow posAbs center spaceBet w100 h100 boRadS zinMaXl marAuto'>
-					<button
-						disabled={!canGoPrev}
-						onClick={() => canGoPrev && navigateToEvent(queueIDs[thisEventIndex - 1])}
-						className={`bgTransXs miw6 fsG boldM mih6 padAllXs shaTop ${!canGoPrev ? 'opacityL noPoint' : ''}`}>
+				<page-bs class="flexRow posAbs center spaceBet w100 h100 boRadS zinMaXl marAuto">
+					<button disabled={!canGoPrev} onClick={() => canGoPrev && navigateToEvent(queueIDs[thisEventIndex - 1])} className={`bgTransXs miw6 fsG boldM mih6 padAllXs shaTop ${!canGoPrev ? 'opacityL noPoint' : ''}`}>
 						{'<'}
 					</button>
-					<button
-						disabled={!canGoNext}
-						onClick={() => canGoNext && navigateToEvent(queueIDs[thisEventIndex + 1])}
-						className={`bgTransXs fsG boldM miw6 mih6 padAllXs shaTop ${!canGoNext ? 'opacityL noPoint' : ''}`}>
+					<button disabled={!canGoNext} onClick={() => canGoNext && navigateToEvent(queueIDs[thisEventIndex + 1])} className={`bgTransXs fsG boldM miw6 mih6 padAllXs shaTop ${!canGoNext ? 'opacityL noPoint' : ''}`}>
 						{'>'}
 					</button>
 				</page-bs>
@@ -42,30 +36,20 @@ function EventHeaderImage({ event, fadedIn = [], maximizeImg = false, onImageCli
 
 			{isMeeting ? (
 				// FRIENDLY MEETING --------------------------------------------------------------
-				<meeting-image class='posRel  w100 h100'>
-					<img loading='lazy' className='w100 boRadXs maskLow  zinMin h100 hvh40  cover' src={`/covers/friendlyMeetings/${event.type}.png`} alt='' />
+				<meeting-image class="posRel block w100 h100">
+					<img loading="lazy" className="w100 boRadXs maskLow  zinMin h100 hvh40  cover" src={`/covers/friendlyMeetings/${event.type}.png`} alt="" />
 					{/* EVENT TYPE ICON ----------------------------------------------------------------*/}
-					{!maximizeImg && (
-						<event-type class={` flexCol  w100 maskLowXs padTopXxxl padBotL noPoint aliCen posAbs zinMax   ${!isMeeting ? 'botCen imw35' : 'topCen imw33 marTopS '}     `}>
-							<img className='   boRadL  w70' src={`/icons/types/${event.type}.png`} alt='' />
-						</event-type>
-					)}
+					{!maximizeImg && <img className={` posAbs maskLowXs  boRadL  w70  ${!isMeeting ? 'botCen mw35' : 'topCen mw33 marTopS '}`} src={`/icons/types/${event.type}.png`} alt="" />}
 				</meeting-image>
 			) : (
 				// REGULAR EVENT --------------------------------------------------------------
-				<event-image class='posRel w100'>
-					<image-wrapper class='posRel w100 h100'>
-						<img
-							onClick={onImageClick}
-							style={onImageClick ? { maxWidth: `${window.innerWidth - 2}px` } : undefined}
-							src={`${isMeeting ? `/covers/friendlyMeetings/${event.type}.png` : `${imgSrc}.webp`}`}
-							className={`${isMobile ? 'w100' : ' mih40'} ${maximizeImg ? 'mhvh80' : ' mhvh40'} ${onImageClick ? 'pointer' : ''}  boRadS  marAuto cover flexCen zinMax posRel`}
-							alt=''
-						/>
+				<event-image class="posRel block fPadHorXs padTopS w100 marAuto">
+					<image-wrapper class="posRel block w100 h100">
+						<img onClick={onImageClick} style={onImageClick ? { maxWidth: `${window.innerWidth - 2}px` } : undefined} src={`${isMeeting ? `/covers/friendlyMeetings/${event.type}.png` : `${imgSrc}.webp`}`} className={`${isMobile ? 'w100' : ' mih40'} ${maximizeImg ? 'mhvh80' : ' mhvh40'} ${onImageClick ? 'pointer' : ''}  boRadXxs  marAuto cover flexCen zinMax posRel`} alt="" />
 						{/* EVENT TYPE ICON ----------------------------------------------------------------*/}
-						{!maximizeImg && (
-							<event-type class={` flexCol  w100  noPoint aliCen posAbs zinMax botCen  imw35 downEvenMore    `}>
-								<img className=' padHorM  boRadL  w80' src={`/icons/types/${event.type}.png`} alt='' />
+						{!maximizeImg && nowAt !== 'editor' && (
+							<event-type class={` flexCen noPoint aliCen posAbs zinMaXl botCen imw40 botCen downEvenMore `}>
+								<img className=" padHorM boRadL w80" src={`/icons/types/${event.type}.png`} alt="" />
 							</event-type>
 						)}
 					</image-wrapper>

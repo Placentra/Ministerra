@@ -37,6 +37,7 @@ const getStateVariables = () => ({
 	userMetas: new Map(),
 	userBasics: new Map(),
 	best100EveIDs: new Set(),
+	best100EveMetas: new Map(),
 	remEve: new Set(),
 });
 
@@ -113,7 +114,7 @@ async function processNewUsers({ data, state: { userBasics }, userMetasProcessor
 
 // EVENT META PROCESSING -------------------------------------------------------
 // Steps: process event metas into city maps + filtering maps.
-const processEveMetas = (data, { eveMetas, cityMetas, cityPubMetas, cityFiltering, eveCityIDs }, metaType) =>
+const processEveMetas = (data, { eveMetas, cityMetas, cityPubMetas, cityFiltering, eveCityIDs, best100EveIDs, best100EveMetas }, metaType) =>
 	data.forEach(([id, meta]) => {
 		const eventIDString = String(id);
 		if (metaType === 'orp') meta[eveOwnerIdx] = 'orphaned';
@@ -126,6 +127,7 @@ const processEveMetas = (data, { eveMetas, cityMetas, cityPubMetas, cityFilterin
 		getMap(priv === 'pub' ? cityPubMetas : cityMetas, cityIDString).set(eventIDString, metaBuffer);
 		getMap(cityFiltering, cityIDString).set(eventIDString, metaType === 'orp' ? `${priv}:orphaned` : `${priv}:${owner}`);
 		eveMetas.set(eventIDString, metaBuffer);
+		if (best100EveIDs.has(id)) best100EveMetas.set(eventIDString, metaBuffer);
 		if (metaType === 'new') eveCityIDs.set(eventIDString, Number(cityID));
 	});
 
@@ -247,14 +249,47 @@ async function processUserMetas({ data, is, newAttenMap, privUse, state, pipe, r
 
 			// Finalize user meta and distribute to cities
 			if (is !== 'rem' && attend.length) {
-				if (missed.size)
+				const missingData = { cities: new Set(), privs: new Map() };
+
+				// Pass 1: Identify missing CityIDs
+				attend.forEach(([eveID]) => !eveCityIDs.get(String(eveID)) && missingData.cities.add(String(eveID)));
+
+				if (missingData.cities.size) {
 					try {
-						const missedArr = [...missed];
-						const results = await redisClient.hmget(REDIS_KEYS.eveCityIDs, ...missedArr.map(String));
-						results.forEach((c, i) => c && eveCityIDs.set(String(missedArr[i]), Number(c)));
+						const missedArr = [...missingData.cities];
+						const results = await redisClient.hmget(REDIS_KEYS.eveCityIDs, ...missedArr);
+						results.forEach((c, i) => c && eveCityIDs.set(missedArr[i], Number(c)));
 					} catch (e) {
 						logger.error('contentHelpers.fetch_city_ids_failed', { error: e });
 					}
+				}
+
+				// Pass 2: Identify missing Privacy Info (needed for "ind" routing)
+				attend.forEach(([eveID]) => {
+					const sEveID = String(eveID);
+					const cityID = String(eveCityIDs.get(sEveID));
+					if (cityID && !cityFiltering.get(cityID)?.has(sEveID)) {
+						getArr(missingData.privs, cityID).push(sEveID);
+					}
+				});
+
+				if (missingData.privs.size) {
+					try {
+						const pipeline = redisClient.pipeline();
+						const cityIDs = [...missingData.privs.keys()];
+						cityIDs.forEach(cityID => pipeline.hmget(`${REDIS_KEYS.cityFiltering}:${cityID}`, ...missingData.privs.get(cityID)));
+						const results = await pipeline.exec();
+						results.forEach(([err, privs], idx) => {
+							if (!err && privs) {
+								const cityID = cityIDs[idx];
+								const eveIDs = missingData.privs.get(cityID);
+								privs.forEach((priv, i) => priv && getMap(cityFiltering, cityID).set(eveIDs[i], priv));
+							}
+						});
+					} catch (e) {
+						logger.error('contentHelpers.fetch_event_privs_failed', { error: e });
+					}
+				}
 
 				const filtered = new Map(),
 					newPriv = privUse?.get(id);
@@ -277,17 +312,27 @@ async function processUserMetas({ data, is, newAttenMap, privUse, state, pipe, r
 
 				// Store filtered metas per city
 				filtered.forEach((cityAtten, cityID) => {
+					const cityIDString = String(cityID);
+					const cityFilterMap = cityFiltering.get(cityIDString);
+
+					// CHECK EVENT PRIVACY: Force "ind" if attending ANY private event
+					// This ensures the Read Layer inspects this user and filters out the private event ID
+					// for viewers who don't have access.
+					const hasPrivateEvent = cityAtten.some(([eveID]) => {
+						const privStr = cityFilterMap?.get(String(eveID));
+						return privStr && !privStr.startsWith('pub');
+					});
+
 					const uniquePrivs = [...new Set(cityAtten.filter(([, , p]) => p && p !== 'pub').map(([, , p]) => p))];
 					const finalPriv =
-						userPrivValue === 'ind' && cityAtten && uniquePrivs.length
-							? uniquePrivs.length === 1
+						hasPrivateEvent || (userPrivValue === 'ind' && cityAtten && uniquePrivs.length)
+							? uniquePrivs.length === 1 && !hasPrivateEvent // Only optimize to single-priv if NO private events
 								? uniquePrivs[0]
-								: `ind:${uniquePrivs.join(',')}`
+								: `ind:${uniquePrivs.join(',')}` // Force ind path
 							: userPrivValue === 'ind'
 							? 'pub'
 							: userPrivValue;
 
-					const cityIDString = String(cityID);
 					getMap(finalPriv === 'pub' ? cityPubMetas : cityMetas, cityIDString).set(userIDString, encode(meta.concat([cityAtten ?? []])));
 					getMap(cityFiltering, cityIDString).set(userIDString, String(finalPriv));
 				});
@@ -316,12 +361,9 @@ async function processUserMetas({ data, is, newAttenMap, privUse, state, pipe, r
 
 // PIPELINE FILLING ----------------------------------------------------------
 // Steps: flatten accumulated state maps into Redis hset/zadd operations; caller controls pipeline lifetime and exec timing.
-function loadMetaPipes({ eveMetas, eveCityIDs, userMetas, friendlyEveScoredUserIDs, cityMetas, cityPubMetas, cityFiltering, best100EveIDs }, metasPipe, attenPipe, mode) {
-	if (mode === 'serverStart' && best100EveIDs.size) {
-		const bestEntries = [...best100EveIDs]
-			.map(id => [String(id), eveMetas.get(String(id))])
-			.filter(([, m]) => m)
-			.flat();
+function loadMetaPipes({ eveMetas, eveCityIDs, userMetas, friendlyEveScoredUserIDs, cityMetas, cityPubMetas, cityFiltering, best100EveMetas }, metasPipe, attenPipe, mode) {
+	if (mode === 'serverStart' && best100EveMetas.size) {
+		const bestEntries = [...best100EveMetas].flat();
 		if (bestEntries.length) metasPipe.hset(REDIS_KEYS.topEvents, ...bestEntries);
 	}
 	[eveMetas, eveCityIDs, userMetas].forEach((map, k) => map.size && metasPipe.hset([REDIS_KEYS.eveMetas, REDIS_KEYS.eveCityIDs, REDIS_KEYS.userMetas][k], ...[...map].flat()));

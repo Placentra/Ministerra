@@ -62,8 +62,9 @@ async function postMessage({
 		// Steps: append to stream so worker can bulk-write later; if stream fails, fall back to direct SQL insert to preserve UX.
 		try {
 			await redis.xadd('chatMessages', 'MAXLEN', '~', STREAM_MAXLEN, '*', 'payload', encode([messID, chatID, userID, content, attach, dbTimestamp]));
-		} catch {
-			await con.execute(`INSERT INTO messages (id, chat, user, content, attach) VALUES (?, ?, ?, ?, ?)`, [messID, chatID, userID, content, attach]);
+		} catch (e) {
+			logger.error('postMessage.stream_failed', { error: e, chatID, userID });
+			await con.execute(`INSERT INTO messages (id, chat, user, content, attach, created) VALUES (?, ?, ?, ?, ?, NOW())`, [messID, chatID, userID, content, attach]);
 		}
 
 		let didJoinRoom: boolean | undefined, messages: any, members: any;
@@ -128,7 +129,7 @@ async function editMessage({ chatID, message: { content = null, attach = null, i
 	params.push(id, chatID, userID);
 	// SQL UPDATE --------------------------------------------------------------
 	// Steps: enforce author ownership and recency window so old messages can’t be rewritten later.
-	const [result]: [any, any] = await con.execute(`UPDATE messages SET ${updates.join(', ')} WHERE id = ? AND chat = ? AND user = ? AND created > NOW() - INTERVAL 15 MINUTE`, params);
+	const [result]: [any, any] = await con.execute(`UPDATE messages SET ${updates.join(', ')} WHERE id = ? AND chat = ? AND user = ? AND flag != 'del' AND created > NOW() - INTERVAL 15 MINUTE`, params);
 
 	if (!result.affectedRows) throw new Error('badRequest');
 	// BROADCAST PATCH --------------------------------------------------------

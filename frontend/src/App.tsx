@@ -162,6 +162,13 @@ const decodeResponseData = (data, contentType = '') => {
 		return data;
 	} catch (error) {
 		console.warn('Data decoding fallback triggered:', error);
+		// BINARY SIZE GUARD ---
+		// Steps: reject large binary payloads before attempting TextDecoder to avoid main-thread freeze on corrupted/binary data.
+		const MAX_FALLBACK_SIZE = 100000;
+		if (data?.byteLength > MAX_FALLBACK_SIZE) {
+			console.error('Data too large for fallback decoding, returning null');
+			return null;
+		}
 		// Fallback strategies
 		try {
 			return decode(new Uint8Array(data as any));
@@ -213,19 +220,16 @@ function App() {
 
 					// REQUEST THROTTLING ---
 					const urlKey = `${(request.method || 'get').toLowerCase()}:${request.url}`,
-						signature = JSON.stringify({ data: request.data ?? null, params: request.params ?? null });
+						signature = JSON.stringify({ data: { ...request.data, useAuthToken: undefined } ?? null, params: request.params ?? null });
 					let sigSet = throttleMap.get(urlKey);
 					if (!sigSet) (sigSet = new Set()), throttleMap.set(urlKey, sigSet);
 					if (sigSet.has(signature)) return Promise.reject(new Error('Request throttled'));
-					sigSet.add(signature),
-						(request.__throttle = { urlKey, signature }),
-						setTimeout(() => {
-							const setForKey = throttleMap.get(urlKey);
-							if (setForKey) {
-								setForKey.delete(signature);
-								if (setForKey.size === 0) throttleMap.delete(urlKey);
-							}
-						}, 2000);
+					sigSet.add(signature), (request.__throttle = { urlKey, signature });
+
+					// SAFETY VALVE ---
+					// Steps: clear throttle after a long timeout (10s) in case request hangs without completing.
+					setTimeout(() => clearThrottle(request), 10000);
+
 					(request.__requestStart = Date.now()), window.dispatchEvent(new CustomEvent('requestActivity', { detail: { type: 'start', source: 'axios' } }));
 
 					console.log('🟢 REQUEST TO:', request.url, request.data);

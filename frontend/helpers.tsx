@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { EVENT_META_INDEXES, USER_META_INDEXES, USER_BASI_KEYS } from '../shared/constants';
-const eveBasiKeys = 'location,city,ends,imgVers,place,title,shortDesc,basiVers,hashID';
-const eveDetailsKeys = 'meetHow,meetWhen,organizer,contacts,links,detail,fee,takeWith,detaVers';
+import { EVENT_META_INDEXES, USER_META_INDEXES, USER_BASI_KEYS, EVENT_BASICS_KEYS, EVENT_DETAILS_KEYS } from '../shared/constants';
+const eveBasiKeys = [...EVENT_BASICS_KEYS, 'city', 'basiVers'];
+const eveDetailsKeys = [...EVENT_DETAILS_KEYS, 'detaVers'];
 import { getDistance } from './src/utils/locationUtils';
 import { disconnectSocketIO } from './src/hooks/useSocketIO';
 
@@ -33,8 +33,7 @@ function decodeGeohashToLatitudeLongitude(geohashString) {
 	return { lat: (latitudeRange[0] + latitudeRange[1]) / 2, lon: (longitudeRange[0] + longitudeRange[1]) / 2 };
 }
 
-const { evePrivIdx, eveOwnerIdx, eveCityIDIdx, eveTypeIdx, eveStartsIdx, eveGeohashIdx, eveSurelyIdx, eveMaybeIdx, eveCommentsIdx, eveScoreIdx, eveBasiVersIdx, eveDetailsVersIdx } =
-	EVENT_META_INDEXES;
+const { evePrivIdx, eveOwnerIdx, eveCityIDIdx, eveTypeIdx, eveStartsIdx, eveGeohashIdx, eveSurelyIdx, eveMaybeIdx, eveCommentsIdx, eveScoreIdx, eveBasiVersIdx, eveDetailsVersIdx } = EVENT_META_INDEXES;
 const { userPrivIdx, userAgeIdx, userGenderIdx, userIndisIdx, userBasicsIdx, userTraitsIdx, userScoreIdx, userImgVersIdx, userBasiVersIdx, userAttendIdx } = USER_META_INDEXES;
 // TODO implement ends of events into metas (big task)
 
@@ -91,18 +90,19 @@ export async function logoutAndCleanUp(brain, emptyBrain, logOut = false) {
 	try {
 		// DISCONNECT AND CLEAR SESSION ---
 		disconnectSocketIO();
-		sessionStorage.removeItem('authToken');
-		sessionStorage.removeItem('introEmail');
-		sessionStorage.removeItem('registrationData');
+		sessionStorage.clear();
+		localStorage.clear();
 		clearPDK();
 
 		// PRUNE STORAGE AND WORKERS ---
-		// PDK and DEK are cleared from workers and IndexedDB; user-bound data pruned.
-		await Promise.all([forage({ mode: 'del', what: 'token' }), forage({ mode: 'del', what: 'user' }), clearPDKFromWorker(), clearDEKFromWorker()]);
+		// PDK and DEK are cleared from workers and IndexedDB; full device wipe initiated.
+		await forage({ mode: 'del', what: 'everything' });
 
 		// RESET BRAIN ---
-		Object.keys(brain).forEach(key => delete brain[key]);
-		Object.assign(brain, emptyBrain);
+		if (brain) {
+			Object.keys(brain).forEach(key => delete brain[key]);
+			Object.assign(brain, emptyBrain);
+		}
 		if (logOut) window.location.href = '/entrance';
 	} catch (error) {
 		console.error('Error during brain cleanup:', error);
@@ -119,7 +119,7 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 		const timeFramesObj = (getTimeFrames as any)();
 		const setMeetStats = (cityID, type) => ((brain.meetStats[cityID] ??= {}), (brain.meetStats[cityID][type] ??= { events: 0, people: 0 }));
 		const thisCity = eveMetas.cityID || userMetas.cityID;
-		delete eveMetas.cityID, delete userMetas.cityID;
+		(delete eveMetas.cityID, delete userMetas.cityID);
 
 		const [userIDs, eventIDs] = [new Set(Object.keys(userMetas).filter(id => !brain.users[id])), new Set(Object.keys(eveMetas).filter(id => !brain.events[id]))];
 		const bestOfIDsSet = brain.homeView === 'topEvents' ? new Set(brain.bestOfIDs) : null;
@@ -130,20 +130,7 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 
 		// EVENT METAS PROCESSING ---------------------------------------------------------------------------
 		for (const [id, meta] of Object.entries(eveMetas)) {
-			const [priv, owner, cityID, type, starts, geohash, surely, maybe, comments, score, basiVers, detaVers] = [
-				meta[evePrivIdx],
-				meta[eveOwnerIdx],
-				meta[eveCityIDIdx],
-				meta[eveTypeIdx],
-				meta[eveStartsIdx],
-				meta[eveGeohashIdx],
-				meta[eveSurelyIdx] || 0,
-				meta[eveMaybeIdx] || 0,
-				meta[eveCommentsIdx] || 0,
-				meta[eveScoreIdx] || 0,
-				meta[eveBasiVersIdx],
-				meta[eveDetailsVersIdx],
-			];
+			const [priv, owner, cityID, type, starts, geohash, surely, maybe, comments, score, basiVers, detaVers] = [meta[evePrivIdx], meta[eveOwnerIdx], meta[eveCityIDIdx], meta[eveTypeIdx], meta[eveStartsIdx], meta[eveGeohashIdx], meta[eveSurelyIdx] || 0, meta[eveMaybeIdx] || 0, meta[eveCommentsIdx] || 0, meta[eveScoreIdx] || 0, meta[eveBasiVersIdx], meta[eveDetailsVersIdx]];
 			const convStarts = parseInt(starts, 36);
 
 			// POPULATE BEST-OF-IDS OR AVAIL TIMEFRAMES -----------------------------------------------
@@ -185,26 +172,15 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 
 			// MERGE WITH EXISTING EVENT OR CREATE NEW ---------------------------------------------------------------------
 			if (event) {
-				if (detaVers != (event.detaVers || detaVers)) delProps(event, eveDetailsKeys), (event.state = 'basi'), delete event.detaVers;
-				if (basiVers != (event.basiVers || basiVers)) delProps(event, eveBasiKeys), (event.state = event.state === 'basiDeta' ? 'Deta' : 'meta'), delete event.basiVers;
+				if (detaVers != (event.detaVers || detaVers)) (delProps(event, eveDetailsKeys), (event.state = 'basi'), delete event.detaVers);
+				if (basiVers != (event.basiVers || basiVers)) (delProps(event, eveBasiKeys), (event.state = event.state === 'basiDeta' ? 'Deta' : 'meta'), delete event.basiVers);
 				Object.assign(event, eventObj);
 			} else brain.events[id] = eventObj;
 		}
 
 		// USER METAS PROCESSING -------------------------------------------------------------------------
 		for (const [id, meta] of Object.entries(userMetas)) {
-			const [priv, age, gender, indis, basics, traits, score, imgVers, basiVers, attend] = [
-				meta[userPrivIdx],
-				meta[userAgeIdx],
-				meta[userGenderIdx],
-				meta[userIndisIdx] || '',
-				meta[userBasicsIdx] || '',
-				meta[userTraitsIdx] || '',
-				meta[userScoreIdx],
-				meta[userImgVersIdx],
-				meta[userBasiVersIdx],
-				meta[userAttendIdx] || [],
-			];
+			const [priv, age, gender, indis, basics, traits, score, imgVers, basiVers, attend] = [meta[userPrivIdx], meta[userAgeIdx], meta[userGenderIdx], meta[userIndisIdx] || '', meta[userBasicsIdx] || '', meta[userTraitsIdx] || '', meta[userScoreIdx], meta[userImgVersIdx], meta[userBasiVersIdx], meta[userAttendIdx] || []];
 			if (id == brain.user.id) continue;
 
 			// CREATE USER OBJECT ----------------------------------------------------------------
@@ -238,7 +214,7 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 
 			// MERGE WITH EXISTING USER OR CREATE NEW ---------------------------------------------------------------------
 			if (user) {
-				if (basiVers != (user.basiVers || basiVers)) delProps(user, USER_BASI_KEYS), (user.state = 'meta'), delete user.basiVers;
+				if (basiVers != (user.basiVers || basiVers)) (delProps(user, USER_BASI_KEYS), (user.state = 'meta'), delete user.basiVers);
 				Object.assign(user, userObj);
 			} else brain.users[id] = userObj;
 		}
@@ -257,7 +233,7 @@ export async function processMetas({ eveMetas = {}, userMetas = {}, brain, contS
 export function updateInteractions({ brain, add, del }: { brain: any; add?: any; del?: any }) {
 	const [targetObj, now] = [brain.user.unstableObj || brain.user, Date.now()];
 	const keys = ['eveInters', 'rateEve', 'rateComm', 'rateUsers', 'linkUsers', 'openEve'];
-	keys.forEach(key => (targetObj[key] ??= [])), brain.user.unstableObj && ['events', 'users'].forEach(key => (brain.user.unstableObj.gotSQL[key] ??= []));
+	(keys.forEach(key => (targetObj[key] ??= [])), brain.user.unstableObj && ['events', 'users'].forEach(key => (brain.user.unstableObj.gotSQL[key] ??= [])));
 
 	//  UPDATE OR ADD INTERACTIONS --------------------------------------------------
 	function updaOrAdd(key, targetArr) {
@@ -311,28 +287,29 @@ export function updateInteractions({ brain, add, del }: { brain: any; add?: any;
 // Uses only highly stable signals that rarely change. Avoids: userAgent (browser updates), screen dimensions (external monitors),
 // devicePixelRatio (display settings), timezoneOffset (DST changes twice/year).
 export function getDeviceFingerprint() {
-	const nav = navigator as any, screen = window.screen;
+	const nav = navigator as any,
+		screen = window.screen;
 	const data = [
-		// HARDWARE SIGNALS 
-		nav.hardwareConcurrency || 4,             // CPU cores
-		nav.deviceMemory || 8,                    // RAM in GB (Chrome/Edge only, falls back)
-		nav.maxTouchPoints || 0,                  // Touch hardware capability
-		nav.platform || '',                       // OS platform (Win32, MacIntel, Linux x86_64)
+		// HARDWARE SIGNALS
+		nav.hardwareConcurrency || 4, // CPU cores
+		nav.deviceMemory || 8, // RAM in GB (Chrome/Edge only, falls back)
+		nav.maxTouchPoints || 0, // Touch hardware capability
+		nav.platform || '', // OS platform (Win32, MacIntel, Linux x86_64)
 		// DISPLAY SIGNALS
-		screen.colorDepth || 24,                  // Display color depth
+		screen.colorDepth || 24, // Display color depth
 		// LOCALE SIGNALS
-		Intl.DateTimeFormat().resolvedOptions().timeZone || '',  // Timezone name (not offset)
-		nav.language || '',                       // Primary browser language
-		nav.languages?.join(',') || '',           // All preferred languages
-		// BROWSER CAPABILITY SIGNALS 
+		Intl.DateTimeFormat().resolvedOptions().timeZone || '', // Timezone name (not offset)
+		nav.language || '', // Primary browser language
+		nav.languages?.join(',') || '', // All preferred languages
+		// BROWSER CAPABILITY SIGNALS
 		typeof nav.pdfViewerEnabled !== 'undefined' ? nav.pdfViewerEnabled : '', // PDF viewer built-in
-		typeof nav.cookieEnabled !== 'undefined' ? nav.cookieEnabled : '',       // Cookies enabled
-		typeof nav.webdriver !== 'undefined' ? nav.webdriver : '',               // Automation detection
+		typeof nav.cookieEnabled !== 'undefined' ? nav.cookieEnabled : '', // Cookies enabled
+		typeof nav.webdriver !== 'undefined' ? nav.webdriver : '', // Automation detection
 		// AUDIO/VIDEO CAPABILITY (hardware-tied) ---
 		typeof AudioContext !== 'undefined' ? new AudioContext().destination.maxChannelCount : '', // Audio channels
 	].join('|');
 	return hashGenerate(data);
-} 
+}
 
 // PASSWORD-DERIVED KEY (PDK) -----------------------------------------------------------------
 // PBKDF2 with 100k iterations for slow brute-force resistance
@@ -390,26 +367,19 @@ function hashGenerate(ascii) {
 		asciiBitLength = ascii.length * 8;
 	let hash = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
 	const k = [
-		0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-		0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-		0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-		0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+		0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1,
+		0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 	];
 	ascii += '\x80';
 	while ((ascii.length % 64) - 56) ascii += '\x00';
 	for (let i = 0; i < ascii.length; i++) words[i >> 2] |= ascii.charCodeAt(i) << (((3 - i) % 4) * 8);
-	(words[words.length] = (asciiBitLength / maxWord) | 0), (words[words.length] = asciiBitLength);
+	((words[words.length] = (asciiBitLength / maxWord) | 0), (words[words.length] = asciiBitLength));
 	for (let j = 0; j < words.length; ) {
 		const w = words.slice(j, (j += 16)),
 			oldHash = hash.slice(0);
 		for (let i = 0; i < 64; i++) {
 			const [w15, w2, a, e] = [w[i - 15], w[i - 2], hash[0], hash[4]];
-			const temp1 =
-				hash[7] +
-				(rRot(e, 6) ^ rRot(e, 11) ^ rRot(e, 25)) +
-				((e & hash[5]) ^ (~e & hash[6])) +
-				k[i] +
-				(w[i] = i < 16 ? w[i] : (w[i - 16] + (rRot(w15, 7) ^ rRot(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rRot(w2, 17) ^ rRot(w2, 19) ^ (w2 >>> 10))) | 0);
+			const temp1 = hash[7] + (rRot(e, 6) ^ rRot(e, 11) ^ rRot(e, 25)) + ((e & hash[5]) ^ (~e & hash[6])) + k[i] + (w[i] = i < 16 ? w[i] : (w[i - 16] + (rRot(w15, 7) ^ rRot(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rRot(w2, 17) ^ rRot(w2, 19) ^ (w2 >>> 10))) | 0);
 			const temp2 = (rRot(a, 2) ^ rRot(a, 13) ^ rRot(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
 			hash = [(temp1 + temp2) | 0].concat(hash);
 			hash[4] = (hash[4] + temp1) | 0;
@@ -436,7 +406,7 @@ export function splitStrgOrJoinArr(obj, method = 'split') {
 // FETCH OWN PROFILE --------------------------------------------------------------------------
 export async function fetchOwnProfile(brain) {
 	const { data: profile } = await axios.post('user', { mode: 'profile' });
-	Object.assign(brain.user, splitStrgOrJoinArr(profile)), forage({ mode: 'set', what: 'user', val: brain.user });
+	(Object.assign(brain.user, splitStrgOrJoinArr(profile)), forage({ mode: 'set', what: 'user', val: brain.user }));
 }
 
 let forageInited = false;
@@ -461,16 +431,16 @@ function executeWorker(worker, { mode, what, id, val }) {
 
 		const timer = setTimeout(() => (cleanup(), reject(new Error(`Worker timeout: ${mode}:${what}`))), WORKER_TIMEOUT);
 		const handleMessage = ({ data }) => {
-			if (data.reqId === reqId) cleanup(), data.error ? reject(new Error(data.error)) : resolve(data.data);
+			if (data.reqId === reqId) (cleanup(), data.error ? reject(new Error(data.error)) : resolve(data.data));
 		};
 		const handleError = error => (cleanup(), reject(error));
 
 		const cleanup = () => {
-			clearTimeout(timer), worker.removeEventListener('message', handleMessage), worker.removeEventListener('error', handleError);
+			(clearTimeout(timer), worker.removeEventListener('message', handleMessage), worker.removeEventListener('error', handleError));
 			if (!isPersistent) worker.terminate();
 		};
 
-		worker.addEventListener('message', handleMessage), worker.addEventListener('error', handleError), worker.postMessage({ mode, what, id, val, reqId });
+		(worker.addEventListener('message', handleMessage), worker.addEventListener('error', handleError), worker.postMessage({ mode, what, id, val, reqId }));
 	});
 }
 
@@ -485,15 +455,15 @@ export async function forage({ mode, what, id, val }: { mode: string; what?: str
 				const handleInit = ({ data }) => (data.inited ? (cleanup(), resolve(worker)) : data.error && (cleanup(), reject(new Error(data.error))));
 				const handleError = err => (cleanup(), reject(err));
 				const cleanup = () => (worker.removeEventListener('message', handleInit), worker.removeEventListener('error', handleError));
-				worker.addEventListener('message', handleInit), worker.addEventListener('error', handleError), worker.postMessage({ mode: 'init' });
+				(worker.addEventListener('message', handleInit), worker.addEventListener('error', handleError), worker.postMessage({ mode: 'init' }));
 			});
 		};
 
 		if (mode === 'del' && what === 'everything') {
 			const tmp = createWorker();
-			await initWorker(tmp), await executeWorker(tmp, params);
+			(await initWorker(tmp), await executeWorker(tmp, params));
 			Object.keys(encryptionWorkers).forEach(key => (encryptionWorkers[key].terminate(), (encryptionWorkers[key] = createWorker())));
-			return (forageInited = false), true;
+			return ((forageInited = false), true);
 		}
 
 		if (mode === 'clearPDK' || mode === 'clearDEK') return forageInited && (await Promise.all(Object.values(encryptionWorkers).map(worker => executeWorker(worker, params))));
@@ -505,7 +475,7 @@ export async function forage({ mode, what, id, val }: { mode: string; what?: str
 			return await Promise.all(
 				workers.map(w => {
 					const p = { ...params };
-					if (w !== primary && p.val?.prevAuth) (p.val = { ...params.val }), delete p.val.prevAuth;
+					if (w !== primary && p.val?.prevAuth) ((p.val = { ...params.val }), delete p.val.prevAuth);
 					return executeWorker(w, p);
 				})
 			);
@@ -517,13 +487,13 @@ export async function forage({ mode, what, id, val }: { mode: string; what?: str
 			try {
 				return await executeWorker(encryptionWorkers[key], params);
 			} catch (e) {
-				console.warn(`Restarting worker ${key}:`, e.message), encryptionWorkers[key].terminate(), (encryptionWorkers[key] = createWorker());
-				return await initWorker(encryptionWorkers[key]), executeWorker(encryptionWorkers[key], params);
+				(console.warn(`Restarting worker ${key}:`, e.message), encryptionWorkers[key].terminate(), (encryptionWorkers[key] = createWorker()));
+				return (await initWorker(encryptionWorkers[key]), executeWorker(encryptionWorkers[key], params));
 			}
 		}
 
 		const ephemeral = createWorker();
-		return await initWorker(ephemeral), executeWorker(ephemeral, params);
+		return (await initWorker(ephemeral), executeWorker(ephemeral, params));
 	} catch (error) {
 		console.error('FORAGE ERROR', error);
 		throw error;
@@ -539,14 +509,7 @@ export function trim(snap) {
 export function delUndef(obj: any, empStr = false, zeros = false, falses = false): any {
 	const trimmedObj = Object.keys(obj).reduce((acc, key) => {
 		const value = obj[key];
-		if (
-			value instanceof Date ||
-			(value && (Array.isArray(value) ? value.length : typeof value === 'object' ? Object.keys(value).length : value)) ||
-			(empStr && value === '') ||
-			(falses && value === false) ||
-			(zeros && value === 0)
-		)
-			acc[key] = value;
+		if (value instanceof Date || (value && (Array.isArray(value) ? value.length : typeof value === 'object' ? Object.keys(value).length : value)) || (empStr && value === '') || (falses && value === false) || (zeros && value === 0)) acc[key] = value;
 		return acc;
 	}, {});
 	if (Object.keys(trimmedObj).length) return trimmedObj;
@@ -607,9 +570,7 @@ export function getFilteredContent({ what, brain, snap = {}, event = {}, show = 
 			items = [...bestOfIDs].map((id: any) => (brain.events as any)[id]).filter(Boolean);
 		} else if (event.id) {
 			if (brain.user.eveUserIDs?.[event.id]) items = brain.user.eveUserIDs[event.id].map((id: any) => (brain.users as any)[id]);
-			else
-				(items = Object.values(brain.users as any).filter((user: any) => user.eveInters?.some(([eveID]: any[]) => eveID === event.id))),
-					(brain.user.eveUserIDs[event.id] = items.map((user: any) => user.id));
+			else ((items = Object.values(brain.users as any).filter((user: any) => user.eveInters?.some(([eveID]: any[]) => eveID === event.id))), (brain.user.eveUserIDs[event.id] = items.map((user: any) => user.id)));
 		} else {
 			const { start, end } = time !== 'anytime' ? getTimeFrames(time) : {};
 			const selTypesSet = new Set(types.filter(type => !avail || avail.types.includes(type)));
@@ -617,17 +578,7 @@ export function getFilteredContent({ what, brain, snap = {}, event = {}, show = 
 			const allowedStates = new Set(['meta', 'basi', 'basiDeta']);
 
 			// FIND RELEVANT EVENTS ------------------------------------------------------------------
-			items =
-				itemsOnMapSet && !isForMap
-					? [...itemsOnMapSet].map((id: any) => (brain.events as any)[id]).filter(Boolean)
-					: Object.values(brain.events as any).filter(
-							({ cityID, type, starts, id, lat, state }: any) =>
-								curCitiesSet.has(cityID) &&
-								selTypesSet.has(type) &&
-								allowedStates.has(state) &&
-								(time === 'anytime' || (starts >= start && starts < end)) &&
-								(!isForMap ? !itemsOnMapSet || itemsOnMapSet.has(id) : lat)
-					  );
+			items = itemsOnMapSet && !isForMap ? [...itemsOnMapSet].map((id: any) => (brain.events as any)[id]).filter(Boolean) : Object.values(brain.events as any).filter(({ cityID, type, starts, id, lat, state }: any) => curCitiesSet.has(cityID) && selTypesSet.has(type) && allowedStates.has(state) && (time === 'anytime' || (starts >= start && starts < end)) && (!isForMap ? !itemsOnMapSet || itemsOnMapSet.has(id) : lat));
 
 			if ((show.sherlock && what === 'sherAvail') || (!isForMap && what === 'content' && contView === 'users')) {
 				const relevantEventIds = new Set(items.filter(e => e?.type.startsWith('a')).map(e => e.id));
@@ -710,7 +661,7 @@ export function getFilteredContent({ what, brain, snap = {}, event = {}, show = 
 // GET AWARDS ---------------------------------------------------------------------------
 export const getAwards = sum => {
 	const res = [];
-	for (const p of [32, 16, 8, 4, 2, 1]) if (sum >= p) res.push(p), (sum -= p);
+	for (const p of [32, 16, 8, 4, 2, 1]) if (sum >= p) (res.push(p), (sum -= p));
 	return res.sort();
 };
 
@@ -755,13 +706,13 @@ export function extractInteractions(items, mode, brain, _unused = undefined) {
 			if (inter) {
 				if (interactions.eveInters[inter]) interactions.eveInters[inter].push([id, inter, interPriv]);
 				else if (inter === 'del')
-					delete item.inter,
+					(delete item.inter,
 						Object.values(unstableObj.eveInters as any).forEach((interactionsArray: any[]) =>
 							interactionsArray.splice(
 								interactionsArray.findIndex((interactionRow: any[]) => interactionRow[0] === id),
 								1
 							)
-						);
+						));
 			}
 			gotSQLset.add(id);
 		}
@@ -805,7 +756,7 @@ export function setPropsToContent(mode, items, brain, isNewCont = false) {
 			} else if (mode === 'events') {
 				[inter, priv] = intersMap.get(id) || [];
 				if (isNewCont)
-					(badges = eventBadges[id]),
+					((badges = eventBadges[id]),
 						badges &&
 							surely > 1 &&
 							(badges = Object.fromEntries(
@@ -817,7 +768,7 @@ export function setPropsToContent(mode, items, brain, isNewCont = false) {
 								])
 							)),
 						badges && !Object.values(badges as any).some((badgeArray: any) => badgeArray?.length) && (badges = null),
-						true;
+						true);
 			}
 
 			// compute user distance using nearest attending event's distance
@@ -898,9 +849,7 @@ export function humanizeDateTime(inp) {
 			'-30': 'minulý měsíc',
 			'-31': 'stará',
 		};
-		let label =
-			labels[daysDiff] ||
-			(daysDiff > -7 && daysDiff < 0 ? 'minulý týden' : daysDiff > 0 && daysDiff < 7 ? 'v týdnu' : daysDiff > -30 && daysDiff <= -7 ? 'minulý měsíc' : daysDiff <= -30 ? 'stará' : '');
+		let label = labels[daysDiff] || (daysDiff > -7 && daysDiff < 0 ? 'minulý týden' : daysDiff > 0 && daysDiff < 7 ? 'v týdnu' : daysDiff > -30 && daysDiff <= -7 ? 'minulý měsíc' : daysDiff <= -30 ? 'stará' : '');
 
 		if (getLabel) return label;
 		if (getGranularPast) {
@@ -917,23 +866,11 @@ export function humanizeDateTime(inp) {
 		const [day, month, year] = [date.getDate(), date.getMonth() + 1, date.getFullYear()];
 		const showWeekDay = daysDiff <= 60 && daysDiff >= 3;
 
-		let datePart = isToday
-			? 'Dnes'
-			: daysDiff === 1
-			? 'Zítra'
-			: daysDiff === 2
-			? 'Pozítří'
-			: daysDiff === -1
-			? 'Včera'
-			: showWeekDay
-			? `${weekDays[date.getDay()].slice(0, daysDiff <= 6 ? undefined : 2)} ${daysDiff <= 6 ? '' : `${day}.${month}${year === currentDate.getFullYear() ? '' : `.${year}`}`}`
-			: `${day}.${month}${year === currentDate.getFullYear() ? '' : `.${year}`}`;
+		let datePart = isToday ? 'Dnes' : daysDiff === 1 ? 'Zítra' : daysDiff === 2 ? 'Pozítří' : daysDiff === -1 ? 'Včera' : showWeekDay ? `${weekDays[date.getDay()].slice(0, daysDiff <= 6 ? undefined : 2)} ${daysDiff <= 6 ? '' : `${day}.${month}${year === currentDate.getFullYear() ? '' : `.${year}`}`}` : `${day}.${month}${year === currentDate.getFullYear() ? '' : `.${year}`}`;
 
 		const dateString = `${datePart}${hideFarTime && daysDiff > 90 ? '' : ` v ${time}`}`;
-		if (thumbRow === 'upper')
-			return daysDiff <= 7 ? weekDays[date.getDay()].slice(0, 2) : year === currentDate.getFullYear() ? (showWeekDay ? datePart.split(' ')[1] : datePart) : `${day}.${month}`;
-		if (thumbRow === 'bottom')
-			return daysDiff <= 7 ? time : year === currentDate.getFullYear() ? `${daysDiff <= 60 ? `${weekDays[date.getDay()].slice(0, 2)} ${time}` : weekDays[date.getDay()]}` : year.toString();
+		if (thumbRow === 'upper') return daysDiff <= 7 ? weekDays[date.getDay()].slice(0, 2) : year === currentDate.getFullYear() ? (showWeekDay ? datePart.split(' ')[1] : datePart) : `${day}.${month}`;
+		if (thumbRow === 'bottom') return daysDiff <= 7 ? time : year === currentDate.getFullYear() ? `${daysDiff <= 60 ? `${weekDays[date.getDay()].slice(0, 2)} ${time}` : weekDays[date.getDay()]}` : year.toString();
 
 		return dateString;
 	} catch (err) {

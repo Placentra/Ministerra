@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { useEffect, useLayoutEffect, useState, useRef } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { forage, areEqual, getEventRank } from '../../helpers';
 import useCentralFlex from '../hooks/useCentralFlex';
@@ -15,34 +15,38 @@ import { notifyGlobalError } from '../hooks/useErrorsMan';
  * keeps brain cache + forage storage in sync while animating choices.
  * --------------------------------------------------------------------------- */
 function RateAwards(props) {
-	const { obj, thisIs, brain: propsBrain, nowAt: propsNowAt, status, modes, setStatus, setModes } = props, // isCardOrStrip removed - unused ---------------------------
+	const { obj, thisIs, brain: propsBrain, nowAt: propsNowAt, status, modes, setStatus, setModes, goBack, resetTimer } = props, // isCardOrStrip removed - unused ---------------------------
 		{ brain = propsBrain, nowAt = propsNowAt } = useOutletContext() || {},
-		[fade, setFade] = useState(false),
 		[blinkAwards, setBlinkAwards] = useState(true),
 		[marks, powersOfTwo] = [{ event: [-4, 1, 3, 5], user: [1, 5], comment: [-2, 1, 3, 5] }, [1, 2, 4, 8, 16, 32]],
-		awardsSrc = ratingSrc[thisIs === 'event' && obj.type.startsWith('a') ? 'meeting' : thisIs].awards.en.slice(
-			0,
-			['comment', 'event'].includes(thisIs) ? undefined : obj.exps?.length > 0 ? 4 : 3
-		),
+		awardsSrc = ratingSrc[thisIs === 'event' && obj.type.startsWith('a') ? 'meeting' : thisIs].awards.en.slice(0, ['comment', 'event'].includes(thisIs) ? undefined : obj.exps?.length > 0 ? 4 : 3),
 		bWidth = useCentralFlex('awards', [modes, status], nowAt, awardsSrc.length),
-		hideTimeout = useRef(),
 		{ mark, awards = [] } = status;
+
+	const showAwards = thisIs === 'event' || modes.awards;
+
+	useEffect(() => {
+		if (modes.autoSelectRating && !mark) {
+			const goodMark = marks[thisIs][1]; // Assuming 'dobrý' is at index 1
+			man('mark', goodMark);
+			setModes(prev => {
+				const { autoSelectRating, ...rest } = prev;
+				return rest;
+			});
+		}
+	}, [modes.autoSelectRating]);
 
 	// RATING DONE CALL ---------------------------
 	useEffect(() => {
-		if (!fade) setFade(true);
 		if (blinkAwards) setTimeout(() => setBlinkAwards(false), status.awards?.length ? 100 : nowAt === 'event' ? 2000 : 1000);
 	}, [status.mark, status.awards]);
 
 	useLayoutEffect(() => {
-		if (!fade) setTimeout(() => setFade(true), 100);
 		setTimeout(() => setBlinkAwards(false), 1000);
-		clearTimeout(hideTimeout.current);
-		hideTimeout.current = setTimeout(() => setModes(prev => ({ ...prev, awards: false })), 5000);
 	}, [modes.menu, modes.actions, modes.awards]);
 
 	async function man(inp, val) {
-		clearTimeout(hideTimeout.current), (hideTimeout.current = setTimeout(() => setModes(prev => ({ ...prev, awards: false })), 5000));
+		if ((modes.awards || thisIs === 'event') && resetTimer) resetTimer();
 		clearTimeout(brain.rateInProg[obj.id]?.timeout);
 		let scoreFromUser, newAwards, awardsCode, newRating;
 		const label = { event: 'rateEve', user: 'rateUsers', comment: 'rateComm' }[thisIs];
@@ -58,7 +62,7 @@ function RateAwards(props) {
 		scoreFromUser = calculate(obj.mark, obj.awards || []);
 		if (inp === 'award') {
 			newAwards = (awards.includes(val) ? awards.filter(award => award !== val) : [...awards, val]).sort();
-			(awardsCode = calculate(mark, newAwards, true)), (newRating = (calculate(mark, newAwards) || 0) - scoreFromUser);
+			((awardsCode = calculate(mark, newAwards, true)), (newRating = (calculate(mark, newAwards) || 0) - scoreFromUser));
 		} else newRating = (val ? calculate(val, awards) : 0) - scoreFromUser;
 		const newStatus = { ...status, score: Math.max(obj.score + newRating, 0), ...(inp === 'mark' ? { mark: val, awards: !val ? [] : awards } : { awards: newAwards }) };
 		try {
@@ -100,13 +104,13 @@ function RateAwards(props) {
 			}
 		} catch (err) {
 			notifyGlobalError(err, 'Hodnocení se nepodařilo uložit.');
-			Object.assign(brain, { rateInProg: {} }), setStatus(prev => ({ ...prev, mark: obj.mark || 0, awards: obj.awards || [] }));
+			(Object.assign(brain, { rateInProg: {} }), setStatus(prev => ({ ...prev, mark: obj.mark || 0, awards: obj.awards || [] })));
 		}
 	}
 
 	return (
-		<rate-awards class={`fadingIn ${!fade ? '' : 'fadedIn'}   ${blinkAwards ? 'bsContentGlow' : ''} block w100 marAuto      textAli  posRel `}>
-			<rating-bs class='flexCen aliStretch gapXxxs   w100'>
+		<rate-awards class={`    ${blinkAwards ? 'bsContentGlow' : ''} block w100 marAuto      textAli  posRel `}>
+			<rating-bs class="flexCen aliStretch gapXxxs   w100  overHidden">
 				{ratingSrc[thisIs === 'event' && obj.type.startsWith('a') ? 'meeting' : thisIs].rating.map((button, i) => {
 					const isSelected = status.mark === marks[thisIs][i];
 					return (
@@ -115,38 +119,36 @@ function RateAwards(props) {
 							key={button}
 							onClick={() => {
 								const buttMark = marks[thisIs][i];
-								if (!mark) setModes(prev => ({ ...prev, awards: true })), man('mark', buttMark), nowAt === 'event' && setTimeout(() => setBlinkAwards(false), 2000);
-								else if (buttMark === mark) modes.awards && man('mark', 0), setModes(prev => ({ ...prev, awards: !prev.awards }));
-								else man('mark', buttMark), setModes(prev => ({ ...prev, awards: true }));
+								if (!mark) (man('mark', buttMark), nowAt === 'event' && setTimeout(() => setBlinkAwards(false), 2000));
+								else if (buttMark === mark) {
+									man('mark', 0);
+									if (thisIs === 'event' && goBack) goBack();
+								} else man('mark', buttMark);
 							}}
-							className={`${!isSelected ? ` boldM textSha  ${nowAt === 'event' ? 'fs14' : 'fs14'}` : `xBold ${nowAt === 'event' ? 'fs18' : 'fs18'} borRedSel tDarkBlue `}   ${
-								nowAt === 'event' ? 'padVerXs ' : 'padVerXs'
-							} textSha posRel      zin10 w25 bHover   noBackground flexCol aliCen`}>
-							{isSelected && <blue-divider class='hr0-5  zin1 block posAbs botCen w80 bInsetBlueTopXl borTop bgTrans w40 marAuto' />}
-							<button-texture style={{ filter: 'brightness(1.5)' }} class='noPoint padAllXxxs posAbs botCen zin1 w100 h100 bInsetBlueBotXs opacityM hr2' />
+							className={`${!isSelected && mark ? ` bold textSha  ${nowAt === 'event' ? 'fs16' : 'fs10'}` : `xBold ${nowAt === 'event' ? 'fs16' : 'fs16'}  tDarkBlue `}   ${nowAt === 'event' ? 'padVerXs ' : 'padVerXs'} textSha posRel       w25 bHover   noBackground flexCol aliCen`}>
+							<button-texture style={{ filter: 'brightness(1.5)' }} class="noPoint padAllXxxs posAbs botCen zin1 w100 h100 bInsetBlueBotXs opacityM hr2" />
 							{button}
 						</button>
 					);
 				})}
 			</rating-bs>
 
-			{modes.awards && (
-				<awards-bs class={`fadingIn ${fade ? 'fadedIn' : ''} bInsetBlueTopXs flexCen posRel marBotXxxs  zin1 aliStretch  wrap w100`}>
+			{showAwards && (
+				<awards-bs class={`bInsetBlueTopXs flexCen posRel marBotXxxs   aliStretch  wrap w100`}>
 					{awardsSrc.map((primB, i) => {
 						return (
 							<button
 								key={primB}
 								style={{ width: '100%', maxWidth: `${bWidth - 1}px` }}
-								onClick={() => (awards.length < (thisIs === 'event' ? 4 : 3) || awards.includes(powersOfTwo[i])) && man('award', powersOfTwo[i])}
-								className={`${awards.includes(powersOfTwo[i]) ? 'borRed boRadS' : 'allOff'}   ${
-									nowAt !== 'event' ? 'padBotXs padTopXl' : 'padTopXl '
-								}   posRel hvw18 mh12 bHover grow `}>
-								<img src='/icons/placeholdergood.png' className={`posAbs topCen maskLow h80 grow w100`} alt='' />
-								{/* <img src='/icons/placeholdergood.png' className='blueGlass marBotXxxs zinMax mw6 w25 miw4' alt='' /> */}
-								<span className=' fs10 tDarkBlue xBold zinMax   lh0-8 '>{ratingSrc[thisIs === 'event' && obj.type.startsWith('a') ? 'meeting' : thisIs].awards.cz[i]}</span>
-								{(!status.embeded || thisIs !== 'event') && (
-									<span className='fs6  mw30 zinMax   lh1'>{ratingSrc[thisIs === 'event' && obj.type.startsWith('a') ? 'meeting' : thisIs].awardsTexts[i]}</span>
-								)}
+								onClick={() => {
+									if (resetTimer) resetTimer();
+									(awards.length < (thisIs === 'event' ? 4 : 3) || awards.includes(powersOfTwo[i])) && man('award', powersOfTwo[i]);
+								}}
+								className={`${awards.includes(powersOfTwo[i]) ? 'boRadS borRed' : ''}   ${nowAt !== 'event' ? 'padBotXs padTopL' : 'padTopXl '}   posRel hvw18 mh12 bHover grow `}>
+								<img src="/icons/placeholdergood.png" className={`posAbs topCen maskLow h80 grow w100`} alt="" />
+								<img src="/icons/placeholdergood.png" className="blueGlass marBotXxxs zinMax mw6 w25 miw4" alt="" />
+								<span className=" fs8 tDarkBlue boldM zinMax   lh0-8 ">{ratingSrc[thisIs === 'event' && obj.type.startsWith('a') ? 'meeting' : thisIs].awards.cz[i]}</span>
+								<span className="fs6  mw30 zinMax   lh1">{ratingSrc[thisIs === 'event' && obj.type.startsWith('a') ? 'meeting' : thisIs].awardsTexts[i]}</span>
 							</button>
 						);
 					})}

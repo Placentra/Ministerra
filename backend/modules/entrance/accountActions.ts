@@ -11,6 +11,7 @@ import { getStateVariables, processOrpEveMetas, loadMetaPipes, clearState } from
 import { getLogger } from '../../systems/handlers/loggers.ts';
 
 import { Redis } from 'ioredis';
+import { REDIS_KEYS } from '../../../shared/constants.ts';
 
 const logger = getLogger('Entrance:AccountActions');
 
@@ -46,7 +47,7 @@ async function delFreezeUser({ pass, userID, mode, is }: DelFreezeUserProps, con
 	// Steps: apply flag change + owner rewrite in one transaction, revoke sessions, then commit; redis/meta rebuild happens after commit (best-effort).
 	try {
 		await con.beginTransaction();
-		await con.execute(/*sql*/ `UPDATE users SET flag = ${is === 'deleteUser' ? "'del'" : "'fro'"} WHERE id = ?`, [userID]);
+		await con.execute(/*sql*/ `UPDATE users SET flag = ${is === 'deleteUser' ? "'del'" : "'fro'"}, nextTask = "flagChanges" WHERE id = ?`, [userID]);
 		await con.execute(/*sql*/ `UPDATE events SET owner = ? WHERE owner = ?`, [`orp_${userID}`, userID]);
 		// LOGOUT USER FROM ALL DEVICES WITHIN TRANSACTION ---
 		await logoutUserDevices({ userID, excludeCurrentDevice: false, reason: is === 'deleteUser' ? 'accountDeleted' : 'accountFrozen', con });

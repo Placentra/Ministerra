@@ -95,7 +95,7 @@ function ChatStrip(props) {
 				<texts-wrapper class='h100 flexCol padTopXs padBotXxs marLefXs justCen'>
 					{/* USER NAME OR GROUP CHAT TITLE + MEMBER COUNT-------------------------- */}
 					<first-row class='w100 flexInline wrap'>
-						<span className='fs14 boldM marRigXxs'>
+						<span className='fs14 boldM marRigXxs wordBreak'>
 							{name || (get('otherUser')?.first || get('otherUser')?.last ? `${get('otherUser')?.first || ''} ${get('otherUser')?.last || ''}` : 'Neznámý uživatel')}
 						</span>
 						{hidden && !seen && <span className='fs8 xBold tRed'>Skrytý (nová zpráva)</span>}

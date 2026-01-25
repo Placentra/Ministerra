@@ -36,8 +36,11 @@ const logger = getLogger('Interests');
 // Steps: validate transition, compute deltas, write eve_inters (insert/update), then append a delta payload to `newEveInters` stream so workers can aggregate counters.
 const Interests = async (reqOrParams: InterestsRequest, res: any = null) => {
 	const { eventID, userID, inter = null, priv = 'pub', con: incomingCon = null } = reqOrParams.body || (reqOrParams as any);
+	// VALIDATION ---
+	// Steps: reject invalid inter/priv; throw when called internally without res so callers can handle failure.
 	if (!inters.has(inter) || !privs.has(priv)) {
-		return res?.status(400).json({ error: 'badRequest' });
+		if (!res) throw new Error('badRequest');
+		return res.status(400).json({ error: 'badRequest' });
 	}
 	try {
 		const con = incomingCon ?? (await Sql.getConnection());

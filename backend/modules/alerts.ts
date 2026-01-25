@@ -57,6 +57,14 @@ let redis: any;
 export const ioRedisSetter = (redisClient: any) => (redis = redisClient);
 const logger = getLogger('Alerts');
 
+interface AlertListResponse {
+	data: NormalizedAlert[];
+	pagination: {
+		hasMore: boolean;
+		nextCursor: number | null;
+	};
+}
+
 // ALERTS HANDLER --------------------------------------------------------------
 
 /** ----------------------------------------------------------------------------
@@ -65,10 +73,10 @@ const logger = getLogger('Alerts');
  * Also exposes delete + unread summary helpers consumed by the frontend.
  * Steps: route by mode: (1) delete one alert, (2) read notif dots from Redis with SQL fallback + recache, (3) fetch alerts with cursor/ID bounds and clear dots/pointers.
  * -------------------------------------------------------------------------- */
-async function Alerts(req: { body: AlertRequest }, res: any = null): Promise<NormalizedAlert[] | NotifDots | { success: boolean } | void> {
-	const { cursor, firstID, lastID, userID, mode, alertId } = req.body;
+async function Alerts(req: { body: AlertRequest & { limit?: number } }, res: any = null): Promise<AlertListResponse | NormalizedAlert[] | NotifDots | { success: boolean } | void> {
+	const { cursor, firstID, lastID, userID, mode, alertId, limit = 20 } = req.body;
 	let con: any,
-		payload: NormalizedAlert[] | NotifDots | { success: boolean } = [];
+		payload: AlertListResponse | NormalizedAlert[] | NotifDots | { success: boolean } = [];
 	try {
 		// DELETE SINGLE ALERT -------------------------------------------------
 		if (mode === 'delete') {
@@ -127,7 +135,7 @@ async function Alerts(req: { body: AlertRequest }, res: any = null): Promise<Nor
 				// Steps: when redis says there are no new alerts, return [] without hitting SQL.
 				const hasNewAlerts = await redis.hget(`${REDIS_KEYS.userSummary}:${userID}`, 'alerts');
 				if (hasNewAlerts === '0' || hasNewAlerts === null) {
-					payload = [];
+					payload = { data: [], pagination: { hasMore: false, nextCursor: null } };
 					if (res) return res.status(200).json(payload);
 					return payload;
 				}
@@ -152,8 +160,11 @@ async function Alerts(req: { body: AlertRequest }, res: any = null): Promise<Nor
 				params.push(firstID);
 			}
 
-			const sql = `SELECT id, user, what, target, data, created, flag FROM user_alerts WHERE ${conditions.join(' AND ')} ORDER BY id DESC LIMIT 20`;
+			const sql = `SELECT id, user, what, target, data, created, flag FROM user_alerts WHERE ${conditions.join(' AND ')} ORDER BY id DESC LIMIT ${Number(limit) + 1}`;
 			[rows] = await con.execute(sql, params);
+
+			const hasMore = rows.length > limit;
+			if (hasMore) rows.pop();
 
 			// UPDATE READ STATUS ---
 			// If new alerts fetched, clear notification dot and update last_seen pointer.
@@ -179,7 +190,7 @@ async function Alerts(req: { body: AlertRequest }, res: any = null): Promise<Nor
 				}
 			};
 
-			payload = rows.map(
+			const normalizedData = rows.map(
 				(r: AlertRow): NormalizedAlert => ({
 					id: r.id,
 					user: r.user,
@@ -190,6 +201,16 @@ async function Alerts(req: { body: AlertRequest }, res: any = null): Promise<Nor
 					flag: r.flag || 'ok',
 				})
 			);
+
+			const nextCursor = normalizedData.length > 0 ? normalizedData[normalizedData.length - 1].id : null;
+
+			payload = {
+				data: normalizedData,
+				pagination: {
+					hasMore,
+					nextCursor,
+				},
+			};
 		}
 
 		if (res) res.status(200).json(payload);

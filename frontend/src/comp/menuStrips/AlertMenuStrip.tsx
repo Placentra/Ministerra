@@ -99,7 +99,7 @@ function AlertMenuStrip(props) {
 				decisionAt: Date.now(),
 			});
 			setStatus(prev => ({ ...prev, ...['refused', 'accepted', 'linked'].reduce((acc, key) => ({ ...acc, [key]: alert[key] }), {}) }));
-			await storeAlertsData(), setModes(prev => ({ ...prev, menu: false }));
+			(await storeAlertsData(), setModes(prev => ({ ...prev, menu: false })));
 		} catch (e) {
 			notifyGlobalError(e, 'Akce s propojením selhala.');
 		}
@@ -114,7 +114,7 @@ function AlertMenuStrip(props) {
 				const eid = data?.event || target;
 				if (eid) {
 					const obj = brain?.events?.[eid] || { id: eid };
-					await previewEveCard({ obj, brain }), setMode('evePreview', obj);
+					(await previewEveCard({ obj, brain }), setMode('evePreview', obj));
 				}
 			} catch (_) {}
 		},
@@ -142,7 +142,7 @@ function AlertMenuStrip(props) {
 						} else if (what === 'link') {
 							handleLink('refuse');
 						}
-				  },
+					},
 		...(what === 'accept' || status.accepted
 			? {
 					odpojit: async () => {
@@ -153,19 +153,15 @@ function AlertMenuStrip(props) {
 							notifyGlobalError(e, 'Odpojení se nepodařilo.');
 						}
 					},
-			  }
+				}
 			: {}),
 		...((status.accepted && what === 'invite') || what === 'accept' || (what === 'link' && (status.accepted || status.linked))
 			? null
 			: {
 					[status.inter ? 'účast' : status.refused ? 'připojit' : 'přijmout']: () => {
-						what === 'invite'
-							? (setSelButton(selButton === 'přijmout' ? null : 'přijmout'), setMode('inter'), true)
-							: what === 'link'
-							? handleLink(status.refused ? 'link' : 'accept')
-							: null;
+						what === 'invite' ? (setSelButton(selButton === 'přijmout' ? null : 'přijmout'), setMode('inter'), true) : what === 'link' ? handleLink(status.refused ? 'link' : 'accept') : null;
 					},
-			  }),
+				}),
 		smazat: async () => {
 			try {
 				await axios.post('alerts', { mode: 'delete', alertId: alert?.id });
@@ -185,7 +181,7 @@ function AlertMenuStrip(props) {
 						setModes(prev => ({ ...prev, menu: null }));
 						storeMenuViewState('alerts', null, alert?.id); // STORE ALERTS + ALERT ID FOR BACK NAVIGATION ---------------------------
 						setMenuView?.('gallery');
-				  },
+					},
 	};
 
 	// Filter only requested buttons
@@ -197,8 +193,8 @@ function AlertMenuStrip(props) {
 
 	// RENDER --------------------------------------------------------------------
 	return (
-		<alert-menu onClick={e => e.stopPropagation()} class='shaBlue boRadXxs justCen aliStart w100  posRel bInsetBlueTopXxs bHover pointer shaBot borTopLight'>
-			<MenuButtons {...{ isCardOrStrip: true, nowAt, src, thisIs: 'event', selButton, setSelButton, modes, setMode }} />
+		<alert-menu onClick={e => e.stopPropagation()} class="shaBlue boRadXxs justCen aliStart w100  posRel bInsetBlueTopXxs bHover pointer shaBot borTopLight">
+			{!modes.profile && !modes.evePreview && <MenuButtons {...{ isCardOrStrip: true, nowAt, src, thisIs: 'event', selButton, setSelButton, modes, setMode }} />}
 
 			{/* INTEREST BUTTONS SUB-COMPONENT */}
 			{modes.inter && (
@@ -229,7 +225,7 @@ function AlertMenuStrip(props) {
 					}}
 				/>
 			)}
-			{modes.profile && <UserCard brain={brain} obj={modes.profile} isProfile={true} nowAt='alerts' />}
+			{modes.profile && <UserCard brain={brain} obj={modes.profile} isProfile={true} nowAt="alerts" />}
 			{modes.evePreview && <EventCard brain={brain} isPreview={true} obj={modes.evePreview} />}
 		</alert-menu>
 	);
